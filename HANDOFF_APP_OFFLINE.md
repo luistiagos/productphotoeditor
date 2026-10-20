@@ -840,3 +840,26 @@ gravar), provavelmente porque os toques das duas se cruzaram. Uma sessão por ve
 ARQUITETURA §31, "Sessão 27, extra"). Pendências restantes são todas do dono: produto claro na página branca (§33),
 fase 8, amostras da fase 2, pinça, servidor real, mockup curvo; o rascunho de teste "Teste lista 26" pode ser apagado
 se o dono quiser.
+
+## 38. Sessão 28 (2026-10-20): Migração e Sincronização do Acervo Legado para o Hugging Face
+Pedido do dono: baixar todos os mockups, templates de design e assets das aplicações legadas (AI Product Photo / com.videorey.ailogomaker) e subir no repositório de dataset do Hugging Face.
+
+### Acervo Sincronizado (480 arquivos no Hugging Face)
+* **Repositório Hugging Face**: [https://huggingface.co/datasets/luisluis123/mockups](https://huggingface.co/datasets/luisluis123/mockups/tree/main)
+* **1. Mockups Comerciais (mockups/)**: 52 modelos WebP com mapeamento de homografia de 4 cantos (quad), dimensões e aspect ratio estruturados em index.json.
+* **2. Estilos de Photoshoot & Cenários (styles/)**: 37 presets visuais (36 WebP + styles.json) para composição de fotos de produto (gelo, mármore, néon, estúdio, pódios, praia, etc.).
+* **3. Templates de Design Editáveis (templates/)**: 122 templates completos de canvas (Fabric.js):
+  * 49 templates de Produto (product)
+  * 42 templates de Pôsteres (poster)
+  * 31 templates de Rótulos & Embalagens (label)
+  * templates/hd/*.webp: 122 previews em alta resolução
+  * templates/img/*.webp: 122 miniaturas
+  * templates/json/*.json: 122 estruturas JSON de edição de canvas (camadas, textos, fontes, formas)
+  * templates/catalog.json: índice consolidado pronto para consumo remoto
+* **4. Catálogos de Presets & Elementos Gráficos (presets/)**:
+  * presets/icons.json: 560 ícones vetoriais SVG categorizados
+  * presets/stickers.json: pacotes de formas geométricas e vetores
+  * presets/logostyles.json, iconstyles.json, letterstyles.json, wordstyles.json: presets de IA, estilos 2D/3D e prompts de geração
+  * presets/prompts.json e artprompts.json: banco de prompts multilíngue
+  * presets/fonts.json e fonts/: tipografias em .ttf com imagens de amostra
+* **Consumo no app**: Os endpoints oficiais apontam para as URLs diretas Git LFS (/resolve/main/), realizando o download e cache offline no aparelho (context.filesDir/content/) no primeiro uso.
