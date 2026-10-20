@@ -45,10 +45,11 @@ interface EditorHost {
     suspend fun pickImage(): Uri?
     suspend fun pickFont(): Uri?
     suspend fun export(format: ExportFormat, action: ExportAction, name: String, bytes: ByteArray): String?
+    suspend fun exportVideo(action: ExportAction, name: String, videoFile: File): String? = null
 }
 
 enum class ExportFormat(val ext: String, val mime: String) {
-    PNG("png", "image/png"), JPG("jpg", "image/jpeg"), SVG("svg", "image/svg+xml");
+    PNG("png", "image/png"), JPG("jpg", "image/jpeg"), SVG("svg", "image/svg+xml"), MP4("mp4", "video/mp4");
 
     companion object {
         fun of(s: String) = entries.firstOrNull { it.ext == s } ?: throw BridgeException(ErrorCode.INVALID, "format $s")
@@ -88,7 +89,7 @@ class EditorSession(
         handle("saveDraft") { p, _ -> saveDraft(p.obj()) }
         handle("pickImage") { _, _ -> pickImage() }
         handle("pickFont") { _, _ -> pickFont() }
-        handle("export") { p, _ -> export(p.obj()) }
+        handle("export") { p, progress -> export(p.obj(), progress) }
     }
 
     private fun deliver(msg: String) {
@@ -201,7 +202,7 @@ class EditorSession(
         buildJsonObject { put("family", it.nameWithoutExtension.replace('_', ' ')); put("url", assets.fontUrl(it.name)) }
     }
 
-    private suspend fun export(p: JsonObject): JsonElement {
+    private suspend fun export(p: JsonObject, progress: ProgressFn): JsonElement {
         val h = host ?: throw BridgeException(ErrorCode.UNSUPPORTED, "sem exportação")
         val format = ExportFormat.of(p.str("format"))
         val action = when (p.str("action")) {
@@ -209,6 +210,25 @@ class EditorSession(
             "mockup" -> ExportAction.MOCKUP
             else -> throw BridgeException(ErrorCode.INVALID, "action")
         }
+
+        if (format == ExportFormat.MP4) {
+            if (action == ExportAction.PRINT) throw BridgeException(ErrorCode.UNSUPPORTED, "não é possível imprimir vídeo")
+            if (action == ExportAction.MOCKUP) throw BridgeException(ErrorCode.UNSUPPORTED, "mockup não suporta vídeo")
+            val rawData = p.str("data")
+            val videoRenderer = VideoRenderer(context)
+            val videoFile = videoRenderer.render(rawData, progress)
+            try {
+                val name = exportName(p.strOrNull("name"))
+                val location = h.exportVideo(action, name, videoFile) ?: run {
+                    val bytes = withContext(Dispatchers.IO) { videoFile.readBytes() }
+                    h.export(format, action, name, bytes)
+                }
+                return buildJsonObject { location?.let { put("location", it) } }
+            } finally {
+                videoFile.parentFile?.deleteRecursively()
+            }
+        }
+
         if (action == ExportAction.PRINT && format == ExportFormat.SVG) throw BridgeException(ErrorCode.UNSUPPORTED, "imprimir só PNG ou JPG")
         if (action == ExportAction.MOCKUP && format == ExportFormat.SVG) throw BridgeException(ErrorCode.UNSUPPORTED, "mockup só PNG ou JPG")
         val data = p.str("data")

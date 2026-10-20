@@ -68,6 +68,13 @@ fun EditorScreen(session: EditorSession, onMockup: (ByteArray) -> Unit = {}, onC
                     ExportAction.PRINT -> { EditorExports.print(activity, name, bytes); null }
                     ExportAction.MOCKUP -> { withContext(Dispatchers.Main) { onMockup(bytes) }; null }
                 }
+
+            override suspend fun exportVideo(action: ExportAction, name: String, videoFile: java.io.File): String? =
+                when (action) {
+                    ExportAction.SAVE -> EditorExports.saveVideo(activity, name, videoFile)
+                    ExportAction.SHARE -> { EditorExports.shareVideo(activity, name, videoFile); null }
+                    else -> null
+                }
         }
         onDispose { session.host = null }
     }

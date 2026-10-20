@@ -19,13 +19,22 @@ import java.io.File
 object EditorExports {
     private const val ALBUM = "ProductPhoto"
 
-    /** PNG/JPG em Pictures/ProductPhoto; SVG em Download/ProductPhoto (MediaStore.Images não aceita SVG). */
+    /** PNG/JPG em Pictures/ProductPhoto; MP4 em Movies/ProductPhoto; SVG em Download/ProductPhoto. */
     suspend fun save(context: Context, format: ExportFormat, name: String, bytes: ByteArray): String = withContext(Dispatchers.IO) {
         val file = "$name.${format.ext}"
-        val isImage = format != ExportFormat.SVG
-        val dir = if (isImage) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_DOWNLOADS
+        val isVideo = format == ExportFormat.MP4
+        val isImage = format == ExportFormat.PNG || format == ExportFormat.JPG
+        val dir = when {
+            isVideo -> Environment.DIRECTORY_MOVIES
+            isImage -> Environment.DIRECTORY_PICTURES
+            else -> Environment.DIRECTORY_DOWNLOADS
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val collection = if (isImage) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            val collection = when {
+                isVideo -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                isImage -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            }
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, file)
                 put(MediaStore.MediaColumns.MIME_TYPE, format.mime)
@@ -50,7 +59,44 @@ object EditorExports {
             f.writeBytes(bytes)
             MediaScannerConnection.scanFile(context, arrayOf(f.absolutePath), arrayOf(format.mime), null)
         }
-        "${if (isImage) "Pictures" else "Download"}/$ALBUM/$file"
+        "${if (isVideo) "Movies" else if (isImage) "Pictures" else "Download"}/$ALBUM/$file"
+    }
+
+    /** Salva um arquivo de vídeo gerado diretamente na pasta Movies/ProductPhoto via stream. */
+    suspend fun saveVideo(context: Context, name: String, videoFile: File): String = withContext(Dispatchers.IO) {
+        val file = "$name.mp4"
+        val dir = Environment.DIRECTORY_MOVIES
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, file)
+                put(MediaStore.MediaColumns.MIME_TYPE, ExportFormat.MP4.mime)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "$dir/$ALBUM")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(collection, values) ?: error("MediaStore insert failed")
+            try {
+                resolver.openOutputStream(uri)!!.use { outStream ->
+                    videoFile.inputStream().use { inStream ->
+                        inStream.copyTo(outStream)
+                    }
+                }
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            } catch (e: Exception) {
+                resolver.delete(uri, null, null)
+                throw e
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val out = File(Environment.getExternalStoragePublicDirectory(dir), ALBUM).apply { mkdirs() }
+            val f = File(out, file)
+            videoFile.copyTo(f, overwrite = true)
+            MediaScannerConnection.scanFile(context, arrayOf(f.absolutePath), arrayOf(ExportFormat.MP4.mime), null)
+        }
+        "Movies/$ALBUM/$file"
     }
 
     suspend fun share(activity: Activity, format: ExportFormat, name: String, bytes: ByteArray) {
@@ -62,6 +108,23 @@ object EditorExports {
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.editor.files", file)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = format.mime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        activity.startActivity(Intent.createChooser(send, null))
+    }
+
+    suspend fun shareVideo(activity: Activity, name: String, videoFile: File) {
+        val file = withContext(Dispatchers.IO) {
+            val dir = File(activity.cacheDir, "exports").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() }
+            val target = File(dir, "$name.mp4")
+            videoFile.copyTo(target, overwrite = true)
+            target
+        }
+        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.editor.files", file)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = ExportFormat.MP4.mime
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

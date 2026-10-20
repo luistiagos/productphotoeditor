@@ -143,4 +143,35 @@ class EditorProtocolTest {
         assertEquals("Minha_Fonte_Bold", EditorSession.fontFamilyFromFileName("Minha Fonte (Bold).ttf"))
         assertEquals("Fonte", EditorSession.fontFamilyFromFileName("../.ttf"))
     }
+
+    @Test
+    fun `export format supports mp4 and video bundle deserialization`() {
+        assertEquals(ExportFormat.MP4, ExportFormat.of("mp4"))
+        assertEquals("video/mp4", ExportFormat.MP4.mime)
+
+        val jsonStr = """
+            {
+                "name": "meu_produto",
+                "width": 1080,
+                "height": 1080,
+                "duration": 5.0,
+                "fps": 30,
+                "ffmpegCommand": "ffmpeg -i l0.png output.mp4",
+                "files": {
+                    "l0.png": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                }
+            }
+        """.trimIndent()
+
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val bundle = json.decodeFromString<VideoBundle>(jsonStr)
+        assertEquals("meu_produto", bundle.name)
+        assertEquals(1080, bundle.width)
+        assertEquals(1080, bundle.height)
+        assertEquals(5.0, bundle.duration, 1e-6)
+        assertEquals(30, bundle.fps)
+        assertEquals("ffmpeg -i l0.png output.mp4", bundle.ffmpegCommand)
+        assertEquals(1, bundle.files.size)
+        assertTrue(bundle.files.containsKey("l0.png"))
+    }
 }
