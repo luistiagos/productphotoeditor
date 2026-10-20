@@ -80,6 +80,9 @@ class VideoRenderer(private val context: Context) {
                 cmd = cmd.removePrefix("ffmpeg").trim()
             }
 
+            // No Android com FFmpegKit full, o encoder libx264 (GPL) é substituído por h264_mediacodec (hardware nativo)
+            cmd = cmd.replace("-c:v libx264", "-c:v h264_mediacodec")
+
             // Substitui entradas de imagens
             for (filename in bundle.files.keys) {
                 val abs = File(workDir, filename).absolutePath
