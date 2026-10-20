@@ -669,6 +669,7 @@ export class Editor {
    */
   async exportVideoBundle(targetWidth?: number, targetHeight?: number): Promise<{
     command: string;
+    ffmpegCommand: string;
     files: Record<string, string>;
     width: number;
     height: number;
@@ -763,6 +764,7 @@ export class Editor {
 
     return {
       command: buildRes.command,
+      ffmpegCommand: buildRes.command,
       files,
       width,
       height,

@@ -18,10 +18,13 @@ data class VideoBundle(
     val height: Int = 1080,
     val duration: Double = 5.0,
     val fps: Int = 30,
-    val ffmpegCommand: String,
+    val command: String = "",
+    val ffmpegCommand: String = "",
     val files: Map<String, String> = emptyMap(),
     val audioUrl: String? = null,
-)
+) {
+    val actualCommand: String get() = command.ifEmpty { ffmpegCommand }
+}
 
 /**
  * Renderizador de vídeos nativo que executa os comandos do FFmpegKit
@@ -40,6 +43,7 @@ class VideoRenderer(private val context: Context) {
         val bundle = try {
             json.decodeFromString<VideoBundle>(rawBundleJson)
         } catch (e: Exception) {
+            Log.e(TAG, "Erro ao deserializar VideoBundle: ${e.message}", e)
             throw BridgeException(ErrorCode.INVALID, "JSON do pacote de vídeo inválido: ${e.message}")
         }
 
@@ -71,7 +75,7 @@ class VideoRenderer(private val context: Context) {
             }
 
             // 3. Monta o comando do FFmpeg substituindo os nomes relativos pelos caminhos absolutos
-            var cmd = bundle.ffmpegCommand.trim()
+            var cmd = bundle.actualCommand.trim()
             if (cmd.startsWith("ffmpeg ")) {
                 cmd = cmd.removePrefix("ffmpeg").trim()
             }

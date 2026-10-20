@@ -215,8 +215,14 @@ class EditorSession(
             if (action == ExportAction.PRINT) throw BridgeException(ErrorCode.UNSUPPORTED, "não é possível imprimir vídeo")
             if (action == ExportAction.MOCKUP) throw BridgeException(ErrorCode.UNSUPPORTED, "mockup não suporta vídeo")
             val rawData = p.str("data")
+            Log.i(TAG, "Iniciando export de MP4, tamanho data=${rawData.length}")
             val videoRenderer = VideoRenderer(context)
-            val videoFile = videoRenderer.render(rawData, progress)
+            val videoFile = try {
+                videoRenderer.render(rawData, progress)
+            } catch (e: Throwable) {
+                Log.e(TAG, "Falha em videoRenderer.render: ${e.message}", e)
+                throw e
+            }
             try {
                 val name = exportName(p.strOrNull("name"))
                 val location = h.exportVideo(action, name, videoFile) ?: run {
