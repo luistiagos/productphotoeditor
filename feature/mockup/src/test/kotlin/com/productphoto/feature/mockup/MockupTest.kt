@@ -61,4 +61,70 @@ class MockupTest {
         assertEquals(1f, s0.gesture(0f, 0f, .1f, 1f, w, h, aspect).zoom)
         assertEquals(CropState.MAX_ZOOM, s0.gesture(0f, 0f, 100f, 1f, w, h, aspect).zoom)
     }
+
+    @Test
+    fun `videorey catalog parses into valid mockup entries`() {
+        val sample = """
+        [
+            {
+                "count": 1,
+                "name": "menucard1",
+                "preview": "https:fa.videorey.in/aiproduct/mockup/menucard1.webp",
+                "inputRatio": ["782:1003"]
+            },
+            {
+                "count": 2,
+                "name": "milkpack1",
+                "preview": "https://fa.videorey.in/aiproduct/mockup/milkpack1.webp",
+                "inputRatio": ["536:1175", "187:1240"]
+            }
+        ]
+        """.trimIndent()
+
+        val mockups = parseVideoreyMockups(sample)
+        assertEquals(2, mockups.size)
+
+        val m1 = mockups[0]
+        assertEquals("videorey_menucard1", m1.id)
+        assertEquals("Menucard1", m1.name)
+        assertEquals(1, m1.slots.size)
+        assertTrue(m1.isRemote)
+        assertEquals(emptyList<String>(), m1.problems())
+
+        val m2 = mockups[1]
+        assertEquals("videorey_milkpack1", m2.id)
+        assertEquals(2, m2.slots.size)
+        assertTrue(m2.isRemote)
+        assertEquals(emptyList<String>(), m2.problems())
+    }
+
+    @Test
+    fun `resolveRemoteUrl handles http, https, and legacy https fa prefix`() {
+        assertEquals(
+            "https://fa.videorey.in/aiproduct/mockup/item.webp",
+            resolveRemoteUrl("https:fa.videorey.in/aiproduct/mockup/item.webp", null)
+        )
+        assertEquals(
+            "https://fa.videorey.in/aiproduct/mockup/item.webp",
+            resolveRemoteUrl("item.webp", "https://fa.videorey.in/aiproduct/mockup")
+        )
+        assertEquals(
+            "https://cdn.example.com/assets/mockup1.webp",
+            resolveRemoteUrl("/mockup1.webp", "https://cdn.example.com/assets/")
+        )
+    }
+
+    @Test
+    fun `resolveRemoteUrl converts huggingface raw to resolve for LFS binaries`() {
+        assertEquals(
+            "https://huggingface.co/datasets/luisluis123/mockups/resolve/main/mockups/menucard1.webp",
+            resolveRemoteUrl("https://huggingface.co/datasets/luisluis123/mockups/raw/main/mockups/menucard1.webp", null)
+        )
+        assertEquals(
+            "https://huggingface.co/datasets/luisluis123/mockups/resolve/main/mockups/item.webp",
+            resolveRemoteUrl("mockups/item.webp", "https://huggingface.co/datasets/luisluis123/mockups/resolve/main")
+        )
+    }
 }
+
+

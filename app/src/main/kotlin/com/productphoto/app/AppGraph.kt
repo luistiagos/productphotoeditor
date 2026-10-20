@@ -133,7 +133,13 @@ class AppGraph(private val context: Context) {
     val composer = LocalSceneComposer()
     // mockup local e direto, sem cadeia (§20.4 item 9)
     val mockupRenderer = com.productphoto.imaging.PerspectiveMockupRenderer()
-    val mockupLibrary by lazy { com.productphoto.feature.mockup.MockupLibrary(context.assets) }
+    val mockupLibrary by lazy {
+        com.productphoto.feature.mockup.MockupLibrary(
+            assets = context.assets,
+            localDir = File(context.filesDir, "content/mockups")
+        )
+    }
+
 
     // ---- editor (fase 4) ----
     val editorAssets by lazy { EditorAssets(context) }

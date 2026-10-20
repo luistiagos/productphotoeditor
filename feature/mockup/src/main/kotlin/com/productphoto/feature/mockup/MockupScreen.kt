@@ -9,6 +9,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -93,6 +94,7 @@ fun MockupScreen(deps: MockupDeps, initial: Bitmap? = null) {
     var pickingSlot by remember { mutableStateOf(0) }
     var result by remember { mutableStateOf<Bitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var isSyncing by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
@@ -110,7 +112,20 @@ fun MockupScreen(deps: MockupDeps, initial: Bitmap? = null) {
     // carrega o template escolhido e prepara os espaços
     LaunchedEffect(entry) {
         val e = entry ?: return@LaunchedEffect
-        template = withContext(Dispatchers.IO) { deps.library.template(e) }
+        busy = true
+        if (!deps.library.isDownloaded(e)) {
+            message = "Baixando modelo do servidor..."
+        }
+        try {
+            template = withContext(Dispatchers.IO) { deps.library.loadTemplate(e) }
+            message = null
+        } catch (ex: Exception) {
+            message = "Erro ao carregar modelo: ${ex.message}"
+            entry = null
+            return@LaunchedEffect
+        } finally {
+            busy = false
+        }
         designs.clear(); crops.clear()
         repeat(e.slots.size) { designs.add(null); crops.add(null) }
         if (initial != null) { designs[0] = initial; crops[0] = CropState.initial(initial.width, initial.height) }
@@ -151,7 +166,33 @@ fun MockupScreen(deps: MockupDeps, initial: Bitmap? = null) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (e == null) {
-                Text("Escolha onde o seu design vai aparecer.", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Escolha onde o seu design vai aparecer.", style = MaterialTheme.typography.bodyMedium)
+                    TextButton(
+                        enabled = !busy && !isSyncing,
+                        onClick = {
+                            scope.launch {
+                                isSyncing = true
+                                message = "Buscando modelos do servidor..."
+                                deps.library.syncRemoteCatalog()
+                                    .onSuccess { count ->
+                                        message = "$count modelos sincronizados do catálogo online!"
+                                    }
+                                    .onFailure { err ->
+                                        message = "Não foi possível sincronizar catálogo: ${err.message}"
+                                    }
+                                isSyncing = false
+                            }
+                        }
+                    ) {
+                        Text(if (isSyncing) "Sincronizando..." else "Buscar online")
+                    }
+                }
+                if (isSyncing) LinearProgressIndicator(Modifier.fillMaxWidth())
                 TemplateGrid(deps.library) { entry = it; message = null }
             } else {
                 SlotList(e, designs, crops,
@@ -180,7 +221,24 @@ private fun TemplateGrid(library: MockupLibrary, onChoose: (MockupEntry) -> Unit
             row.forEach { e ->
                 val thumb = remember(e.id) { library.thumb(e).asImageBitmap() }
                 Card(Modifier.weight(1f).clickable { onChoose(e) }) {
-                    Image(thumb, e.name, Modifier.fillMaxWidth().aspectRatio(1f), contentScale = ContentScale.Fit)
+                    Box {
+                        Image(thumb, e.name, Modifier.fillMaxWidth().aspectRatio(1f), contentScale = ContentScale.Fit)
+                        if (!library.isDownloaded(e)) {
+                            Text(
+                                "Online",
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                                        shape = MaterialTheme.shapes.extraSmall
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
                     Text(e.name, Modifier.padding(8.dp), style = MaterialTheme.typography.titleSmall)
                 }
             }
@@ -188,6 +246,7 @@ private fun TemplateGrid(library: MockupLibrary, onChoose: (MockupEntry) -> Unit
         }
     }
 }
+
 
 @Composable
 private fun SlotList(
