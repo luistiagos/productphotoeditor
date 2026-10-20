@@ -1,0 +1,119 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Lançamento",
+ "width": 1080,
+ "height": 1920,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#101820",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 300,
+    "width": 1080,
+    "height": 600,
+    "fill": "#1f6feb",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 200,
+    "width": 900,
+    "text": "NOVIDADE",
+    "fontSize": 150,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading",
+    "charSpacing": 80
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 340,
+    "width": 860,
+    "text": "Chegou o que você esperava",
+    "fontSize": 56,
+    "fontFamily": "Montserrat",
+    "fontWeight": 600,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 1010,
+    "width": 820,
+    "height": 820,
+    "fill": "#ffffff",
+    "rx": 40,
+    "ry": 40,
+    "stroke": "#ffffff",
+    "strokeWidth": 0,
+    "opacity": 0.12
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1010,
+    "width": 700,
+    "text": "Toque em Imagem para pôr a foto do produto aqui",
+    "fontSize": 44,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#c9d1d9",
+    "textAlign": "center",
+    "lineHeight": 1.15
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 1600,
+    "width": 640,
+    "height": 140,
+    "fill": "#ffd23f",
+    "rx": 70,
+    "ry": 70,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1600,
+    "width": 600,
+    "text": "Compre agora",
+    "fontSize": 60,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#101820",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1780,
+    "width": 900,
+    "text": "{{company}} · {{website}}",
+    "fontSize": 38,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#c9d1d9",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

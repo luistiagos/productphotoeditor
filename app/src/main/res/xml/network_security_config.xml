@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Servidores de texto/imagem locais configurados pelo usuário (Ollama, LM Studio, llama.cpp, A1111) usam http:// (ARQUITETURA §18.5) -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

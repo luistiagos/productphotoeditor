@@ -1,0 +1,69 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Frase",
+ "width": 1080,
+ "height": 1350,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#f3e5f5",
+  "objects": [
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 300,
+    "width": 400,
+    "text": "“",
+    "fontSize": 400,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 900,
+    "fill": "#8e24aa",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 640,
+    "width": 860,
+    "text": "Qualidade é fazer certo quando ninguém está olhando.",
+    "fontSize": 76,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 700,
+    "fill": "#311b92",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 900,
+    "width": 160,
+    "height": 6,
+    "fill": "#8e24aa",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 980,
+    "width": 860,
+    "text": "{{company}}",
+    "fontSize": 44,
+    "fontFamily": "Nunito",
+    "fontWeight": 700,
+    "fill": "#4a148c",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

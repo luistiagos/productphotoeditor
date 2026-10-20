@@ -1,0 +1,74 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Logo",
+ "width": 1000,
+ "height": 1000,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#ffffff",
+  "objects": [
+   {
+    "type": "Circle",
+    "left": 500,
+    "top": 400,
+    "radius": 230,
+    "fill": "#2e7d32",
+    "brandColor": "primary"
+   },
+   {
+    "type": "Circle",
+    "left": 500,
+    "top": 400,
+    "radius": 195,
+    "fill": "#ffffff",
+    "opacity": 0.15
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 400,
+    "width": 400,
+    "text": "A",
+    "fontSize": 260,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 900,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 740,
+    "width": 900,
+    "text": "{{company}}",
+    "fontSize": 96,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#1b1b1b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading",
+    "charSpacing": 40
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 840,
+    "width": 900,
+    "text": "{{slogan}}",
+    "fontSize": 44,
+    "fontFamily": "Montserrat",
+    "fontWeight": 400,
+    "fill": "#555555",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

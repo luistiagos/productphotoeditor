@@ -1,0 +1,214 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Promoção",
+ "width": 1080,
+ "height": 1080,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#fff4e6",
+  "objects": [
+   {
+    "type": "Circle",
+    "left": 540,
+    "top": 470,
+    "radius": 330,
+    "fill": "#ff7a00",
+    "brandColor": "primary"
+   },
+   {
+    "type": "Polygon",
+    "left": 860,
+    "top": 220,
+    "points": [
+     {
+      "x": 0.0,
+      "y": -150.0
+     },
+     {
+      "x": 26.7,
+      "y": -116.99
+     },
+     {
+      "x": 65.08,
+      "y": -135.15
+     },
+     {
+      "x": 74.82,
+      "y": -93.82
+     },
+     {
+      "x": 117.27,
+      "y": -93.52
+     },
+     {
+      "x": 108.12,
+      "y": -52.07
+     },
+     {
+      "x": 146.24,
+      "y": -33.38
+     },
+     {
+      "x": 120.0,
+      "y": 0.0
+     },
+     {
+      "x": 146.24,
+      "y": 33.38
+     },
+     {
+      "x": 108.12,
+      "y": 52.07
+     },
+     {
+      "x": 117.27,
+      "y": 93.52
+     },
+     {
+      "x": 74.82,
+      "y": 93.82
+     },
+     {
+      "x": 65.08,
+      "y": 135.15
+     },
+     {
+      "x": 26.7,
+      "y": 116.99
+     },
+     {
+      "x": 0.0,
+      "y": 150.0
+     },
+     {
+      "x": -26.7,
+      "y": 116.99
+     },
+     {
+      "x": -65.08,
+      "y": 135.15
+     },
+     {
+      "x": -74.82,
+      "y": 93.82
+     },
+     {
+      "x": -117.27,
+      "y": 93.52
+     },
+     {
+      "x": -108.12,
+      "y": 52.07
+     },
+     {
+      "x": -146.24,
+      "y": 33.38
+     },
+     {
+      "x": -120.0,
+      "y": 0.0
+     },
+     {
+      "x": -146.24,
+      "y": -33.38
+     },
+     {
+      "x": -108.12,
+      "y": -52.07
+     },
+     {
+      "x": -117.27,
+      "y": -93.52
+     },
+     {
+      "x": -74.82,
+      "y": -93.82
+     },
+     {
+      "x": -65.08,
+      "y": -135.15
+     },
+     {
+      "x": -26.7,
+      "y": -116.99
+     }
+    ],
+    "fill": "#ffd23f",
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 860,
+    "top": 222,
+    "width": 220,
+    "text": "-30%",
+    "fontSize": 74,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#222222",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 380,
+    "width": 600,
+    "text": "OFERTA",
+    "fontSize": 150,
+    "fontFamily": "Bebas Neue",
+    "fontWeight": 400,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 520,
+    "width": 560,
+    "text": "da semana",
+    "fontSize": 64,
+    "fontFamily": "Pacifico",
+    "fontWeight": 400,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 870,
+    "width": 900,
+    "text": "{{company}}",
+    "fontSize": 64,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#222222",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 960,
+    "width": 900,
+    "text": "{{phone}}  ·  {{website}}",
+    "fontSize": 34,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#444444",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

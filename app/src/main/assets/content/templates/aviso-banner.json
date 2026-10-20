@@ -1,0 +1,110 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Aviso",
+ "width": 1920,
+ "height": 1080,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#ffffff",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 480,
+    "top": 540,
+    "width": 960,
+    "height": 1080,
+    "fill": "#ffca28",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 480,
+    "top": 420,
+    "width": 800,
+    "text": "Estamos",
+    "fontSize": 120,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#212121",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 480,
+    "top": 560,
+    "width": 800,
+    "text": "CONTRATANDO",
+    "fontSize": 140,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#212121",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 1400,
+    "top": 400,
+    "width": 860,
+    "text": "Vagas abertas",
+    "fontSize": 80,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#212121",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 1400,
+    "top": 560,
+    "width": 860,
+    "text": "• Atendimento\n• Caixa\n• Estoque",
+    "fontSize": 56,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#424242",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 1400,
+    "top": 820,
+    "width": 860,
+    "text": "Envie seu currículo: {{email}}",
+    "fontSize": 44,
+    "fontFamily": "Montserrat",
+    "fontWeight": 600,
+    "fill": "#212121",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 1400,
+    "top": 900,
+    "width": 860,
+    "text": "{{company}}",
+    "fontSize": 44,
+    "fontFamily": "Montserrat",
+    "fontWeight": 600,
+    "fill": "#757575",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="exports" path="exports/" />
+    <!-- Foto da câmera da foto de produto (AppProductDeps.newCaptureUri) -->
+    <cache-path name="capture" path="capture/" />
+</paths>

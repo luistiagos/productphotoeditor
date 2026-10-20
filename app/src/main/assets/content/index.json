@@ -1,0 +1,339 @@
+{
+ "version": 1,
+ "fonts": [
+  {
+   "family": "Montserrat",
+   "file": "fonts/Montserrat/Montserrat.ttf",
+   "weight": "100 900",
+   "category": "Sem serifa"
+  },
+  {
+   "family": "Inter",
+   "file": "fonts/Inter/Inter.ttf",
+   "weight": "100 900",
+   "category": "Sem serifa"
+  },
+  {
+   "family": "Open Sans",
+   "file": "fonts/OpenSans/OpenSans.ttf",
+   "weight": "300 800",
+   "category": "Sem serifa"
+  },
+  {
+   "family": "Nunito",
+   "file": "fonts/Nunito/Nunito.ttf",
+   "weight": "200 1000",
+   "category": "Sem serifa"
+  },
+  {
+   "family": "Raleway",
+   "file": "fonts/Raleway/Raleway.ttf",
+   "weight": "100 900",
+   "category": "Sem serifa"
+  },
+  {
+   "family": "Oswald",
+   "file": "fonts/Oswald/Oswald.ttf",
+   "weight": "200 700",
+   "category": "Condensada"
+  },
+  {
+   "family": "Bebas Neue",
+   "file": "fonts/BebasNeue/BebasNeue.ttf",
+   "weight": "400",
+   "category": "Condensada"
+  },
+  {
+   "family": "Anton",
+   "file": "fonts/Anton/Anton.ttf",
+   "weight": "400",
+   "category": "Condensada"
+  },
+  {
+   "family": "Playfair Display",
+   "file": "fonts/PlayfairDisplay/PlayfairDisplay.ttf",
+   "weight": "400 900",
+   "category": "Serifa"
+  },
+  {
+   "family": "Lobster",
+   "file": "fonts/Lobster/Lobster.ttf",
+   "weight": "400",
+   "category": "Decorativa"
+  },
+  {
+   "family": "Pacifico",
+   "file": "fonts/Pacifico/Pacifico.ttf",
+   "weight": "400",
+   "category": "Manuscrita"
+  },
+  {
+   "family": "Dancing Script",
+   "file": "fonts/DancingScript/DancingScript.ttf",
+   "weight": "400 700",
+   "category": "Manuscrita"
+  }
+ ],
+ "templates": [
+  {
+   "id": "promo-quadrado",
+   "name": "Promoção",
+   "category": "Vendas",
+   "file": "templates/promo-quadrado.json"
+  },
+  {
+   "id": "lancamento-story",
+   "name": "Lançamento (story)",
+   "category": "Vendas",
+   "file": "templates/lancamento-story.json"
+  },
+  {
+   "id": "cardapio-a4",
+   "name": "Cardápio",
+   "category": "Comida",
+   "file": "templates/cardapio-a4.json"
+  },
+  {
+   "id": "evento-retrato",
+   "name": "Evento",
+   "category": "Eventos",
+   "file": "templates/evento-retrato.json"
+  },
+  {
+   "id": "logo-circulo",
+   "name": "Logo",
+   "category": "Marca",
+   "file": "templates/logo-circulo.json"
+  },
+  {
+   "id": "cartao-visita",
+   "name": "Cartão de visita",
+   "category": "Marca",
+   "file": "templates/cartao-visita.json"
+  },
+  {
+   "id": "frase-retrato",
+   "name": "Frase",
+   "category": "Redes sociais",
+   "file": "templates/frase-retrato.json"
+  },
+  {
+   "id": "aviso-banner",
+   "name": "Aviso (banner)",
+   "category": "Redes sociais",
+   "file": "templates/aviso-banner.json"
+  }
+ ],
+ "stickers": [
+  {
+   "id": "selo-oferta",
+   "name": "Oferta",
+   "category": "Selos",
+   "file": "stickers/selo-oferta.svg"
+  },
+  {
+   "id": "selo-novo",
+   "name": "Novo",
+   "category": "Selos",
+   "file": "stickers/selo-novo.svg"
+  },
+  {
+   "id": "selo-50",
+   "name": "-50%",
+   "category": "Selos",
+   "file": "stickers/selo-50.svg"
+  },
+  {
+   "id": "selo-gratis",
+   "name": "Frete grátis",
+   "category": "Selos",
+   "file": "stickers/selo-gratis.svg"
+  },
+  {
+   "id": "fita",
+   "name": "Faixa",
+   "category": "Selos",
+   "file": "stickers/fita.svg"
+  },
+  {
+   "id": "estrela",
+   "name": "Estrela",
+   "category": "Formas",
+   "file": "stickers/estrela.svg"
+  },
+  {
+   "id": "coracao",
+   "name": "Coração",
+   "category": "Formas",
+   "file": "stickers/coracao.svg"
+  },
+  {
+   "id": "balao",
+   "name": "Balão de fala",
+   "category": "Formas",
+   "file": "stickers/balao.svg"
+  },
+  {
+   "id": "brilho",
+   "name": "Brilho",
+   "category": "Formas",
+   "file": "stickers/brilho.svg"
+  },
+  {
+   "id": "seta-curva",
+   "name": "Seta",
+   "category": "Ícones",
+   "file": "stickers/seta-curva.svg"
+  },
+  {
+   "id": "check",
+   "name": "Confere",
+   "category": "Ícones",
+   "file": "stickers/check.svg"
+  },
+  {
+   "id": "pino",
+   "name": "Localização",
+   "category": "Ícones",
+   "file": "stickers/pino.svg"
+  },
+  {
+   "id": "telefone",
+   "name": "Telefone",
+   "category": "Ícones",
+   "file": "stickers/telefone.svg"
+  },
+  {
+   "id": "carrinho",
+   "name": "Carrinho",
+   "category": "Ícones",
+   "file": "stickers/carrinho.svg"
+  },
+  {
+   "id": "coroa",
+   "name": "Coroa",
+   "category": "Ícones",
+   "file": "stickers/coroa.svg"
+  }
+ ],
+ "backgrounds": [
+  {
+   "id": "branco",
+   "name": "Branco",
+   "kind": "solid",
+   "colors": [
+    "#ffffff"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "creme",
+   "name": "Creme",
+   "kind": "solid",
+   "colors": [
+    "#fff8e1"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "grafite",
+   "name": "Grafite",
+   "kind": "solid",
+   "colors": [
+    "#263238"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "preto",
+   "name": "Preto",
+   "kind": "solid",
+   "colors": [
+    "#111111"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "por-do-sol",
+   "name": "Pôr do sol",
+   "kind": "linear",
+   "colors": [
+    "#ff9a8b",
+    "#ff6a88",
+    "#ff99ac"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "oceano",
+   "name": "Oceano",
+   "kind": "linear",
+   "colors": [
+    "#2193b0",
+    "#6dd5ed"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "menta",
+   "name": "Menta",
+   "kind": "linear",
+   "colors": [
+    "#d4fc79",
+    "#96e6a1"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "uva",
+   "name": "Uva",
+   "kind": "linear",
+   "colors": [
+    "#7f00ff",
+    "#e100ff"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "noite",
+   "name": "Noite",
+   "kind": "linear",
+   "colors": [
+    "#0f2027",
+    "#203a43",
+    "#2c5364"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "pessego",
+   "name": "Pêssego",
+   "kind": "linear",
+   "colors": [
+    "#ffecd2",
+    "#fcb69f"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "holofote",
+   "name": "Holofote",
+   "kind": "radial",
+   "colors": [
+    "#ffffff",
+    "#cfd8dc"
+   ],
+   "angle": 90
+  },
+  {
+   "id": "palco",
+   "name": "Palco",
+   "kind": "radial",
+   "colors": [
+    "#37474f",
+    "#000000"
+   ],
+   "angle": 90
+  }
+ ]
+}

@@ -1,0 +1,128 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Cartão de visita",
+ "width": 1050,
+ "height": 600,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#ffffff",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 150,
+    "top": 300,
+    "width": 300,
+    "height": 600,
+    "fill": "#263238",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Circle",
+    "left": 150,
+    "top": 300,
+    "radius": 90,
+    "fill": "#ffffff",
+    "opacity": 0.18
+   },
+   {
+    "type": "Textbox",
+    "left": 150,
+    "top": 300,
+    "width": 200,
+    "text": "logo",
+    "fontSize": 40,
+    "fontFamily": "Montserrat",
+    "fontWeight": 700,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15
+   },
+   {
+    "type": "Textbox",
+    "left": 690,
+    "top": 170,
+    "width": 640,
+    "text": "{{company}}",
+    "fontSize": 58,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#263238",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 690,
+    "top": 240,
+    "width": 640,
+    "text": "{{slogan}}",
+    "fontSize": 30,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#607d8b",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Rect",
+    "left": 690,
+    "top": 300,
+    "width": 640,
+    "height": 3,
+    "fill": "#ff7043",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 690,
+    "top": 370,
+    "width": 640,
+    "text": "{{phone}}",
+    "fontSize": 32,
+    "fontFamily": "Open Sans",
+    "fontWeight": 600,
+    "fill": "#263238",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 690,
+    "top": 425,
+    "width": 640,
+    "text": "{{email}}",
+    "fontSize": 32,
+    "fontFamily": "Open Sans",
+    "fontWeight": 400,
+    "fill": "#263238",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 690,
+    "top": 480,
+    "width": 640,
+    "text": "{{website}}",
+    "fontSize": 32,
+    "fontFamily": "Open Sans",
+    "fontWeight": 400,
+    "fill": "#263238",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

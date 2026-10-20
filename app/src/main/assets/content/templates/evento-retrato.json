@@ -1,0 +1,117 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Evento",
+ "width": 1080,
+ "height": 1350,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#1a1a2e",
+  "objects": [
+   {
+    "type": "Circle",
+    "left": 900,
+    "top": 180,
+    "radius": 260,
+    "fill": "#e94560",
+    "brandColor": "primary",
+    "opacity": 0.9
+   },
+   {
+    "type": "Circle",
+    "left": 160,
+    "top": 1220,
+    "radius": 200,
+    "fill": "#0f3460",
+    "brandColor": "secondary"
+   },
+   {
+    "type": "Textbox",
+    "left": 300,
+    "top": 260,
+    "width": 420,
+    "text": "25",
+    "fontSize": 260,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#ffffff",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 300,
+    "top": 430,
+    "width": 420,
+    "text": "NOVEMBRO · 19h",
+    "fontSize": 48,
+    "fontFamily": "Oswald",
+    "fontWeight": 600,
+    "fill": "#e94560",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 700,
+    "width": 920,
+    "text": "Noite de lançamento",
+    "fontSize": 110,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 800,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 900,
+    "width": 860,
+    "text": "Música ao vivo, degustação e sorteios",
+    "fontSize": 46,
+    "fontFamily": "Open Sans",
+    "fontWeight": 500,
+    "fill": "#d0d0e0",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1130,
+    "width": 860,
+    "text": "{{address}}",
+    "fontSize": 40,
+    "fontFamily": "Open Sans",
+    "fontWeight": 600,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1200,
+    "width": 860,
+    "text": "{{company}}",
+    "fontSize": 40,
+    "fontFamily": "Open Sans",
+    "fontWeight": 700,
+    "fill": "#e94560",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

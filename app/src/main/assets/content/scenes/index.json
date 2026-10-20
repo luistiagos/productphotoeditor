@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "scenes": [
+    {
+      "id": "studio_white",
+      "file": "studio_white.webp",
+      "thumb": "studio_white_thumb.webp",
+      "tags": [
+        "all",
+        "cosmetics",
+        "electronics",
+        "fashion",
+        "food",
+        "home"
+      ],
+      "meta": {
+        "floorY": 0.7794,
+        "lightDirDeg": 120,
+        "lightElevationDeg": 60,
+        "shadowSoftness": 0.7,
+        "colorTempK": 6000,
+        "placement": [
+          0.25,
+          0.3794,
+          0.75,
+          0.7794
+        ]
+      }
+    },
+    {
+      "id": "wood_table",
+      "file": "wood_table.webp",
+      "thumb": "wood_table_thumb.webp",
+      "tags": [
+        "all",
+        "food",
+        "home",
+        "cosmetics"
+      ],
+      "meta": {
+        "floorY": 0.77,
+        "lightDirDeg": 140,
+        "lightElevationDeg": 40,
+        "shadowSoftness": 0.35,
+        "colorTempK": 4200,
+        "placement": [
+          0.25,
+          0.37,
+          0.75,
+          0.77
+        ]
+      }
+    },
+    {
+      "id": "marble_counter",
+      "file": "marble_counter.webp",
+      "thumb": "marble_counter_thumb.webp",
+      "tags": [
+        "all",
+        "cosmetics",
+        "food",
+        "home"
+      ],
+      "meta": {
+        "floorY": 0.7599,
+        "lightDirDeg": 45,
+        "lightElevationDeg": 45,
+        "shadowSoftness": 0.45,
+        "colorTempK": 6200,
+        "placement": [
+          0.25,
+          0.3599,
+          0.75,
+          0.7599
+        ]
+      }
+    },
+    {
+      "id": "pastel_podium",
+      "file": "pastel_podium.webp",
+      "thumb": "pastel_podium_thumb.webp",
+      "tags": [
+        "all",
+        "cosmetics",
+        "fashion",
+        "electronics"
+      ],
+      "meta": {
+        "floorY": 0.6089,
+        "lightDirDeg": 110,
+        "lightElevationDeg": 62,
+        "shadowSoftness": 0.5,
+        "colorTempK": 6500,
+        "placement": [
+          0.25,
+          0.2089,
+          0.75,
+          0.6089
+        ]
+      }
+    },
+    {
+      "id": "dark_concrete",
+      "file": "dark_concrete.webp",
+      "thumb": "dark_concrete_thumb.webp",
+      "tags": [
+        "all",
+        "electronics",
+        "fashion"
+      ],
+      "meta": {
+        "floorY": 0.7799,
+        "lightDirDeg": 125,
+        "lightElevationDeg": 50,
+        "shadowSoftness": 0.3,
+        "colorTempK": 5000,
+        "placement": [
+          0.25,
+          0.3799,
+          0.75,
+          0.7799
+        ]
+      }
+    }
+  ]
+}

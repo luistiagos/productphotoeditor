@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Só no Android 9 (API 28): gravar em Pictures/ sem MediaStore com RELATIVE_PATH -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Download de modelos (ModelDownloadWorker); hoje também vem pelas libs, mas não dependemos disso -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:name=".ProductPhotoApp"
+        android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:label="Foto de Produto"
+        android:icon="@android:drawable/ic_menu_camera"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- Backend GPU do LiteRT-LM (OpenCL do fabricante; desde o Android 12 só visível se declarado, ARQUITETURA §21.4) -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "u2netp",
+      "capability": "BACKGROUND_REMOVER",
+      "file": "u2netp.onnx",
+      "sizeBytes": 4574861,
+      "sha256": "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
+      "license": "Apache-2.0 (U-2-Net, xuebinqin); export ONNX do rembg v0.0.0",
+      "format": "onnx",
+      "bundledAsset": "models/u2netp.onnx",
+      "urls": [
+        "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"
+      ]
+    },
+    {
+      "id": "migan-512-places2",
+      "capability": "INPAINTER",
+      "file": "migan_pipeline_v2.onnx",
+      "sizeBytes": 28079181,
+      "sha256": "6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b",
+      "license": "MIT (MI-GAN, Picsart AI Research); pesos treinados no Places2 (termos do dataset, ARQUITETURA §12.5)",
+      "format": "onnx",
+      "bundledAsset": "models/migan_pipeline_v2.onnx",
+      "urls": [
+        "https://huggingface.co/andraniksargsyan/migan/resolve/main/migan_pipeline_v2.onnx"
+      ]
+    },
+    {
+      "id": "realesr-general-x4v3",
+      "capability": "UPSCALER",
+      "file": "realesr_general_x4v3.onnx",
+      "sizeBytes": 4994683,
+      "sha256": "c6f13f8866203bc2aae3977eae6bce546b861e9e14e39682c03b17c9d6698c48",
+      "license": "BSD-3-Clause (Real-ESRGAN, xinntao); ONNX float do qualcomm/Real-ESRGAN-General-x4v3 v0.64.0, pesos externos juntados num arquivo (tools/merge_onnx.py, ARQUITETURA §20.6)",
+      "format": "onnx",
+      "bundledAsset": "models/realesr_general_x4v3.onnx"
+    },
+    {
+      "id": "gemma-4-e2b-it",
+      "capability": "TEXT_GENERATOR",
+      "file": "gemma-4-E2B-it.litertlm",
+      "sizeBytes": 2588147712,
+      "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+      "license": "Apache-2.0 (Gemma 4, Google); LiteRT-LM do litert-community",
+      "format": "litertlm",
+      "minRamMb": 6144,
+      "urls": [
+        "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1/gemma-4-E2B-it.litertlm"
+      ]
+    },
+    {
+      "id": "qwen3-0.6b-int4",
+      "capability": "TEXT_GENERATOR",
+      "file": "Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm",
+      "sizeBytes": 344671744,
+      "sha256": "03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856",
+      "license": "Apache-2.0 (Qwen3-0.6B, Alibaba Qwen); LiteRT-LM do litert-community",
+      "format": "litertlm",
+      "minRamMb": 3072,
+      "urls": [
+        "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/e6687177e00897731e7716267eebd4eba0dde7c2/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
+      ]
+    }
+  ]
+}

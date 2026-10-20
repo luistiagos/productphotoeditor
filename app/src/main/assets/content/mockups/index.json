@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "mockups": [
+    {
+      "id": "poster_wall",
+      "name": "Pôster na parede",
+      "category": "print",
+      "file": "poster_wall.webp",
+      "thumb": "poster_wall_thumb.webp",
+      "width": 1600,
+      "height": 1600,
+      "slots": [
+        {
+          "quad": [
+            [
+              470,
+              300
+            ],
+            [
+              1150,
+              330
+            ],
+            [
+              1130,
+              1290
+            ],
+            [
+              480,
+              1270
+            ]
+          ],
+          "aspect": 0.707
+        }
+      ],
+      "shading": 1.0,
+      "displacement": 0.0
+    },
+    {
+      "id": "card_table",
+      "name": "Cartão sobre a mesa",
+      "category": "print",
+      "file": "card_table.webp",
+      "thumb": "card_table_thumb.webp",
+      "width": 1800,
+      "height": 1350,
+      "slots": [
+        {
+          "quad": [
+            [
+              560,
+              380
+            ],
+            [
+              1290,
+              470
+            ],
+            [
+              1210,
+              880
+            ],
+            [
+              480,
+              780
+            ]
+          ],
+          "aspect": 1.8
+        }
+      ],
+      "shading": 1.0,
+      "displacement": 0.0
+    },
+    {
+      "id": "box_front",
+      "name": "Frente de caixa",
+      "category": "packaging",
+      "file": "box_front.webp",
+      "thumb": "box_front_thumb.webp",
+      "width": 1600,
+      "height": 1600,
+      "slots": [
+        {
+          "quad": [
+            [
+              420,
+              520
+            ],
+            [
+              980,
+              560
+            ],
+            [
+              980,
+              1260
+            ],
+            [
+              420,
+              1180
+            ]
+          ],
+          "aspect": 0.8
+        }
+      ],
+      "shading": 1.0,
+      "displacement": 0.0
+    },
+    {
+      "id": "phone_screen",
+      "name": "Tela de celular",
+      "category": "screen",
+      "file": "phone_screen.webp",
+      "thumb": "phone_screen_thumb.webp",
+      "width": 1440,
+      "height": 1920,
+      "slots": [
+        {
+          "quad": [
+            [
+              470,
+              330
+            ],
+            [
+              990,
+              365
+            ],
+            [
+              972,
+              1590
+            ],
+            [
+              452,
+              1572
+            ]
+          ],
+          "aspect": 0.4615
+        }
+      ],
+      "shading": 1.0,
+      "displacement": 0.0
+    }
+  ]
+}
