@@ -6,25 +6,74 @@ export const DOC_VERSION = 1;
 
 export type FabricJson = { objects: unknown[]; background?: unknown; [k: string]: unknown };
 
+export type AnimationFx =
+  | 'none'
+  | 'fade'
+  | 'zoom_in'
+  | 'zoom_out'
+  | 'slide_left'
+  | 'slide_right'
+  | 'slide_up'
+  | 'slide_down'
+  | 'shake'
+  | 'rotate'
+  | 'float'
+  | 'ken_burns';
+
+export interface LayerAnimation {
+  fx: AnimationFx;
+  startTime: number;
+  duration: number;
+  speed?: number;
+  fxOut?: 'none' | 'fade';
+}
+
+export interface VideoSettings {
+  duration: number;
+  fps: number;
+  width: number;
+  height: number;
+  audioUrl?: string;
+  audioVolume?: number;
+  audioStartTime?: number;
+}
+
 export interface EditorDocument {
   format: typeof DOC_FORMAT;
   version: typeof DOC_VERSION;
   name: string;
   width: number;
   height: number;
+  videoSettings?: VideoSettings;
   fabric: FabricJson;
 }
 
 export class DocumentError extends Error {}
 
 /** Propriedades próprias que entram no toObject() de todo objeto (FabricObject.customProperties). */
-export const CUSTOM_PROPERTIES = ['brandColor', 'brandStroke', 'brandFont', 'brandLogo', 'brandSample', 'layerName', 'curve', 'filterPreset'] as const;
+export const CUSTOM_PROPERTIES = [
+  'brandColor',
+  'brandStroke',
+  'brandFont',
+  'brandLogo',
+  'brandSample',
+  'layerName',
+  'curve',
+  'filterPreset',
+  'animation',
+] as const;
 
 export const MAX_SIDE = 8000;
 
-export function createDocument(name: string, width: number, height: number, fabric: FabricJson): EditorDocument {
+export function createDocument(
+  name: string,
+  width: number,
+  height: number,
+  fabric: FabricJson,
+  videoSettings?: VideoSettings,
+): EditorDocument {
   checkSize(width, height);
-  return { format: DOC_FORMAT, version: DOC_VERSION, name, width, height, fabric };
+  return { format: DOC_FORMAT, version: DOC_VERSION, name, width, height, videoSettings, fabric };
 }
 
 function checkSize(width: unknown, height: unknown): asserts width is number {
@@ -57,7 +106,14 @@ export function parseDocument(input: unknown): EditorDocument {
   checkSize(data.width, data.height);
   const fabric = data.fabric;
   if (!isObject(fabric) || !Array.isArray(fabric.objects)) throw new DocumentError('missing fabric.objects');
-  return createDocument(typeof data.name === 'string' ? data.name : 'Sem nome', data.width, data.height as number, fabric as FabricJson);
+  const videoSettings = isObject(data.videoSettings) ? (data.videoSettings as unknown as VideoSettings) : undefined;
+  return createDocument(
+    typeof data.name === 'string' ? data.name : 'Sem nome',
+    data.width,
+    data.height as number,
+    fabric as FabricJson,
+    videoSettings,
+  );
 }
 
 function safeParse(s: string): unknown {

@@ -7,7 +7,7 @@ import {
   contentUrl, type ContentIndex, knownFamilies, loadContentIndex, loadTemplate, registerBundledFonts, registerFont,
   type TemplateEntry,
 } from './content';
-import { parseDocument } from './document';
+import { parseDocument, type AnimationFx } from './document';
 import { button, colorInput, confirmSheet, h, openSheet, select, setBusy, slider, toast, toHex } from './dom';
 import { type Adjustments, Editor, type FilterPreset, renderThumbnail, type ShapeKind } from './editor';
 import type { BlobResult, ExportPayload, FontRef, SaveDraftPayload, TextBox } from './protocol';
@@ -192,6 +192,7 @@ function renderProps(o: FabricObject | undefined): void {
   rows.push(h('div', { class: 'row scroll' },
     button('Duplicar', () => void editor.duplicate()),
     button('Excluir', () => editor.remove(), 'danger'),
+    button('🎬 Animar', () => showAnimationSheet(o)),
     button('Frente', () => editor.order('front')),
     button('Avançar', () => editor.order('forward')),
     button('Recuar', () => editor.order('backward')),
@@ -210,6 +211,51 @@ function renderProps(o: FabricObject | undefined): void {
   rows.push(h('div', { class: 'row' }, slider('Opacidade', 0, 1, 0.05, o.opacity ?? 1, (v) => editor.set({ opacity: v }))));
   props.replaceChildren(...rows);
   props.classList.add('show');
+}
+
+function showAnimationSheet(o: FabricObject): void {
+  const current = editor.getAnimation(o);
+  let fx: AnimationFx = current?.fx ?? 'none';
+  let startTime = current?.startTime ?? 0;
+  let duration = current?.duration ?? 3;
+
+  const animOptions: [string, string][] = [
+    ['none', 'Nenhuma'],
+    ['ken_burns', '🔍 Ken Burns (Zoom Produto)'],
+    ['fade', '✨ Fade (Surgir)'],
+    ['slide_left', '⬅️ Deslizar da Direita'],
+    ['slide_right', '➡️ Deslizar da Esquerda'],
+    ['slide_up', '⬆️ Deslizar de Baixo'],
+    ['slide_down', '⬇️ Deslizar de Cima'],
+    ['zoom_in', '🔎 Zoom In (Crescer)'],
+    ['zoom_out', '🔍 Zoom Out (Diminuir)'],
+    ['shake', '⚡ Shake (Chamar Atenção)'],
+    ['float', '🎈 Flutuar'],
+    ['rotate', '🔄 Girar'],
+  ];
+
+  const update = () => {
+    if (fx === 'none') {
+      editor.setAnimation(undefined, o);
+    } else {
+      editor.setAnimation({ fx, startTime, duration }, o);
+    }
+  };
+
+  const close = openSheet('Animação da Camada', h('div', {},
+    h('p', { class: 'hint' }, 'Escolha o movimento desta camada no vídeo promocional:'),
+    select('Efeito', animOptions, fx, (v) => { fx = v as AnimationFx; update(); }),
+    slider('Início (s)', 0, Math.max(0, editor.videoSettings.duration - 0.5), 0.5, startTime, (v) => { startTime = v; update(); }),
+    slider('Duração (s)', 0.5, editor.videoSettings.duration, 0.5, duration, (v) => { duration = v; update(); }),
+    h('div', { class: 'row' },
+      button('Testar Animação', () => {
+        editor.videoPreview.stop();
+        editor.videoPreview.seek(startTime);
+        editor.videoPreview.play();
+      }, 'primary'),
+      button('Concluir', () => close()),
+    ),
+  ));
 }
 
 function textProps(t: FabricText): Node[] {
@@ -471,6 +517,7 @@ const tabs: [string, () => void][] = [
   ['Fundo', showBackgrounds],
   ['Tamanho', showSize],
   ['Marca', showBrand],
+  ['🎬 Vídeo', showVideo],
 ];
 document.getElementById('tabs')!.replaceChildren(...tabs.map(([label, fn]) => button(label, fn)));
 
@@ -615,6 +662,143 @@ function showLayers(): void {
     : [h('p', { class: 'hint' }, 'Nenhum objeto')])));
 }
 
+// ---------- vídeo ----------
+
+function showVideo(): void {
+  const duration = editor.videoSettings.duration;
+  let isPlaying = editor.videoPreview.playing;
+
+  const playBtn = button(isPlaying ? '⏸ Pausar' : '▶ Reproduzir', () => {
+    if (editor.videoPreview.playing) {
+      editor.videoPreview.pause();
+      playBtn.textContent = '▶ Reproduzir';
+    } else {
+      editor.videoPreview.play();
+      playBtn.textContent = '⏸ Pausar';
+    }
+  }, 'primary');
+
+  const timeLabel = h('span', { class: 'time-label' }, `${editor.videoPreview.time.toFixed(1)}s / ${duration}s`);
+  const timeSlider = h('input', {
+    type: 'range',
+    min: 0,
+    max: duration,
+    step: 0.1,
+    value: editor.videoPreview.time,
+  }) as HTMLInputElement;
+
+  timeSlider.addEventListener('input', () => {
+    const val = Number(timeSlider.value);
+    editor.videoPreview.seek(val);
+    timeLabel.textContent = `${val.toFixed(1)}s / ${editor.videoSettings.duration}s`;
+  });
+
+  const stopBtn = button('⏹ Parar', () => {
+    editor.videoPreview.stop();
+    playBtn.textContent = '▶ Reproduzir';
+    timeSlider.value = '0';
+    timeLabel.textContent = `0.0s / ${editor.videoSettings.duration}s`;
+  });
+
+  editor.videoPreview.onTick = (time) => {
+    timeSlider.value = String(time);
+    timeLabel.textContent = `${time.toFixed(1)}s / ${editor.videoSettings.duration}s`;
+  };
+
+  editor.videoPreview.onEnded = () => {
+    playBtn.textContent = '▶ Reproduzir';
+  };
+
+  // Presets automáticos de animação para foto de produto
+  const applyPreset = (presetType: 'showcase' | 'promo' | 'minimal') => {
+    const objects = editor.canvas.getObjects();
+    let productFound = false;
+
+    for (const obj of objects) {
+      if (obj instanceof FabricImage && !productFound) {
+        if (presetType === 'showcase') {
+          editor.setAnimation({ fx: 'ken_burns', startTime: 0, duration: editor.videoSettings.duration }, obj);
+        } else if (presetType === 'promo') {
+          editor.setAnimation({ fx: 'zoom_in', startTime: 0, duration: 2.0 }, obj);
+        } else {
+          editor.setAnimation({ fx: 'fade', startTime: 0, duration: 1.5 }, obj);
+        }
+        productFound = true;
+      } else if (obj instanceof FabricText) {
+        if (presetType === 'showcase') {
+          editor.setAnimation({ fx: 'slide_left', startTime: 0.5, duration: 2.0 }, obj);
+        } else if (presetType === 'promo') {
+          editor.setAnimation({ fx: 'shake', startTime: 1.0, duration: 2.0 }, obj);
+        } else {
+          editor.setAnimation({ fx: 'fade', startTime: 0.8, duration: 1.5 }, obj);
+        }
+      } else {
+        if (presetType === 'showcase') {
+          editor.setAnimation({ fx: 'slide_up', startTime: 1.0, duration: 2.0 }, obj);
+        } else if (presetType === 'promo') {
+          editor.setAnimation({ fx: 'float', startTime: 0, duration: editor.videoSettings.duration }, obj);
+        } else {
+          editor.setAnimation({ fx: 'fade', startTime: 1.2, duration: 1.5 }, obj);
+        }
+      }
+    }
+    toast('Preset de animação aplicado!');
+    editor.videoPreview.stop();
+    editor.videoPreview.play();
+    playBtn.textContent = '⏸ Pausar';
+  };
+
+  const close = openSheet('Vídeo do Produto', h('div', {},
+    h('p', { class: 'hint' }, 'Crie um vídeo promocional animado para Reels, TikTok ou anúncios.'),
+    h('div', { class: 'video-bar' },
+      playBtn,
+      stopBtn,
+      timeSlider,
+      timeLabel,
+    ),
+    h('h4', {}, 'Duração do Vídeo'),
+    h('div', { class: 'chips' },
+      button('3s', () => { editor.videoSettings.duration = 3; timeSlider.max = '3'; timeLabel.textContent = `0.0s / 3s`; editor.onChange(); }),
+      button('5s', () => { editor.videoSettings.duration = 5; timeSlider.max = '5'; timeLabel.textContent = `0.0s / 5s`; editor.onChange(); }),
+      button('10s', () => { editor.videoSettings.duration = 10; timeSlider.max = '10'; timeLabel.textContent = `0.0s / 10s`; editor.onChange(); }),
+      button('15s', () => { editor.videoSettings.duration = 15; timeSlider.max = '15'; timeLabel.textContent = `0.0s / 15s`; editor.onChange(); }),
+    ),
+    h('h4', {}, 'Presets de Animação para Produtos'),
+    h('div', { class: 'preset-card', onclick: () => applyPreset('showcase') },
+      h('div', {},
+        h('h5', {}, '🔍 Showcase Dinâmico'),
+        h('p', {}, 'Zoom Ken Burns no produto e textos deslizando da esquerda.'),
+      ),
+      h('span', { class: 'preset-badge' }, 'Recomendado'),
+    ),
+    h('div', { class: 'preset-card', onclick: () => applyPreset('promo') },
+      h('div', {},
+        h('h5', {}, '⚡ Oferta & Desconto'),
+        h('p', {}, 'Zoom no produto e selos chamando atenção (shake/float).'),
+      ),
+      h('span', { class: 'preset-badge' }, 'Impacto'),
+    ),
+    h('div', { class: 'preset-card', onclick: () => applyPreset('minimal') },
+      h('div', {},
+        h('h5', {}, '✨ Apresentação Minimalista'),
+        h('p', {}, 'Entrada suave com fade elegante em todas as camadas.'),
+      ),
+      h('span', { class: 'preset-badge' }, 'Clean'),
+    ),
+    h('div', { class: 'row', style: 'margin-top: 16px;' },
+      button('🎬 Exportar Vídeo MP4', () => {
+        editor.videoPreview.stop();
+        close();
+        showExport();
+      }, 'primary'),
+      button('Fechar', () => {
+        editor.videoPreview.stop();
+        close();
+      }),
+    ),
+  ));
+}
+
 // ---------- exportar ----------
 
 function showExport(): void {
@@ -624,8 +808,16 @@ function showExport(): void {
   const name = (editor.name || 'design').replace(/[^\p{L}\p{N}_-]+/gu, '_');
   const go = (action: ExportPayload['action']) => void (async () => {
     close();
-    await run('Exportando', async () => {
-      const data = format === 'svg' ? await editor.exportSvg() : await editor.exportRaster(format === 'png' ? 'png' : 'jpeg', scale, quality);
+    await run(format === 'mp4' ? 'Gerando vídeo MP4' : 'Exportando', async () => {
+      let data = '';
+      if (format === 'mp4') {
+        const bundle = await editor.exportVideoBundle();
+        data = JSON.stringify(bundle);
+      } else if (format === 'svg') {
+        data = await editor.exportSvg();
+      } else {
+        data = await editor.exportRaster(format === 'png' ? 'png' : 'jpeg', scale, quality);
+      }
       const payload: ExportPayload = { format, action, name, data };
       const r = await bridge.request<{ location?: string }>('export', payload);
       toast(r.location ? `Salvo em ${r.location}` : 'Pronto');
@@ -644,10 +836,10 @@ function showExport(): void {
   // o SVG é vetor: a resolução não vale para ele (§31)
   const scaleRow = select('Resolução', [['1', `1× (${editor.width}×${editor.height})`], ['2', '2×'], ['3', '3×']], '1', (v) => { scale = Number(v); });
   const close = openSheet('Exportar', h('div', {},
-    select('Formato', [['png', 'PNG'], ['jpg', 'JPG'], ['svg', 'SVG (vetor)']], format, (v) => {
+    select('Formato', [['png', 'PNG'], ['jpg', 'JPG'], ['svg', 'SVG (vetor)'], ['mp4', '🎬 Vídeo MP4 (com animações)']], format, (v) => {
       format = v as typeof format;
       qualityRow.hidden = format !== 'jpg';
-      scaleRow.hidden = format === 'svg';
+      scaleRow.hidden = format === 'svg' || format === 'mp4';
     }),
     scaleRow,
     qualityRow,

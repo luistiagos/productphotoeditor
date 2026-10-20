@@ -22,12 +22,14 @@ import {
   filters,
 } from 'fabric';
 import { createImageCroppingControls } from 'fabric/extensions';
-import { createDocument, CUSTOM_PROPERTIES, type EditorDocument, fontsUsed, parseDocument } from './document';
+import { createDocument, CUSTOM_PROPERTIES, type EditorDocument, type LayerAnimation, type VideoSettings, fontsUsed, parseDocument } from './document';
 import { History } from './history';
 import { rescaledGeometry } from './imageGeometry';
 import { curveArc } from './curve';
 import { ensureFonts, fontUrl } from './content';
 import { browserFetcher, inlineSvgResources } from './svgExport';
+import { FfmpegCommandBuilder, type LayerRenderItem } from './video/FfmpegCommandBuilder';
+import { VideoPreview } from './video/VideoPreview';
 
 FabricObject.customProperties = [...CUSTOM_PROPERTIES];
 // alvos maiores para toque
@@ -66,8 +68,17 @@ export class Editor {
   onChange: () => void = () => {};
   onSelection: (obj: FabricObject | undefined) => void = () => {};
 
+  videoSettings: VideoSettings = {
+    duration: 5,
+    fps: 30,
+    width: 1080,
+    height: 1080,
+  };
+  readonly videoPreview: VideoPreview;
+
   constructor(el: HTMLCanvasElement, private readonly host: HTMLElement) {
     this.canvas = new Canvas(el, { preserveObjectStacking: true, enableRetinaScaling: true, backgroundColor: '#ffffff' });
+    this.videoPreview = new VideoPreview(this.canvas, () => this.videoSettings);
     const changed = () => this.scheduleSnapshot();
     this.canvas.on('object:added', changed);
     this.canvas.on('object:removed', changed);
@@ -89,6 +100,20 @@ export class Editor {
   get width(): number { return this.docWidth; }
   get height(): number { return this.docHeight; }
 
+  // ---------- animações & vídeo ----------
+
+  getAnimation(target: FabricObject | undefined = this.canvas.getActiveObject()): LayerAnimation | undefined {
+    if (!target) return undefined;
+    return (target as unknown as { animation?: LayerAnimation }).animation;
+  }
+
+  setAnimation(anim: LayerAnimation | undefined, target: FabricObject | undefined = this.canvas.getActiveObject()): void {
+    if (!target) return;
+    (target as unknown as { animation?: LayerAnimation }).animation = anim;
+    this.scheduleSnapshot();
+    this.onChange();
+  }
+
   // ---------- documento ----------
 
   async load(input: unknown): Promise<EditorDocument> {
@@ -98,6 +123,9 @@ export class Editor {
     this.docHeight = doc.height;
     this.name = doc.name;
     this.brandBackground = typeof doc.fabric.brandBackground === 'string' ? doc.fabric.brandBackground : undefined;
+    if (doc.videoSettings) {
+      this.videoSettings = { ...this.videoSettings, ...doc.videoSettings };
+    }
     await this.withoutHistory(() => this.canvas.loadFromJSON(doc.fabric));
     this.refitCurves();
     this.fit();
@@ -108,13 +136,13 @@ export class Editor {
   }
 
   newDocument(name: string, width: number, height: number): Promise<EditorDocument> {
-    return this.load(createDocument(name, width, height, { objects: [], background: '#ffffff' }));
+    return this.load(createDocument(name, width, height, { objects: [], background: '#ffffff' }, { ...this.videoSettings }));
   }
 
   toDocument(): EditorDocument {
     const fabric = this.canvas.toObject() as EditorDocument['fabric'];
     if (this.brandBackground) fabric.brandBackground = this.brandBackground;
-    return createDocument(this.name, this.docWidth, this.docHeight, fabric);
+    return createDocument(this.name, this.docWidth, this.docHeight, fabric, { ...this.videoSettings });
   }
 
   private snapshot(): string {
@@ -633,6 +661,114 @@ export class Editor {
     });
     fabricConfig.clearFonts();
     return inlineSvgResources(svg, browserFetcher);
+  }
+
+  /**
+   * Exporta as camadas do projeto rasterizadas individualmente e monta o comando FFmpeg
+   * para codificação de vídeo offline.
+   */
+  async exportVideoBundle(targetWidth?: number, targetHeight?: number): Promise<{
+    command: string;
+    files: Record<string, string>;
+    width: number;
+    height: number;
+    duration: number;
+    fps: number;
+  }> {
+    this.canvas.discardActiveObject();
+    const width = targetWidth ?? this.videoSettings.width ?? this.docWidth;
+    const height = targetHeight ?? this.videoSettings.height ?? this.docHeight;
+    const scale = width / this.docWidth;
+    const duration = this.videoSettings.duration ?? 5;
+    const fps = this.videoSettings.fps ?? 30;
+
+    const files: Record<string, string> = {};
+    const layers: LayerRenderItem[] = [];
+
+    const objects = this.canvas.getObjects();
+    const originalVisibilities = objects.map((o) => o.visible);
+
+    // 1. Renderiza o fundo isoladamente
+    for (const o of objects) o.visible = false;
+    const bgDataUrl = this.renderPage(scale, 'png', 1.0);
+    files['bg.png'] = bgDataUrl;
+    layers.push({
+      id: 'bg',
+      filename: 'bg.png',
+      x: 0,
+      y: 0,
+      width,
+      height,
+      opacity: 1,
+      isBackground: true,
+    });
+
+    // 2. Renderiza cada objeto individualmente com transparência
+    const originalBg = this.canvas.backgroundColor;
+    const originalBgImg = this.canvas.backgroundImage;
+    this.canvas.backgroundColor = 'transparent';
+    this.canvas.backgroundImage = undefined;
+
+    for (let i = 0; i < objects.length; i++) {
+      const obj = objects[i];
+      if (!originalVisibilities[i]) continue;
+
+      for (let j = 0; j < objects.length; j++) {
+        objects[j].visible = j === i;
+      }
+
+      const filename = `layer_${i}.png`;
+      const dataUrl = this.renderPage(scale, 'png', 1.0);
+      files[filename] = dataUrl;
+
+      const anim = (obj as unknown as { animation?: LayerAnimation }).animation;
+
+      layers.push({
+        id: `layer_${i}`,
+        filename,
+        x: (obj.left ?? 0) * scale,
+        y: (obj.top ?? 0) * scale,
+        width: (obj.width ?? 100) * (obj.scaleX ?? 1) * scale,
+        height: (obj.height ?? 100) * (obj.scaleY ?? 1) * scale,
+        opacity: obj.opacity ?? 1,
+        rotation: obj.angle ?? 0,
+        animation: anim,
+      });
+    }
+
+    // Restaura o estado visual do canvas
+    this.canvas.backgroundColor = originalBg;
+    this.canvas.backgroundImage = originalBgImg;
+    for (let i = 0; i < objects.length; i++) {
+      objects[i].visible = originalVisibilities[i];
+    }
+    this.canvas.requestRenderAll();
+
+    // 3. Monta o comando FFmpeg
+    const builder = new FfmpegCommandBuilder({
+      width,
+      height,
+      fps,
+      duration,
+      audio: this.videoSettings.audioUrl
+        ? {
+            filename: 'audio.mp3',
+            volume: this.videoSettings.audioVolume,
+            startTime: this.videoSettings.audioStartTime,
+          }
+        : undefined,
+    });
+
+    const buildRes = builder.build(layers);
+
+    return {
+      command: buildRes.command,
+      files,
+      width,
+      height,
+      duration,
+      fps,
+    };
   }
 }
 

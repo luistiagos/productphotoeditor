@@ -145,11 +145,22 @@ export interface BlobResult {
   servedBy?: string;
 }
 export interface ExportPayload {
-  format: 'png' | 'jpg' | 'svg';
+  format: 'png' | 'jpg' | 'svg' | 'mp4';
   action: 'save' | 'share' | 'print' | 'mockup';
   name: string;
-  /** dataURL (png/jpg) ou o texto do SVG. */
+  /** dataURL (png/jpg), texto SVG ou JSON serializado de ExportVideoBundle. */
   data: string;
+}
+
+export interface ExportVideoBundle {
+  name: string;
+  width: number;
+  height: number;
+  duration: number;
+  fps: number;
+  ffmpegCommand: string;
+  files: Record<string, string>;
+  audioUrl?: string;
 }
 export interface SaveDraftPayload {
   id?: string;
