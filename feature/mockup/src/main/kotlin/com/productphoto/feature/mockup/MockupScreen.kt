@@ -37,6 +37,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -95,7 +97,18 @@ fun MockupScreen(deps: MockupDeps, initial: Bitmap? = null) {
     var result by remember { mutableStateOf<Bitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
     var isSyncing by remember { mutableStateOf(false) }
+    var syncVersion by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        if (deps.library.all.size <= 4) {
+            isSyncing = true
+            deps.library.syncRemoteCatalog().onSuccess {
+                syncVersion++
+            }
+            isSyncing = false
+        }
+    }
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         if (uri != null) scope.launch {
@@ -180,6 +193,7 @@ fun MockupScreen(deps: MockupDeps, initial: Bitmap? = null) {
                                 message = "Buscando modelos do servidor..."
                                 deps.library.syncRemoteCatalog()
                                     .onSuccess { count ->
+                                        syncVersion++
                                         message = "$count modelos sincronizados do catálogo online!"
                                     }
                                     .onFailure { err ->
@@ -193,7 +207,9 @@ fun MockupScreen(deps: MockupDeps, initial: Bitmap? = null) {
                     }
                 }
                 if (isSyncing) LinearProgressIndicator(Modifier.fillMaxWidth())
-                TemplateGrid(deps.library) { entry = it; message = null }
+                key(syncVersion) {
+                    TemplateGrid(deps.library) { entry = it; message = null }
+                }
             } else {
                 SlotList(e, designs, crops,
                     onPick = { i -> pickingSlot = i; pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
