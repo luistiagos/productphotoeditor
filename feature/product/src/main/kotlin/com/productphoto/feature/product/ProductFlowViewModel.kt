@@ -61,6 +61,7 @@ data class UiState(
     val servedBy: ServedBy? = null,
     val removeMillis: Long? = null,
     val maskVersion: Int = 0,
+    val scenesVersion: Int = 0,
     val scene: SceneEntry? = null,
     val placement: Placement? = null,
     val options: CompositeOptions = CompositeOptions(),
@@ -88,6 +89,12 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
 
     init {
         viewModelScope.launch { _state.update { it.copy(removerMode = deps.removerMode()) } }
+        viewModelScope.launch(Dispatchers.IO) {
+            val res = deps.scenes.syncRemoteStyles()
+            if (res.isSuccess && (res.getOrNull() ?: 0) > 0) {
+                _state.update { it.copy(scenesVersion = it.scenesVersion + 1) }
+            }
+        }
     }
 
     fun setCategory(c: ProductCategory) = _state.update { it.copy(category = c) }

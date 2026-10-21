@@ -316,7 +316,7 @@ private fun MaskStep(vm: ProductFlowViewModel, state: UiState) {
 
 @Composable
 private fun SceneStep(vm: ProductFlowViewModel, state: UiState) {
-    val scenes = remember(state.category) { vm.deps.scenes.byCategory(state.category) }
+    val scenes = remember(state.category, state.scenesVersion) { vm.deps.scenes.byCategory(state.category) }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(150.dp),
         contentPadding = PaddingValues(12.dp),

@@ -101,6 +101,17 @@ export function parseDocument(input: unknown): EditorDocument {
     checkSize(width, height);
     return createDocument(typeof name === 'string' ? name : 'Sem nome', width, height as number, fabric as FabricJson);
   }
+  if (data.format === undefined && Array.isArray(data.scenes) && data.scenes.length > 0 && isObject(data.scenes[0])) {
+    const s0 = data.scenes[0] as Record<string, unknown>;
+    const width = Number(s0.cWidth ?? s0.width ?? 1080);
+    const height = Number(s0.cHeight ?? s0.height ?? 1080);
+    checkSize(width, height);
+    const fabric: FabricJson = {
+      objects: Array.isArray(s0.objects) ? s0.objects : [],
+      background: s0.background ?? s0.backgroundGradient,
+    };
+    return createDocument(typeof data.name === 'string' ? data.name : 'Template', width, height, fabric);
+  }
   if (data.format !== DOC_FORMAT) throw new DocumentError(`unknown format ${String(data.format)}`);
   if (data.version !== DOC_VERSION) throw new DocumentError(`unsupported version ${String(data.version)}`);
   checkSize(data.width, data.height);

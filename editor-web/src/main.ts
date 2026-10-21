@@ -524,8 +524,12 @@ document.getElementById('tabs')!.replaceChildren(...tabs.map(([label, fn]) => bu
 function showTemplates(): void {
   const tile = (t: TemplateEntry) => {
     const im = h('img', { alt: t.name });
-    void loadTemplate(t).then((d) => renderThumbnail(applyBrandKit(parseDocument(d), brandKit), 240)).then((u) => { im.src = u; })
-      .catch((e: unknown) => console.warn('thumb', t.id, e));
+    if (t.thumbnail) {
+      im.src = t.thumbnail;
+    } else {
+      void loadTemplate(t).then((d) => renderThumbnail(applyBrandKit(parseDocument(d), brandKit), 240)).then((u) => { im.src = u; })
+        .catch((e: unknown) => console.warn('thumb', t.id, e));
+    }
     return h('button', { class: 'tile', type: 'button', onclick: () => void (async () => {
       if (editor.canvas.getObjects().length && !(await confirmSheet('Usar template', 'Substituir o design atual pelo template?', 'Substituir'))) return;
       close();

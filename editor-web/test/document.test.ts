@@ -23,6 +23,24 @@ describe('document', () => {
     expect(doc.fabric).not.toHaveProperty('width');
   });
 
+  it('migrates a legacy scenes template (Videorey format)', () => {
+    const legacy = {
+      name: 'Template Teste',
+      scenes: [
+        {
+          cWidth: 500,
+          cHeight: 500,
+          background: '#f0f0f0',
+          objects: [{ type: 'image', left: 250, top: 250 }],
+        },
+      ],
+    };
+    const doc = parseDocument(legacy);
+    expect(doc).toMatchObject({ format: 'pp-editor', version: 1, width: 500, height: 500, name: 'Template Teste' });
+    expect(doc.fabric.objects).toHaveLength(1);
+    expect(doc.fabric.background).toBe('#f0f0f0');
+  });
+
   it('rejects invalid documents', () => {
     const good = createDocument('a', 10, 10, fabric);
     const bad: unknown[] = ['{', 42, { format: 'other' }, { ...good, version: 9 }, { ...good, width: 0 },

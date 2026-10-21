@@ -31,7 +31,7 @@ class AppProductDeps(
     override val remover = graph.backgroundRemover
     override val removerServedBy = graph.backgroundRemoverChain.lastServedBy
     override val composer = graph.composer
-    override val scenes = SceneLibrary(context.assets)
+    override val scenes = SceneLibrary(context.assets, File(context.filesDir, "content/scenes"))
 
     override suspend fun decode(uri: Uri): Bitmap = withContext(Dispatchers.IO) {
         val source = ImageDecoder.createSource(context.contentResolver, uri)
