@@ -184,6 +184,7 @@ function showRename(): void {
 
 const props = document.getElementById('props')!;
 editor.onSelection = (o) => renderProps(o);
+editor.onEditText = (t) => showEditText(t, true);
 
 function renderProps(o: FabricObject | undefined): void {
   if (maskImage) return renderMaskProps();
@@ -263,6 +264,7 @@ function textProps(t: FabricText): Node[] {
   const m = Math.min(editor.width, editor.height);
   return [
     h('div', { class: 'row scroll' },
+      button('✏️ Editar texto', () => showEditText(t, false), 'primary'),
       select('Fonte', families.map((f) => [f, f]), t.fontFamily, (v) => { editor.set({ fontFamily: v, brandFont: undefined }); }),
       colorInput('Cor', String(t.fill), (v) => editor.set({ fill: v, brandColor: undefined })),
       button('N', () => editor.set({ fontWeight: Number(t.fontWeight) >= 600 || t.fontWeight === 'bold' ? 400 : 700 }), 'icon b'),
@@ -292,6 +294,32 @@ function setText(t: FabricText, text: string): void {
   t.setCoords();
   editor.canvas.requestRenderAll();
   editor.commit();
+}
+
+/**
+ * Edita o texto num campo nativo, acima do teclado. Vindo do toque longo (`onRelease`), o dedo ainda está no vidro: o
+ * Chrome do Android só abre o teclado com foco dado num gesto, então o foco espera o soltar.
+ */
+function showEditText(t: FabricText, onRelease: boolean): void {
+  const field = h('textarea', { rows: 3, enterkeyhint: 'enter' });
+  field.value = t.text;
+  const apply = () => {
+    if (!field.value.trim()) { toast('Digite um texto'); return; }
+    if (field.value !== t.text) setText(t, field.value);
+    close();
+  };
+  const close = openSheet('Editar texto', h('div', {},
+    field,
+    h('div', { class: 'row' }, button('Cancelar', () => close()), button('Aplicar', apply, 'primary'))));
+  const focus = () => { field.focus(); field.select(); };
+  if (!onRelease) { focus(); return; }
+  const released = () => {
+    document.removeEventListener('pointerup', released);
+    document.removeEventListener('touchend', released);
+    focus();
+  };
+  document.addEventListener('pointerup', released);
+  document.addEventListener('touchend', released);
 }
 
 async function requestRewrite(t: FabricText, style: RewriteStyle): Promise<string[] | undefined> {
@@ -544,10 +572,15 @@ function showTemplates(): void {
 function showText(): void {
   const heading = brandKit.fonts.heading ?? DEFAULT_FONT;
   const bodyFont = brandKit.fonts.body ?? DEFAULT_FONT;
+  const add = (kind: 'title' | 'subtitle' | 'body', font: string) => {
+    editor.addText(kind, font);
+    close();
+    toast('Toque e segure o texto para editar');
+  };
   const close = openSheet('Texto', h('div', { class: 'list' },
-    h('button', { class: 'big title', type: 'button', style: `font-family:'${heading}'`, onclick: () => { editor.addText('title', heading); close(); } }, 'Adicionar título'),
-    h('button', { class: 'big subtitle', type: 'button', style: `font-family:'${heading}'`, onclick: () => { editor.addText('subtitle', heading); close(); } }, 'Adicionar subtítulo'),
-    h('button', { class: 'big', type: 'button', style: `font-family:'${bodyFont}'`, onclick: () => { editor.addText('body', bodyFont); close(); } }, 'Adicionar texto'),
+    h('button', { class: 'big title', type: 'button', style: `font-family:'${heading}'`, onclick: () => add('title', heading) }, 'Adicionar título'),
+    h('button', { class: 'big subtitle', type: 'button', style: `font-family:'${heading}'`, onclick: () => add('subtitle', heading) }, 'Adicionar subtítulo'),
+    h('button', { class: 'big', type: 'button', style: `font-family:'${bodyFont}'`, onclick: () => add('body', bodyFont) }, 'Adicionar texto'),
     button('✨ Gerar textos com IA', () => { close(); showGenerateCopy(); }),
     button('Carregar fonte do aparelho…', () => void (async () => {
       const f = await run('Carregando fonte', () => bridge.request<FontRef>('pickFont'));

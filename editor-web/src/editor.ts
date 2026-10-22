@@ -3,8 +3,10 @@ import {
   Circle,
   FabricImage,
   FabricObject,
+  FabricText,
   Gradient,
   InteractiveFabricObject,
+  IText,
   Line,
   loadSVGFromString,
   loadSVGFromURL,
@@ -26,6 +28,7 @@ import { createDocument, CUSTOM_PROPERTIES, type EditorDocument, type LayerAnima
 import { History } from './history';
 import { rescaledGeometry } from './imageGeometry';
 import { curveArc } from './curve';
+import { LongPress } from './longPress';
 import { ensureFonts, fontUrl } from './content';
 import { browserFetcher, inlineSvgResources } from './svgExport';
 import { FfmpegCommandBuilder, type LayerRenderItem } from './video/FfmpegCommandBuilder';
@@ -44,6 +47,9 @@ InteractiveFabricObject.ownDefaults = {
   cornerStyle: 'circle',
   padding: 4,
 };
+// sem edição inline do Fabric (2º toque): com o teclado aberto o canvas encolhe a uma miniatura; o texto se edita pelo
+// toque longo ou pelo botão "Editar texto", num campo da UI
+IText.ownDefaults = { ...IText.ownDefaults, editable: false };
 
 export type ShapeKind = 'rect' | 'rounded' | 'circle' | 'triangle' | 'line' | 'star' | 'arrow';
 export type FilterPreset = 'none' | 'grayscale' | 'sepia' | 'vintage' | 'polaroid' | 'kodachrome' | 'invert';
@@ -67,6 +73,8 @@ export class Editor {
   private cropState: { img: FabricImage; controls: FabricObject['controls'] } | null = null;
   onChange: () => void = () => {};
   onSelection: (obj: FabricObject | undefined) => void = () => {};
+  /** Toque longo num texto: a UI abre a edição. Chega com o dedo ainda no vidro (o foco do campo vai no soltar). */
+  onEditText: (t: FabricText) => void = () => {};
 
   videoSettings: VideoSettings = {
     duration: 5,
@@ -94,6 +102,13 @@ export class Editor {
         this.maskPaths.push(path);
       }
     });
+    // toque longo num texto abre a edição (a inline do Fabric está desligada, ver IText.ownDefaults)
+    const longPress = new LongPress<FabricText>((t) => this.onEditText(t));
+    this.canvas.on('mouse:down', ({ target, viewportPoint }) => {
+      if (target instanceof FabricText && !this.canvas.isDrawingMode && !this.cropState) longPress.down(target, viewportPoint.x, viewportPoint.y);
+    });
+    this.canvas.on('mouse:move', ({ viewportPoint }) => longPress.move(viewportPoint.x, viewportPoint.y));
+    this.canvas.on('mouse:up', () => longPress.cancel());
     new ResizeObserver(() => this.fit()).observe(host);
   }
 
@@ -240,7 +255,7 @@ export class Editor {
 
   addText(kind: 'title' | 'subtitle' | 'body', fontFamily: string): FabricObject {
     const size = { title: 0.09, subtitle: 0.06, body: 0.035 }[kind] * Math.min(this.docWidth, this.docHeight) * 1.6;
-    const text = { title: 'Título', subtitle: 'Subtítulo', body: 'Toque duas vezes para editar o texto' }[kind];
+    const text = { title: 'Título', subtitle: 'Subtítulo', body: 'Toque e segure para editar o texto' }[kind];
     const t = new Textbox(text, {
       fontFamily,
       fontSize: Math.round(size),
