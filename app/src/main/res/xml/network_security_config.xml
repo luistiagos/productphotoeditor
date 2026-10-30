@@ -2,4 +2,11 @@
 <!-- Servidores de texto/imagem locais configurados pelo usuário (Ollama, LM Studio, llama.cpp, A1111) usam http:// (ARQUITETURA §18.5) -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
+    <!-- SEC-10: hosts fixos do app (iawrapper e catálogo remoto) só com TLS. HF redireciona os binários para *.hf.co -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">up.railway.app</domain>
+        <domain includeSubdomains="true">huggingface.co</domain>
+        <domain includeSubdomains="true">hf.co</domain>
+        <domain includeSubdomains="true">videorey.in</domain>
+    </domain-config>
 </network-security-config>
