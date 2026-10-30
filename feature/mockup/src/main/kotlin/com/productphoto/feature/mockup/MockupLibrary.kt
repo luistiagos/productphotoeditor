@@ -7,14 +7,13 @@ import android.graphics.PointF
 import com.productphoto.ai.api.MockupSlot
 import com.productphoto.ai.api.MockupTemplate
 import com.productphoto.ai.api.RgbaImage
+import com.productphoto.imaging.RemoteFetch
 import com.productphoto.imaging.isConvexQuad
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 @Serializable
 data class MockupIndex(val version: Int = 1, val mockups: List<MockupEntry> = emptyList())
@@ -301,15 +300,10 @@ class MockupLibrary(
         const val DIR = "content/mockups"
         const val DEFAULT_REMOTE_URL = "https://huggingface.co/datasets/luisluis123/mockups/resolve/main/index.json"
 
-        fun downloadBytes(urlStr: String): ByteArray {
-            val conn = URL(urlStr).openConnection() as HttpURLConnection
-            conn.connectTimeout = 12000
-            conn.readTimeout = 15000
-            conn.instanceFollowRedirects = true
-            return conn.inputStream.use { it.readBytes() }
-        }
+        // SEC-11: só https, hosts do catálogo, teto de bytes e de pixels
+        fun downloadBytes(urlStr: String): ByteArray = RemoteFetch.downloadImage(urlStr)
 
-        fun downloadString(urlStr: String): String = downloadBytes(urlStr).decodeToString()
+        fun downloadString(urlStr: String): String = RemoteFetch.downloadString(urlStr)
 
         fun createFallbackBitmap(): Bitmap {
             val bmp = Bitmap.createBitmap(160, 160, Bitmap.Config.ARGB_8888)

@@ -5,13 +5,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.RectF
 import com.productphoto.ai.api.SceneMeta
+import com.productphoto.imaging.RemoteFetch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 @Serializable
 data class SceneIndex(val version: Int = 1, val scenes: List<SceneEntry> = emptyList())
@@ -182,15 +181,10 @@ class SceneLibrary(
         const val DEFAULT_REMOTE_STYLES_URL = "https://huggingface.co/datasets/luisluis123/mockups/resolve/main/styles.json"
         const val DEFAULT_BASE_URL = "https://huggingface.co/datasets/luisluis123/mockups/resolve/main"
 
-        fun downloadBytes(urlStr: String): ByteArray {
-            val conn = URL(urlStr).openConnection() as HttpURLConnection
-            conn.connectTimeout = 12000
-            conn.readTimeout = 15000
-            conn.instanceFollowRedirects = true
-            return conn.inputStream.use { it.readBytes() }
-        }
+        // SEC-11: só https, hosts do catálogo, teto de bytes e de pixels
+        fun downloadBytes(urlStr: String): ByteArray = RemoteFetch.downloadImage(urlStr)
 
-        fun downloadString(urlStr: String): String = downloadBytes(urlStr).decodeToString()
+        fun downloadString(urlStr: String): String = RemoteFetch.downloadString(urlStr)
 
         fun createFallbackBitmap(): Bitmap {
             val bmp = Bitmap.createBitmap(160, 160, Bitmap.Config.ARGB_8888)
