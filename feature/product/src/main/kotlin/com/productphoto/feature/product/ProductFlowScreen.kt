@@ -11,6 +11,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import com.productphoto.ai.api.LightDirection
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -82,6 +84,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.productphoto.ai.api.CompositeOptions
+import com.productphoto.ui.FormatPicker
+import com.productphoto.ui.MediaFormats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.min
@@ -390,20 +394,79 @@ private fun ResultStep(vm: ProductFlowViewModel, state: UiState) {
         Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF202020)), contentAlignment = Alignment.Center) {
             state.result?.let { Image(it.asImageBitmap(), "resultado", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
         }
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).verticalScroll(rememberScrollState())) {
-            state.composeMillis?.let { Text("Composição: $it ms", style = MaterialTheme.typography.bodySmall) }
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                state.composeMillis?.let { Text("Composição: $it ms", style = MaterialTheme.typography.bodySmall) }
+                state.relightingMillis?.let { Text("Relighting: $it ms", style = MaterialTheme.typography.bodySmall) }
+                state.outpaintMillis?.let { Text("Outpaint: $it ms", style = MaterialTheme.typography.bodySmall) }
+            }
+
+            // Seção 1: Harmonização & Relighting IA (ADS-01)
+            androidx.compose.material3.OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Harmonização & Relighting IA", style = MaterialTheme.typography.titleSmall)
+                    Text("Recalcula luz e sombras para integrar o produto organicamente ao cenário.", style = MaterialTheme.typography.bodySmall)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        LightDirection.entries.forEach { dir ->
+                            FilterChip(
+                                selected = state.lightDirection == dir,
+                                onClick = { vm.setLightDirection(dir) },
+                                label = { Text(dir.label) },
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = { vm.applyRelighting() },
+                        enabled = state.busy == null && state.result != null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Harmonizar Iluminação (${state.lightDirection.label})")
+                    }
+                }
+            }
+
+            // Seção 2: Expansão de Formato de Anúncio (ADS-02)
+            androidx.compose.material3.OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Formato do Anúncio (Expansão)", style = MaterialTheme.typography.titleSmall)
+                    Text("Expande o cenário mantendo o produto seguro no centro.", style = MaterialTheme.typography.bodySmall)
+                    FormatPicker(
+                        state.adFormat, MediaFormats.forAds, vm::setAdFormat,
+                        maxAspect = MediaFormats.ADS_MAX_ASPECT, enabled = state.busy == null,
+                    )
+                    Button(
+                        onClick = { vm.applyAdOutpaint() },
+                        enabled = state.busy == null && state.result != null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Expandir para ${state.adFormat.label}")
+                    }
+                }
+            }
+
+            // Ajustes Finos Manuais
             val o = state.options
             OptionSlider("Sombra de contato", o.contactShadow, { vm.setOptions(o.copy(contactShadow = it)) }, vm::recompose)
             OptionSlider("Sombra projetada", o.castShadow, { vm.setOptions(o.copy(castShadow = it)) }, vm::recompose)
             OptionSlider("Harmonização de cor", o.harmonize, { vm.setOptions(o.copy(harmonize = it)) }, vm::recompose)
             OptionSlider("Luz de borda", o.lightWrap, { vm.setOptions(o.copy(lightWrap = it)) }, vm::recompose)
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { vm.setOptions(CompositeOptions()); vm.recompose() }) { Text("Padrão") }
                 Button(onClick = { vm.export(ExportFormat.PNG) }, enabled = state.busy == null && state.result != null) { Text("PNG") }
                 Button(onClick = { vm.export(ExportFormat.JPG) }, enabled = state.busy == null && state.result != null) { Text("JPG") }
                 OutlinedButton(onClick = { vm.restart() }) { Text("Nova") }
             }
-            Button(onClick = { vm.openInEditor() }, enabled = state.busy == null && state.result != null) { Text("Abrir no editor") }
+            Button(
+                onClick = { vm.openInEditor() },
+                enabled = state.busy == null && state.result != null,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("🏷️ Criar Anúncio / Inserir Selos no Editor")
+            }
         }
     }
 }

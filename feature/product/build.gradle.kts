@@ -22,6 +22,7 @@ android {
 dependencies {
     implementation(project(":core:ai-api"))
     implementation(project(":core:imaging"))
+    implementation(project(":core:ui"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)

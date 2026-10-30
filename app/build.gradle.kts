@@ -1,8 +1,23 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Servidor de imagem do app: o usuário final não configura nada. A credencial fica fora do git
+// (local.properties `iawrapper.credential=email:senha` ou JWT; ou -Piawrapper.credential / env IAWRAPPER_CREDENTIAL).
+// O que é passado no build vence o arquivo: -P, depois env, depois local.properties.
+val localProps = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.reader()?.use { load(it) }
+}
+fun iawrapper(key: String, default: String): String =
+    providers.gradleProperty("iawrapper.$key").orNull
+        ?: System.getenv("IAWRAPPER_" + key.uppercase())
+        ?: localProps.getProperty("iawrapper.$key")
+        ?: default
+fun String.quoted() = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.productphoto.app"
@@ -14,6 +29,11 @@ android {
         versionCode = 4
         versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "IAWRAPPER_URL", iawrapper("url", "https://iawrappernew-production.up.railway.app").quoted())
+        buildConfigField("String", "IAWRAPPER_FEATURE", iawrapper("feature", "product-photo-vast").quoted())
+        buildConfigField("String", "IAWRAPPER_CREDENTIAL", iawrapper("credential", "").quoted())
+        // Cadastro por app no iawrapper (SEC-13.2): vai no X-App-Id do login
+        buildConfigField("String", "IAWRAPPER_APP_ID", iawrapper("app_id", "product-photo").quoted())
     }
     buildTypes {
         debug {
@@ -30,7 +50,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     androidResources { noCompress += listOf("onnx") }
 }
 
@@ -39,6 +59,7 @@ dependencies {
     implementation(project(":core:imaging"))
     implementation(project(":core:secrets"))
     implementation(project(":core:models"))
+    implementation(project(":core:ui"))
     implementation(project(":ai:mlkit"))
     implementation(project(":ai:onnx"))
     implementation(project(":ai:vtracer"))

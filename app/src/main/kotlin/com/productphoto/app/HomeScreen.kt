@@ -45,18 +45,13 @@ import androidx.compose.ui.unit.dp
 import com.productphoto.data.DraftInfo
 import com.productphoto.data.DraftRepository
 import com.productphoto.data.MAX_DRAFT_NAME
+import com.productphoto.ui.FormatPickerSheet
+import com.productphoto.ui.MediaFormats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
-
-/** Tamanhos para "Novo design" (os mesmos presets do painel Tamanho do editor). */
-private val NEW_SIZES = listOf(
-    Triple("Post quadrado", 1080, 1080), Triple("Post retrato 4:5", 1080, 1350), Triple("Story / Reels", 1080, 1920),
-    Triple("Banner 16:9", 1920, 1080), Triple("Logo", 1000, 1000), Triple("Cartão de visita", 1050, 600),
-    Triple("Folheto A4", 1240, 1754),
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,24 +78,17 @@ fun HomeScreen(
             HomeCard("Rascunhos", "Continue de onde parou", onDrafts)
             HomeCard("Brand kit", "Cores, fontes, logo e dados da empresa", onBrandKit)
             HomeCard("Mockup", "Veja o seu design num pôster, cartão, caixa ou tela de celular", onMockup)
-            HomeCard("Gerar imagem", "Pôster ou logo por texto num servidor Stable Diffusion seu (A1111 ou ComfyUI)", onImageGen)
+            HomeCard("Gerar imagem", "Pôster, logo ou foto de produto a partir de uma descrição", onImageGen)
             HomeCard("Texto com IA", "Onde rodam o \"Reescrever\" e o \"Gerar textos\": no aparelho ou num servidor seu", onTextAi)
             HomeCard("Modelos de IA", "Baixe modelos opcionais: Gemma ou Qwen para texto", onModels)
         }
     }
+    // os mesmos formatos do painel Tamanho do editor (editor-web/src/formats.ts)
     if (choosingSize) {
-        AlertDialog(
-            onDismissRequest = { choosingSize = false },
-            title = { Text("Tamanho") },
-            text = {
-                Column {
-                    NEW_SIZES.forEach { (name, w, h) ->
-                        Text("$name · $w×$h", Modifier.fillMaxWidth().clickable { choosingSize = false; onNewDesign(name, w, h) }.padding(vertical = 12.dp))
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { choosingSize = false }) { Text("Cancelar") } },
-        )
+        FormatPickerSheet(MediaFormats.forDesign, selected = null, onDismiss = { choosingSize = false }) { f ->
+            choosingSize = false
+            onNewDesign(f.label, f.width, f.height)
+        }
     }
 }
 

@@ -1,43 +1,30 @@
 package com.productphoto.app
 
 import android.graphics.Bitmap
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,25 +33,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.productphoto.ai.api.AiError
 import com.productphoto.ai.api.Capability
 import com.productphoto.ai.api.ChainEntry
-import com.productphoto.ai.api.Control
 import com.productphoto.ai.api.ImageRequest
 import com.productphoto.ai.api.Progress
+import com.productphoto.ai.api.Requirement
 import com.productphoto.ai.api.RgbaImage
+import com.productphoto.ai.api.snapTo8
 import com.productphoto.imaging.UPSCALE_MAX_INPUT_PIXELS
-import com.productphoto.ai.remotehttp.image.A1111ImageFactory
-import com.productphoto.ai.remotehttp.image.ComfyUiImageFactory
-import com.productphoto.editor.EditorAssets
+import com.productphoto.ai.remotehttp.image.IawrapperImageFactory
+import com.productphoto.feature.mockup.centerCrop
+import com.productphoto.ui.FormatPicker
+import com.productphoto.ui.MediaFormats
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -72,72 +56,78 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
+import kotlin.math.sqrt
 
-/** Servidor de geração de imagem (ARQUITETURA §19.5). */
-enum class ImageServer(val label: String, val providerId: String?) {
-    A1111("AUTOMATIC1111 / Forge", A1111ImageFactory.ID),
-    COMFYUI("ComfyUI", ComfyUiImageFactory.ID),
-    OFF("Desligado", null),
-}
-
-const val IMAGE_A1111_SECRET = "image.a1111"
-const val IMAGE_COMFY_SECRET = "image.comfyui"
-
-data class ImageGenSettings(val server: ImageServer, val baseUrl: String, val checkpoint: String)
-
-private fun ChainEntry.str(key: String) = (settings[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
-
-/** Servidor, URL e checkpoint a partir da cadeia salva (o primeiro provedor de imagem conhecido). */
-internal fun imageGenStateOf(chain: List<ChainEntry>): ImageGenSettings {
-    val entry = chain.firstOrNull { e -> ImageServer.entries.any { it.providerId == e.provider } }
-        ?: return ImageGenSettings(ImageServer.OFF, "", "")
-    val server = ImageServer.entries.first { it.providerId == entry.provider }
-    return ImageGenSettings(server, entry.str("baseUrl"), entry.str(ComfyUiImageFactory.CHECKPOINT))
-}
+const val IMAGE_IAWRAPPER_SECRET = "image.iawrapper"
 
 /**
- * Cadeia de um provedor só. Mantém as demais settings da entrada anterior do mesmo provedor
- * (modelos de ControlNet, fluxo próprio etc., editáveis no arquivo de config).
+ * Servidor de imagem do app (§19.5): iawrapper com endereço, feature e credencial vindos do build — o usuário
+ * final não configura nada. A credencial em si chega pelo `BuiltInSecretStore` do [AppGraph].
  */
-internal fun imageChainOf(s: ImageGenSettings, hasSecret: Boolean, previous: List<ChainEntry>): List<ChainEntry> {
-    val id = s.server.providerId ?: return emptyList()
-    val kept = previous.firstOrNull { it.provider == id }?.settings.orEmpty()
-    val settings = buildMap {
-        putAll(kept)
-        put("baseUrl", JsonPrimitive(s.baseUrl.trim()))
-        when (s.server) {
-            ImageServer.A1111 -> if (hasSecret) put(A1111ImageFactory.AUTH_SECRET, JsonPrimitive(IMAGE_A1111_SECRET))
-                else remove(A1111ImageFactory.AUTH_SECRET)
-            ImageServer.COMFYUI -> {
-                put(ComfyUiImageFactory.CHECKPOINT, JsonPrimitive(s.checkpoint.trim()))
-                if (hasSecret) put(ComfyUiImageFactory.API_KEY_SECRET, JsonPrimitive(IMAGE_COMFY_SECRET))
-                else remove(ComfyUiImageFactory.API_KEY_SECRET)
-            }
-            ImageServer.OFF -> {}
-        }
+internal fun cloudImageChain(
+    baseUrl: String = BuildConfig.IAWRAPPER_URL,
+    featureSlug: String = BuildConfig.IAWRAPPER_FEATURE,
+    hasCredential: Boolean = BuildConfig.IAWRAPPER_CREDENTIAL.isNotBlank(),
+    appId: String = BuildConfig.IAWRAPPER_APP_ID,
+): List<ChainEntry> = listOf(
+    ChainEntry(
+        IawrapperImageFactory.ID,
+        JsonObject(buildMap {
+            put(IawrapperImageFactory.BASE_URL, JsonPrimitive(baseUrl.trim()))
+            put(IawrapperImageFactory.FEATURE_SLUG, JsonPrimitive(featureSlug.trim()))
+            put(IawrapperImageFactory.APP_ID, JsonPrimitive(appId.trim()))
+            if (hasCredential) put(IawrapperImageFactory.AUTH_SECRET, JsonPrimitive(IMAGE_IAWRAPPER_SECRET))
+        }),
+    ),
+)
+
+/** Mensagens para o usuário leigo: sem HTTP, provedor nem credencial. */
+internal fun describeImageError(e: Throwable): String = when {
+    e is AiError.Unavailable && Requirement.Network in e.missing -> "Sem internet. Conecte-se para gerar imagens."
+    e is AiError.Unavailable -> "A geração de imagem não está disponível nesta versão do app."
+    e is AiError.Network -> "Não foi possível falar com o serviço de imagens. Verifique a internet e tente de novo."
+    e is AiError.Remote && e.code == 401 -> "O serviço de imagens recusou o acesso. Atualize o app ou tente mais tarde."
+    e is AiError.Remote && e.code == 402 -> "O serviço de imagens está sem créditos no momento. Tente mais tarde."
+    e is AiError.Remote && e.code == 429 -> "Muitas tentativas seguidas no serviço de imagens. Aguarde alguns minutos e tente de novo."
+    else -> "Não foi possível gerar a imagem. Tente de novo em instantes."
+}
+
+/** Orçamento do servidor: o maior dos formatos rápidos (512×768). */
+internal const val GEN_MAX_PIXELS = 512 * 768
+internal const val GEN_MAX_SIDE = 1024
+/** Abaixo disso o modelo perde qualidade: um formato pequeno é gerado no orçamento e reduzido. */
+internal const val GEN_MIN_SIDE = 512
+/** Proporção máxima pedida ao servidor; um formato mais fino (banner 728×90) sai do corte central. */
+internal const val GEN_MAX_ASPECT = 4.0
+/** Teto do tamanho personalizado em "Gerar imagem" (a capa do canal do YouTube, 2560×1440, cabe). */
+internal const val IMAGE_GEN_MAX_SIDE = 2560
+
+/**
+ * Tamanho pedido ao servidor para entregar [w]×[h] (§46 do HANDOFF). Vai como está quando o menor lado ≥ [GEN_MIN_SIDE],
+ * a área ≤ [GEN_MAX_PIXELS] e o maior lado ≤ [GEN_MAX_SIDE] (os formatos rápidos). Fora disso: a proporção (limitada a
+ * [GEN_MAX_ASPECT]) com a área do orçamento, lado maior ≤ [GEN_MAX_SIDE], múltiplos de 8; [fitToFormat] faz o resto.
+ */
+internal fun generationSize(w: Int, h: Int): Pair<Int, Int> {
+    if (minOf(w, h) >= GEN_MIN_SIDE && w.toLong() * h <= GEN_MAX_PIXELS && maxOf(w, h) <= GEN_MAX_SIDE) {
+        return snapTo8(w) to snapTo8(h)
     }
-    return listOf(ChainEntry(id, JsonObject(settings)))
+    val a = (w.toDouble() / h).coerceIn(1 / GEN_MAX_ASPECT, GEN_MAX_ASPECT)
+    var gh = sqrt(GEN_MAX_PIXELS / a)
+    var gw = gh * a
+    // o lado maior vai direto para o teto (multiplicar por um fator daria 1023,99… e viraria 1016)
+    if (gw > GEN_MAX_SIDE) { gw = GEN_MAX_SIDE.toDouble(); gh = gw / a }
+    if (gh > GEN_MAX_SIDE) { gh = GEN_MAX_SIDE.toDouble(); gw = gh * a }
+    // arredonda para baixo, para não estourar o orçamento
+    fun down8(v: Double) = ((v / 8).toInt() * 8).coerceAtLeast(8)
+    return down8(gw) to down8(gh)
 }
 
-internal fun secretNameFor(server: ImageServer) = when (server) {
-    ImageServer.A1111 -> IMAGE_A1111_SECRET
-    ImageServer.COMFYUI -> IMAGE_COMFY_SECRET
-    ImageServer.OFF -> null
-}
-
-internal fun describeImageError(e: Throwable, server: ImageServer): String = when {
-    e is AiError.Unavailable && e.missing.isEmpty() ->
-        if (server == ImageServer.OFF) "Geração de imagem desligada: escolha um servidor" else "Informe o endereço do servidor e salve"
-    e is AiError.Remote && e.code == 404 && server == ImageServer.A1111 ->
-        "O servidor respondeu HTTP 404: inicie o AUTOMATIC1111/Forge com --api"
-    e is AiError.Remote && e.code == 401 -> "O servidor recusou a credencial (HTTP 401)"
-    e is AiError.Unsupported -> e.message ?: "Não suportado por este servidor"
-    else -> describeTextError(e)
-}
-
-enum class ImageFormat(val label: String, val width: Int, val height: Int) {
-    SQUARE("Quadrado", 512, 512), PORTRAIT("Retrato", 512, 768), LANDSCAPE("Paisagem", 768, 512),
+/** Leva a imagem gerada ao tamanho exato do formato: corte central na proporção e escala, sem esticar. */
+internal fun fitToFormat(b: Bitmap, w: Int, h: Int): Bitmap {
+    if (b.width == w && b.height == h) return b
+    val c = centerCrop(b.width, b.height, w.toFloat() / h)
+    val cut = if (c.width == b.width && c.height == b.height) b else Bitmap.createBitmap(b, c.x, c.y, c.width, c.height)
+    return Bitmap.createScaledBitmap(cut, w, h, true)
 }
 
 /**
@@ -156,75 +146,22 @@ private suspend fun translateToEnglish(graph: AppGraph, text: String): String = 
 private object ImageGenMemory {
     var prompt by mutableStateOf("")
     var negative by mutableStateOf("")
+    var format by mutableStateOf(MediaFormats.all.first())
     val results = mutableStateListOf<Bitmap>()
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImageGenScreen(graph: AppGraph, onOpenInEditor: suspend (Bitmap) -> Unit) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var loaded by remember { mutableStateOf(false) }
-    var server by remember { mutableStateOf(ImageServer.OFF) }
-    var baseUrl by remember { mutableStateOf("") }
-    var checkpoint by remember { mutableStateOf("") }
-    var secret by remember { mutableStateOf("") }
-    var hasSecret by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-    val urlFocus = remember { FocusRequester() }
-
-    var format by remember { mutableStateOf(ImageFormat.SQUARE) }
-    var count by remember { mutableStateOf(1) }
-    var translate by remember { mutableStateOf(true) }
-    var reference by remember { mutableStateOf<Bitmap?>(null) }
-    var refKind by remember { mutableStateOf(Control.Kind.SCRIBBLE) }
-    var refWeight by remember { mutableStateOf(1f) }
     var running by remember { mutableStateOf<Job?>(null) }
     var stage by remember { mutableStateOf<Progress?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
 
-    suspend fun loadSecretFlag(s: ImageServer) {
-        hasSecret = secretNameFor(s)?.let { name ->
-            withContext(Dispatchers.IO) { runCatching { graph.secrets.get(name) != null }.getOrDefault(false) }
-        } ?: false
-    }
-
-    LaunchedEffect(Unit) {
-        val st = imageGenStateOf(graph.configStore.load().chainFor(Capability.IMAGE_GENERATOR))
-        server = st.server; baseUrl = st.baseUrl; checkpoint = st.checkpoint
-        loadSecretFlag(server)
-        loaded = true
-    }
-    // depois da composição com o campo de URL (o FocusRequester só vale com o campo na tela)
-    LaunchedEffect(loaded) {
-        if (loaded && server != ImageServer.OFF && baseUrl.isBlank()) {
-            message = "Informe o endereço do servidor"
-            runCatching { urlFocus.requestFocus() }
-        }
-    }
-
-    val needsServer = server != ImageServer.OFF
-    val urlOk = baseUrl.trim().let { it.startsWith("http://") || it.startsWith("https://") }
-    val canSave = loaded && (!needsServer || (urlOk && (server != ImageServer.COMFYUI || checkpoint.isNotBlank())))
-
-    suspend fun save() {
-        val name = secretNameFor(server)
-        if (name != null && secret.isNotBlank()) {
-            withContext(Dispatchers.IO) { graph.secrets.put(name, secret.trim()) }
-            hasSecret = true; secret = ""
-        }
-        val previous = graph.configStore.load().chainFor(Capability.IMAGE_GENERATOR)
-        graph.saveImageChain(imageChainOf(ImageGenSettings(server, baseUrl, checkpoint), hasSecret, previous))
-        message = null
-    }
-
-    val pickReference = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) scope.launch {
-            runCatching {
-                val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { it.readBytes() } }
-                reference = withContext(Dispatchers.Default) { EditorAssets.decodeBytes(bytes, 1024) }
-            }.onFailure { status = "Imagem inválida: ${it.message}" }
-        }
+    /** Grava a cadeia fixa só se mudou: invalidar a cada geração descartaria o login em cache do iawrapper. */
+    suspend fun useCloudServer() {
+        val chain = cloudImageChain()
+        if (graph.configStore.load().chainFor(Capability.IMAGE_GENERATOR) != chain) graph.saveImageChain(chain)
     }
 
     fun generate() {
@@ -232,38 +169,38 @@ fun ImageGenScreen(graph: AppGraph, onOpenInEditor: suspend (Bitmap) -> Unit) {
         running = scope.launch {
             val t0 = System.currentTimeMillis()
             try {
-                save()
+                useCloudServer()
                 var prompt = ImageGenMemory.prompt.trim()
                 var negative = ImageGenMemory.negative.trim()
-                var notice: String? = null
-                if (translate) {
-                    stage = Progress(null, "Traduzindo o pedido")
-                    try {
-                        prompt = translateToEnglish(graph, prompt)
-                        if (negative.isNotEmpty()) negative = translateToEnglish(graph, negative)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        notice = "Tradução indisponível (${describeTextError(e)}); usei o texto original. "
-                    }
+                // os modelos entendem melhor inglês; sem tradutor, vai o texto original
+                stage = Progress(null, "Preparando o pedido")
+                try {
+                    prompt = translateToEnglish(graph, prompt)
+                    if (negative.isNotEmpty()) negative = translateToEnglish(graph, negative)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
                 }
-                stage = Progress(null, "Enviando")
+                stage = Progress(null, "Criando a imagem")
+                val format = ImageGenMemory.format
+                val (gw, gh) = generationSize(format.width, format.height)
                 val req = ImageRequest(
                     prompt = prompt,
                     negativePrompt = negative.ifEmpty { null },
-                    width = format.width,
-                    height = format.height,
-                    control = reference?.let { Control(refKind, RgbaImage(it), refWeight) },
-                    count = count,
+                    width = gw,
+                    height = gh,
                 )
-                val out = graph.imageGenerator.generate(req) { p -> scope.launch(Dispatchers.Main) { stage = p } }
-                ImageGenMemory.results.addAll(0, out.map { it.bitmap })
-                val who = graph.imageGenerator.chain.lastServedBy.value?.displayName ?: "?"
-                status = (notice ?: "") + "${out.size} imagem(ns) — $who, ${(System.currentTimeMillis() - t0) / 100 / 10.0} s. Toque para abrir no editor."
+                // as etapas do servidor ("pending", "Baixando resultado") não dizem nada ao usuário: só a fração
+                val out = graph.imageGenerator.generate(req) { p ->
+                    scope.launch(Dispatchers.Main) { stage = Progress(p.fraction, "Criando a imagem") }
+                }
+                val sized = withContext(Dispatchers.Default) { out.map { fitToFormat(it.bitmap, format.width, format.height) } }
+                ImageGenMemory.results.addAll(0, sized)
+                status = "Pronta em ${(System.currentTimeMillis() - t0) / 100 / 10.0} s. Toque na imagem para abrir no editor."
             } catch (e: CancellationException) {
                 status = "Cancelado"
             } catch (e: Exception) {
-                status = describeImageError(e, server)
+                status = describeImageError(e)
             } finally {
                 running = null
                 stage = null
@@ -283,8 +220,7 @@ fun ImageGenScreen(graph: AppGraph, onOpenInEditor: suspend (Bitmap) -> Unit) {
                 }.bitmap
                 val i = ImageGenMemory.results.indexOf(bmp)
                 if (i >= 0) ImageGenMemory.results[i] = out else ImageGenMemory.results.add(0, out)
-                val who = graph.upscaler.chain.lastServedBy.value?.displayName ?: "?"
-                status = "Ampliada para ${out.width}×${out.height} — $who, ${(System.currentTimeMillis() - t0) / 100 / 10.0} s."
+                status = "Ampliada para ${out.width}×${out.height} em ${(System.currentTimeMillis() - t0) / 100 / 10.0} s."
             } catch (e: CancellationException) {
                 status = "Cancelado"
             } catch (e: AiError) {
@@ -302,130 +238,33 @@ fun ImageGenScreen(graph: AppGraph, onOpenInEditor: suspend (Bitmap) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Pôster ou logo por texto, num servidor Stable Diffusion seu (AUTOMATIC1111/Forge com --api, ou ComfyUI). " +
-                    "O resultado abre no editor.",
+                "Descreva o que você quer: pôster, logo ou foto de produto. A imagem é criada na nuvem (precisa de " +
+                    "internet) e abre no editor.",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(8.dp)) {
-                    ImageServer.entries.forEach { s ->
-                        Row(
-                            Modifier.fillMaxWidth().selectable(selected = server == s, onClick = {
-                                server = s
-                                scope.launch { loadSecretFlag(s) }
-                            }).padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = server == s, onClick = null)
-                            Text(s.label, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleSmall)
-                        }
-                    }
+            OutlinedTextField(ImageGenMemory.prompt, { ImageGenMemory.prompt = it }, Modifier.fillMaxWidth(),
+                label = { Text("O que gerar") }, placeholder = { Text("pôster de café artesanal, estilo aquarela") })
+            OutlinedTextField(ImageGenMemory.negative, { ImageGenMemory.negative = it }, Modifier.fillMaxWidth(),
+                label = { Text("Evitar (opcional)") }, placeholder = { Text("texto, marca d'água, borrado") })
+            FormatPicker(
+                ImageGenMemory.format, MediaFormats.forImageGeneration, { ImageGenMemory.format = it },
+                maxSide = IMAGE_GEN_MAX_SIDE, enabled = running == null,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(enabled = running == null && ImageGenMemory.prompt.isNotBlank(), onClick = { generate() }) {
+                    Text("Gerar")
                 }
+                if (running != null) OutlinedButton(onClick = { running?.cancel() }) { Text("Cancelar") }
             }
-            if (needsServer) {
-                OutlinedTextField(
-                    baseUrl, { baseUrl = it }, Modifier.fillMaxWidth().focusRequester(urlFocus), singleLine = true,
-                    label = { Text("Endereço do servidor") },
-                    placeholder = { Text(if (server == ImageServer.A1111) "http://192.168.0.10:7860" else "http://192.168.0.10:8188") },
-                    isError = baseUrl.isNotBlank() && !urlOk,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                )
-                if (server == ImageServer.COMFYUI) {
-                    OutlinedTextField(checkpoint, { checkpoint = it }, Modifier.fillMaxWidth(), singleLine = true,
-                        label = { Text("Checkpoint (arquivo do modelo)") }, placeholder = { Text("v1-5-pruned-emaonly.safetensors") })
-                }
-                val secretLabel = if (server == ImageServer.A1111) "Usuário:senha do --api-auth" else "Chave (proxy com Bearer)"
-                OutlinedTextField(
-                    secret, { secret = it }, Modifier.fillMaxWidth(), singleLine = true,
-                    label = { Text(if (hasSecret) "$secretLabel (salva; digite para trocar)" else "$secretLabel (opcional)") },
-                    visualTransformation = PasswordVisualTransformation(),
-                )
-                if (hasSecret) {
-                    TextButton(onClick = {
-                        scope.launch {
-                            secretNameFor(server)?.let { n -> withContext(Dispatchers.IO) { runCatching { graph.secrets.remove(n) } } }
-                            hasSecret = false
-                            save()
-                            message = "Credencial removida"
-                        }
-                    }) { Text("Remover credencial salva") }
-                }
-                if ((hasSecret || secret.isNotBlank()) && baseUrl.trim().startsWith("http://")) {
-                    Text(
-                        "Atenção: com http:// a credencial trafega sem criptografia. Use só na sua rede local.",
-                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+            stage?.let { p ->
+                Text(p.stage, style = MaterialTheme.typography.bodySmall)
+                val f = p.fraction
+                if (f != null && f > 0f) LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth())
+                else LinearProgressIndicator(Modifier.fillMaxWidth())
             }
-            Button(enabled = canSave && running == null, onClick = {
-                scope.launch {
-                    message = try {
-                        save(); "Salvo"
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        "Não foi possível salvar: ${e.message}"
-                    }
-                }
-            }) { Text("Salvar") }
-            message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-
-            if (needsServer) {
-                Text("Gerar", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(ImageGenMemory.prompt, { ImageGenMemory.prompt = it }, Modifier.fillMaxWidth(),
-                    label = { Text("O que gerar") }, placeholder = { Text("pôster de café artesanal, estilo aquarela") })
-                OutlinedTextField(ImageGenMemory.negative, { ImageGenMemory.negative = it }, Modifier.fillMaxWidth(),
-                    label = { Text("Evitar (opcional)") }, placeholder = { Text("texto, marca d'água, borrado") })
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ImageFormat.entries.forEach { f ->
-                        FilterChip(selected = format == f, onClick = { format = f }, label = { Text("${f.label} ${f.width}×${f.height}") })
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Quantidade")
-                    (1..4).forEach { n -> FilterChip(selected = count == n, onClick = { count = n }, label = { Text("$n") }) }
-                }
-                Row(Modifier.clickable { translate = !translate }, verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(translate, { translate = it })
-                    Text("Traduzir o pedido para inglês (os modelos entendem melhor)")
-                }
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Referência (opcional)", style = MaterialTheme.typography.titleSmall)
-                        Text("Um esboço ou ícone que guia a composição (ControlNet).", style = MaterialTheme.typography.bodySmall)
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            reference?.let { Image(it.asImageBitmap(), "referência", Modifier.size(64.dp), contentScale = ContentScale.Fit) }
-                            OutlinedButton(onClick = { pickReference.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                                Text(if (reference == null) "Escolher imagem" else "Trocar")
-                            }
-                            if (reference != null) TextButton(onClick = { reference = null }) { Text("Remover") }
-                        }
-                        if (reference != null) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(selected = refKind == Control.Kind.SCRIBBLE, onClick = { refKind = Control.Kind.SCRIBBLE }, label = { Text("Rabisco") })
-                                FilterChip(selected = refKind == Control.Kind.CANNY, onClick = { refKind = Control.Kind.CANNY }, label = { Text("Contorno") })
-                            }
-                            Text("Peso ${"%.1f".format(refWeight)}", style = MaterialTheme.typography.bodySmall)
-                            Slider(refWeight, { refWeight = it }, valueRange = 0f..2f)
-                        }
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = canSave && running == null && ImageGenMemory.prompt.isNotBlank(), onClick = { generate() }) {
-                        Text("Gerar")
-                    }
-                    if (running != null) OutlinedButton(onClick = { running?.cancel() }) { Text("Cancelar") }
-                }
-                stage?.let { p ->
-                    Text(p.stage, style = MaterialTheme.typography.bodySmall)
-                    val f = p.fraction
-                    if (f != null && f > 0f) LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth())
-                    else LinearProgressIndicator(Modifier.fillMaxWidth())
-                }
-                status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                ResultsGrid(ImageGenMemory.results, canUpscale = running == null, onUpscale = ::upscale) { bmp -> scope.launch { onOpenInEditor(bmp) } }
-                if (ImageGenMemory.results.isNotEmpty()) TextButton(onClick = { ImageGenMemory.results.clear() }) { Text("Limpar resultados") }
-            }
+            status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            ResultsGrid(ImageGenMemory.results, canUpscale = running == null, onUpscale = ::upscale) { bmp -> scope.launch { onOpenInEditor(bmp) } }
+            if (ImageGenMemory.results.isNotEmpty()) TextButton(onClick = { ImageGenMemory.results.clear() }) { Text("Limpar resultados") }
         }
     }
 }

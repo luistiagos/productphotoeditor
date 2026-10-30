@@ -146,3 +146,47 @@ class ComfyUiImageFactory(private val codec: ImageCodec = AndroidImageCodec) : P
         )
     }
 }
+
+class IawrapperImageFactory(private val codec: ImageCodec = AndroidImageCodec) : ProviderFactory<ImageGenerator> {
+    override val id = ID
+    override val capability = Capability.IMAGE_GENERATOR
+    override val displayName = "iawrapper (Vast.ai / Nuvem)"
+    override val isLocal = false
+    override val settingsSchema = listOf(
+        SettingField(BASE_URL, "Endereço do iawrapper (ex: https://iawrappernew-production.up.railway.app)", SettingField.Kind.URL, "https://iawrappernew-production.up.railway.app"),
+        SettingField(AUTH_SECRET, "Credencial (email:senha ou JWT Token)", SettingField.Kind.SECRET_NAME),
+        SettingField(FEATURE_SLUG, "Slug da Feature", SettingField.Kind.TEXT, DEFAULTS.featureSlug),
+        SettingField(STEPS, "Passos", SettingField.Kind.NUMBER, DEFAULTS.steps.toString()),
+    )
+
+    override fun requirements(settings: JsonObject): List<Requirement> =
+        listOfNotNull(Requirement.Network, settings.str(AUTH_SECRET)?.let { Requirement.Secret(it) })
+
+    override fun create(settings: JsonObject, ctx: ProviderContext): ImageGenerator {
+        val url = settings.baseUrl(BASE_URL)
+        val options = options(settings)
+        val secretName = settings.str(AUTH_SECRET)
+        val secrets = ctx.service<SecretStore>()
+        val backend = IawrapperBackend(url, auth = { secretName?.let { secrets?.get(it) } }, options = options)
+        return RemoteImageGenerator(backend, supports(), codec)
+    }
+
+    companion object {
+        const val ID = "http.iawrapper"
+        const val BASE_URL = "baseUrl"
+        const val AUTH_SECRET = "authSecret"
+        const val FEATURE_SLUG = "featureSlug"
+        const val STEPS = "steps"
+        const val APP_ID = "appId"
+        private val DEFAULTS = IawrapperOptions()
+
+        fun options(s: JsonObject) = IawrapperOptions(
+            featureSlug = s.opt(FEATURE_SLUG, DEFAULTS.featureSlug) ?: DEFAULTS.featureSlug,
+            steps = s.str(STEPS)?.toIntOrNull() ?: DEFAULTS.steps,
+            appId = s.str(APP_ID),
+        )
+
+        fun supports(): Set<ImageFeature> = setOf(ImageFeature.TXT2IMG, ImageFeature.IMG2IMG, ImageFeature.INPAINT)
+    }
+}
+

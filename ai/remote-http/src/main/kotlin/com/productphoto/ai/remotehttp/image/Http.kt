@@ -35,14 +35,16 @@ internal class Http(
         contentType: String = JSON,
         readTimeoutMs: Int = this.readTimeoutMs,
     ): ByteArray = coroutineScope {
+        val isAbsolute = path.startsWith("http://") || path.startsWith("https://")
+        val targetUrl = if (isAbsolute) path else base + path
         val conn = try {
-            URL(base + path).openConnection() as HttpURLConnection
+            URL(targetUrl).openConnection() as HttpURLConnection
         } catch (e: IOException) {
             throw AiError.Network(e)
         }
         // A troca bloqueante roda à parte: um job preso na leitura não "completa", então
         // invokeOnCompletion { disconnect } só dispararia depois da resposta. Quem espera desconecta.
-        val io = async(Dispatchers.IO) { exchange(conn, method, body, contentType, readTimeoutMs) }
+        val io = async(Dispatchers.IO) { exchange(conn, method, body, contentType, readTimeoutMs, sendAuth = !isAbsolute) }
         try {
             io.await()
         } catch (e: CancellationException) {
@@ -53,11 +55,12 @@ internal class Http(
 
     private fun CoroutineScope.exchange(
         conn: HttpURLConnection, method: String, body: ByteArray?, contentType: String, readTimeoutMs: Int,
+        sendAuth: Boolean = true,
     ): ByteArray = try {
         conn.requestMethod = method
         conn.connectTimeout = connectTimeoutMs
         conn.readTimeout = readTimeoutMs
-        authHeader()?.let { conn.setRequestProperty("Authorization", it) }
+        if (sendAuth) authHeader()?.let { conn.setRequestProperty("Authorization", it) }
         if (body != null) {
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", contentType)

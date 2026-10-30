@@ -17,12 +17,21 @@ import com.productphoto.ai.api.ChainedTextGenerator
 import com.productphoto.ai.api.ChainedUpscaler
 import com.productphoto.ai.api.ChainedVectorizer
 import com.productphoto.ai.api.ImageGenerator
+import com.productphoto.ai.api.AdFormatExpander
+import com.productphoto.ai.api.ProductRelighter
 import com.productphoto.ai.api.TextGenerator
 import com.productphoto.ai.litertlm.LiteRtLmFactory
 import com.productphoto.ai.mlkit.GeminiNanoFactory
 import com.productphoto.ai.remotehttp.OpenAiCompatibleFactory
 import com.productphoto.ai.remotehttp.image.A1111ImageFactory
 import com.productphoto.ai.remotehttp.image.ComfyUiImageFactory
+import com.productphoto.ai.remotehttp.image.IawrapperBackend
+import com.productphoto.ai.remotehttp.image.IawrapperImageFactory
+import com.productphoto.ai.remotehttp.image.IawrapperOptions
+import com.productphoto.app.ad.IawrapperAdFormatExpander
+import com.productphoto.app.ad.IawrapperRelighter
+import com.productphoto.imaging.LocalAdFormatExpander
+import com.productphoto.imaging.LocalRelighter
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import com.productphoto.ai.api.FallbackChain
@@ -81,6 +90,7 @@ class AppGraph(private val context: Context) {
         register(OpenAiCompatibleFactory())
         register(A1111ImageFactory())
         register(ComfyUiImageFactory())
+        register(IawrapperImageFactory())
     }
 
     val models: ModelManager = LocalModelManager(
@@ -90,7 +100,10 @@ class AppGraph(private val context: Context) {
         scheduler = WorkDownloadScheduler(context),
     ).also { m -> thread(name = "prune-models") { m.pruneOrphans() } }
 
-    val secrets: SecretStore = FileSecretStore(File(context.filesDir, "secrets.bin"), KeystoreAead())
+    val secrets: SecretStore = BuiltInSecretStore(
+        FileSecretStore(File(context.filesDir, "secrets.bin"), KeystoreAead()),
+        mapOf(IMAGE_IAWRAPPER_SECRET to BuildConfig.IAWRAPPER_CREDENTIAL),
+    )
 
     val configStore: ProviderConfigStore = FileProviderConfigStore(File(context.filesDir, "provider_config.json"))
 
@@ -131,6 +144,30 @@ class AppGraph(private val context: Context) {
     val upscaler = ChainedUpscaler(chain(Capability.UPSCALER, Upscaler::class.java))
     val textRemover = TextRemover(textDetector, inpainter)
     val composer = LocalSceneComposer()
+    val relighter: ProductRelighter by lazy {
+        IawrapperRelighter(
+            backendProvider = {
+                val secret = secrets.get(IMAGE_IAWRAPPER_SECRET)
+                val config = configStore.load().chainFor(Capability.IMAGE_GENERATOR).find { it.provider == IawrapperImageFactory.ID }
+                val url = (config?.settings?.get(IawrapperImageFactory.BASE_URL) as? JsonPrimitive)?.content
+                    ?: BuildConfig.IAWRAPPER_URL
+                IawrapperBackend(url, auth = { secret }, options = IawrapperOptions(appId = BuildConfig.IAWRAPPER_APP_ID))
+            },
+            fallback = LocalRelighter(),
+        )
+    }
+    val adFormatExpander: AdFormatExpander by lazy {
+        IawrapperAdFormatExpander(
+            backendProvider = {
+                val secret = secrets.get(IMAGE_IAWRAPPER_SECRET)
+                val config = configStore.load().chainFor(Capability.IMAGE_GENERATOR).find { it.provider == IawrapperImageFactory.ID }
+                val url = (config?.settings?.get(IawrapperImageFactory.BASE_URL) as? JsonPrimitive)?.content
+                    ?: BuildConfig.IAWRAPPER_URL
+                IawrapperBackend(url, auth = { secret }, options = IawrapperOptions(appId = BuildConfig.IAWRAPPER_APP_ID))
+            },
+            fallback = LocalAdFormatExpander(inpainter),
+        )
+    }
     // mockup local e direto, sem cadeia (§20.4 item 9)
     val mockupRenderer = com.productphoto.imaging.PerspectiveMockupRenderer()
     val mockupLibrary by lazy {
@@ -258,6 +295,18 @@ class FileProviderConfigStore(private val file: File) : ProviderConfigStore {
         if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
         Unit
     }
+}
+
+/**
+ * Segredos que vêm no build (a credencial do iawrapper, que o usuário final não digita) têm precedência sobre os
+ * salvos; vazio no build → vale o salvo. Gravação e remoção vão sempre para [stored].
+ */
+class BuiltInSecretStore(private val stored: SecretStore, builtIn: Map<String, String>) : SecretStore {
+    private val builtIn = builtIn.filterValues { it.isNotBlank() }
+    override fun get(name: String): String? = builtIn[name] ?: stored.get(name)
+    override fun put(name: String, value: String) = stored.put(name, value)
+    override fun remove(name: String) = stored.remove(name)
+    override fun names(): Set<String> = builtIn.keys + stored.names()
 }
 
 /** Fonte empacotada: [assetPath] é relativo à raiz dos assets (ex. "content/fonts/Inter/Inter.ttf"). */

@@ -30,6 +30,17 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.min
 
+import com.productphoto.ai.api.AdAspectRatio
+import com.productphoto.ai.api.AdFormatExpander
+import com.productphoto.ai.api.LightDirection
+import com.productphoto.ai.api.OutpaintRequest
+import com.productphoto.ai.api.ProductRelighter
+import com.productphoto.ai.api.RelightRequest
+import com.productphoto.imaging.LocalAdFormatExpander
+import com.productphoto.imaging.LocalRelighter
+import com.productphoto.ui.MediaFormat
+import com.productphoto.ui.MediaFormats
+
 /** BiRefNet saiu: não cabe em 8 GB (ARQUITETURA §24.5). */
 enum class RemoverMode(val label: String) { AUTO("Automático"), MLKIT("ML Kit"), U2NETP("u2netp") }
 enum class ExportFormat(val mime: String, val ext: String) { PNG("image/png", "png"), JPG("image/jpeg", "jpg") }
@@ -40,6 +51,8 @@ interface ProductFlowDeps {
     val removerServedBy: StateFlow<ServedBy?>
     val composer: ProductSceneComposer
     val scenes: SceneLibrary
+    val relighter: ProductRelighter? get() = null
+    val adFormatExpander: AdFormatExpander? get() = null
     suspend fun decode(uri: Uri): Bitmap
     /** Arquivo novo para a câmera gravar (via FileProvider). */
     fun newCaptureUri(): Uri
@@ -67,6 +80,10 @@ data class UiState(
     val options: CompositeOptions = CompositeOptions(),
     val result: Bitmap? = null,
     val composeMillis: Long? = null,
+    val lightDirection: LightDirection = LightDirection.AMBIENT,
+    val adFormat: MediaFormat = MediaFormats.byId("square")!!,
+    val relightingMillis: Long? = null,
+    val outpaintMillis: Long? = null,
 )
 
 class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
@@ -287,6 +304,70 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
             throw e
         } catch (e: Exception) {
             _state.update { it.copy(message = "Falha ao abrir no editor: ${e.message}") }
+        }
+    }
+
+    fun setLightDirection(dir: LightDirection) = _state.update { it.copy(lightDirection = dir) }
+
+    fun setAdFormat(format: MediaFormat) = _state.update { it.copy(adFormat = format) }
+
+    fun applyRelighting() = viewModelScope.launch {
+        val currentResult = _state.value.result ?: return@launch
+        val relighter = deps.relighter ?: LocalRelighter()
+        val dir = _state.value.lightDirection
+        _state.update { it.copy(busy = "Harmonizando iluminação (${dir.label})…") }
+        try {
+            val t0 = System.currentTimeMillis()
+            val out = relighter.relight(
+                RelightRequest(
+                    image = RgbaImage(currentResult),
+                    lightDir = dir,
+                ),
+            )
+            _state.update {
+                it.copy(
+                    busy = null,
+                    result = out.bitmap,
+                    relightingMillis = System.currentTimeMillis() - t0,
+                    message = "Iluminação harmonizada com sucesso (${dir.label})",
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _state.update { it.copy(busy = null, message = "Falha no relighting: ${e.message}") }
+        }
+    }
+
+    fun applyAdOutpaint() = viewModelScope.launch {
+        val currentResult = _state.value.result ?: return@launch
+        val expander = deps.adFormatExpander ?: LocalAdFormatExpander()
+        val format = _state.value.adFormat
+        val ratio = AdAspectRatio(format.label, format.width, format.height, format.hint)
+        _state.update { it.copy(busy = "Expandindo para ${format.label}…") }
+        try {
+            val t0 = System.currentTimeMillis()
+            val out = expander.expand(
+                OutpaintRequest(
+                    source = RgbaImage(currentResult),
+                    targetRatio = ratio,
+                ),
+            ).bitmap
+            // a expansão sai no tamanho da foto (múltiplos de 8); o formato escolhido define o tamanho final
+            val sized = if (out.width == format.width && out.height == format.height) out
+            else withContext(Dispatchers.Default) { Bitmap.createScaledBitmap(out, format.width, format.height, true) }
+            _state.update {
+                it.copy(
+                    busy = null,
+                    result = sized,
+                    outpaintMillis = System.currentTimeMillis() - t0,
+                    message = "Formato expandido para ${format.label} (${format.sizeLabel})",
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _state.update { it.copy(busy = null, message = "Falha na expansão de formato: ${e.message}") }
         }
     }
 

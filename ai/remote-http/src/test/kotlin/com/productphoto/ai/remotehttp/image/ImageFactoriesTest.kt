@@ -71,11 +71,15 @@ class ImageFactoriesTest {
             listOf(Requirement.Network, Requirement.Secret("img.comfy")),
             ComfyUiImageFactory(codec).requirements(settings(ComfyUiImageFactory.API_KEY_SECRET to "img.comfy")),
         )
+        assertEquals(
+            listOf(Requirement.Network, Requirement.Secret("img.iawrapper")),
+            IawrapperImageFactory(codec).requirements(settings(IawrapperImageFactory.AUTH_SECRET to "img.iawrapper")),
+        )
     }
 
     @Test
     fun `no base url is Unavailable so the default chain can stay on`() {
-        for (f in listOf(A1111ImageFactory(codec), ComfyUiImageFactory(codec))) {
+        for (f in listOf(A1111ImageFactory(codec), ComfyUiImageFactory(codec), IawrapperImageFactory(codec))) {
             try {
                 f.create(settings(), ctx)
                 fail()
@@ -104,6 +108,18 @@ class ImageFactoriesTest {
             setOf(ImageFeature.TXT2IMG, ImageFeature.IMG2IMG),
             comfy.create(settings("baseUrl" to server.base, "workflow" to flow), ctx).supports,
         )
+        val iawrapper = IawrapperImageFactory(codec)
+        assertEquals(
+            setOf(ImageFeature.TXT2IMG, ImageFeature.IMG2IMG, ImageFeature.INPAINT),
+            iawrapper.create(settings("baseUrl" to server.base), ctx).supports,
+        )
+    }
+
+    @Test
+    fun `iawrapper app id comes from the settings`() {
+        assertEquals("product-photo", IawrapperImageFactory.options(settings(IawrapperImageFactory.APP_ID to "product-photo")).appId)
+        assertEquals(null, IawrapperImageFactory.options(settings()).appId)
+        assertEquals(null, IawrapperImageFactory.options(settings(IawrapperImageFactory.APP_ID to " ")).appId)
     }
 
     @Test

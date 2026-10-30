@@ -19,6 +19,7 @@ include(
     ":core:imaging",
     ":core:secrets",
     ":core:models",
+    ":core:ui",
     ":ai:mlkit",
     ":ai:onnx",
     ":ai:vtracer",
