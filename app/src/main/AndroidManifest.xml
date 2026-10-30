@@ -12,6 +12,7 @@
     <application
         android:name=".ProductPhotoApp"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:networkSecurityConfig="@xml/network_security_config"
         android:label="Foto de Produto"
         android:icon="@android:drawable/ic_menu_camera"
