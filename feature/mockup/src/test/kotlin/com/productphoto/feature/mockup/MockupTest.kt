@@ -1,6 +1,8 @@
 package com.productphoto.feature.mockup
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -124,6 +126,27 @@ class MockupTest {
             "https://huggingface.co/datasets/luisluis123/mockups/resolve/main/mockups/item.webp",
             resolveRemoteUrl("mockups/item.webp", "https://huggingface.co/datasets/luisluis123/mockups/resolve/main")
         )
+    }
+
+    @Test
+    fun `catalog file names cannot leave the cache dir`() {
+        val dir = File("build/tmp/safe-child/mockups")
+        for (bad in listOf("../x.png", "/abs.png", "a/../../x.png", "a\\..\\x.png", "C:x.png", "", " ", ".", "a/.."))
+            assertNull(bad, safeChild(dir, bad))
+        assertEquals(File(dir, "sub/a.png").canonicalPath, safeChild(dir, "sub/a.png")?.canonicalPath)
+        assertNotNull(safeChild(dir, "a.png"))
+    }
+
+    @Test
+    fun `remote catalog drops only the entries with unsafe paths`() {
+        val text = """{"mockups": [
+            {"id": "ok", "name": "Ok", "category": "c", "file": "mockups/ok.webp", "thumb": "mockups/ok.webp", "width": 10, "height": 10, "slots": []},
+            {"id": "f", "name": "F", "category": "c", "file": "../../shared_prefs/x.xml", "thumb": "mockups/f.webp", "width": 10, "height": 10, "slots": []},
+            {"id": "t", "name": "T", "category": "c", "file": "mockups/t.webp", "thumb": "/data/x", "width": 10, "height": 10, "slots": []}
+        ]}"""
+        assertEquals(listOf("ok"), parseAnyMockupCatalog(text).map { it.id })
+        val legacy = """[{"name": "../../evil", "preview": ""}, {"name": "menucard1", "preview": "https:fa.videorey.in/aiproduct/mockup/menucard1.webp"}]"""
+        assertEquals(listOf("videorey_menucard1"), parseAnyMockupCatalog(legacy).map { it.id })
     }
 }
 

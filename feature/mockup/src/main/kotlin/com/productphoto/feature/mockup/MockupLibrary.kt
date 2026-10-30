@@ -106,8 +106,25 @@ fun parseAnyMockupCatalog(text: String, baseUrl: String = "https://huggingface.c
         parseVideoreyMockups(trimmed, baseUrl)
     } else {
         parseMockupIndex(trimmed).mockups.map { it.copy(isRemote = true, remoteBaseUrl = it.remoteBaseUrl ?: baseUrl) }
-    }
+    }.filter { it.hasSafePaths() }
 }
+
+/**
+ * Arquivo [name] dentro de [dir], ou null se o nome sair da pasta (SEC-11): vazio, absoluto, com `\` ou `:`,
+ * ou que, resolvido (`..`), não fica abaixo de [dir].
+ */
+fun safeChild(dir: File, name: String): File? {
+    if (name.isBlank() || name.startsWith("/") || '\\' in name || ':' in name) return null
+    return runCatching {
+        val f = File(dir, name)
+        f.takeIf { it.canonicalPath.startsWith(dir.canonicalPath + File.separator) }
+    }.getOrNull()
+}
+
+/** `file` e `thumb` vêm do JSON remoto: entrada que sairia da pasta de cache é descartada, não o catálogo inteiro. */
+fun MockupEntry.hasSafePaths(): Boolean = File(SAFE_PATH_PROBE).let { safeChild(it, file) != null && safeChild(it, thumb) != null }
+
+private const val SAFE_PATH_PROBE = "/catalog"
 
 /** Resolve URL remota completa garantindo protocolo HTTPS e conversão para /resolve/ no Hugging Face */
 fun resolveRemoteUrl(path: String, baseUrl: String?): String {
@@ -165,7 +182,7 @@ class MockupLibrary(
             runCatching {
                 val index = parseMockupIndex(cacheFile.readText())
                 _remoteMockups.clear()
-                _remoteMockups.addAll(index.mockups)
+                _remoteMockups.addAll(index.mockups.filter { it.hasSafePaths() })
             }
         }
     }
@@ -190,15 +207,15 @@ class MockupLibrary(
     fun isDownloaded(e: MockupEntry): Boolean {
         if (!e.isRemote) return true
         val dir = localDir ?: return false
-        return File(dir, e.file).exists()
+        return safeChild(dir, e.file)?.exists() == true
     }
 
     fun thumb(e: MockupEntry): Bitmap {
         val dir = localDir
         // 1. Verifica no cache local
         if (dir != null) {
-            val f = File(dir, e.thumb)
-            if (f.exists()) {
+            val f = safeChild(dir, e.thumb)
+            if (f != null && f.exists()) {
                 BitmapFactory.decodeFile(f.absolutePath)?.let { return it }
             }
         }
@@ -212,8 +229,8 @@ class MockupLibrary(
         if (e.isRemote && dir != null) {
             val url = resolveRemoteUrl(e.thumb, e.remoteBaseUrl)
             runCatching {
+                val f = safeChild(dir, e.thumb) ?: return createFallbackBitmap()
                 val bytes = downloadBytes(url)
-                val f = File(dir, e.thumb)
                 f.parentFile?.mkdirs()
                 f.writeBytes(bytes)
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { return it }
@@ -228,8 +245,8 @@ class MockupLibrary(
 
         // 1. Arquivo local em cache
         if (dir != null) {
-            val f = File(dir, e.file)
-            if (f.exists()) {
+            val f = safeChild(dir, e.file)
+            if (f != null && f.exists()) {
                 baseBitmap = BitmapFactory.decodeFile(
                     f.absolutePath,
                     BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
@@ -249,7 +266,7 @@ class MockupLibrary(
             val url = resolveRemoteUrl(e.file, e.remoteBaseUrl)
             val bytes = downloadBytes(url)
             if (dir != null) {
-                val f = File(dir, e.file)
+                val f = safeChild(dir, e.file) ?: error("Caminho inválido no mockup ${e.id}: ${e.file}")
                 f.parentFile?.mkdirs()
                 f.writeBytes(bytes)
             }
