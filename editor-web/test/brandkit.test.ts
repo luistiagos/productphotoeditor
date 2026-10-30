@@ -55,6 +55,34 @@ describe('applyBrandKit', () => {
     expect(title.fontFamily).toBe('Pacifico');
   });
 
+  it('recolors conversion badges and nested SVG groups with brandColor and brandStroke (ADS-04)', () => {
+    const badgeDoc = createDocument('BadgeTest', 1080, 1080, {
+      background: '#ffffff',
+      objects: [
+        {
+          type: 'Group',
+          layerName: 'Garantia 30 Dias',
+          brandColor: 'primary',
+          objects: [
+            { type: 'Path', fill: '#166534', brandColor: 'primary' },
+            { type: 'Rect', fill: '#f59e0b', brandColor: 'accent' },
+            { type: 'Text', text: 'GARANTIA 30 DIAS', fill: '#ffffff' },
+          ],
+        },
+      ],
+    });
+    const kitWithAccent: BrandKit = {
+      ...kit,
+      colors: { primary: '#2563eb', accent: '#facc15' },
+    };
+    const out = applyBrandKit(badgeDoc, kitWithAccent);
+    const badgeGroup = out.fabric.objects[0] as Record<string, any>;
+    expect(badgeGroup.fill).toBe('#2563eb');
+    expect(badgeGroup.objects[0].fill).toBe('#2563eb');
+    expect(badgeGroup.objects[1].fill).toBe('#facc15');
+    expect(badgeGroup.objects[2].fill).toBe('#ffffff'); // texto branco preservado
+  });
+
   const empty: BrandKit = { profile: {}, colors: {}, fonts: {} };
 
   it('an empty kit fills variables with sample text and changes nothing else', () => {

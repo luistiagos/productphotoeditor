@@ -65,7 +65,7 @@ export const REMOTE_ICONS_URL = 'https://huggingface.co/datasets/luisluis123/moc
 
 async function fetchRemoteTemplates(): Promise<TemplateEntry[]> {
   try {
-    const res = await fetch(REMOTE_TEMPLATES_CATALOG_URL);
+    const res = await fetch(REMOTE_TEMPLATES_CATALOG_URL, { signal: AbortSignal.timeout(1500) });
     if (!res.ok) return [];
     const data = await res.json() as { templates?: Array<{ id: number | string; category: string; hdImage: string; thumbnail: string; canvasJson: string; remoteBaseUrl: string }> };
     if (!Array.isArray(data.templates)) return [];
@@ -95,7 +95,7 @@ async function fetchRemoteTemplates(): Promise<TemplateEntry[]> {
 
 async function fetchRemoteIcons(): Promise<StickerEntry[]> {
   try {
-    const res = await fetch(REMOTE_ICONS_URL);
+    const res = await fetch(REMOTE_ICONS_URL, { signal: AbortSignal.timeout(1500) });
     if (!res.ok) return [];
     const data = await res.json() as Array<{ image: string; category: string; isSvg?: boolean }>;
     if (!Array.isArray(data)) return [];

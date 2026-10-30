@@ -268,6 +268,11 @@ class MockupLibrary(
         )
     }
 
+    /** [thumb] fora da main thread (o download na main dá NetworkOnMainThreadException e cai no cinza). */
+    suspend fun loadThumb(e: MockupEntry): Bitmap = withContext(Dispatchers.IO) {
+        thumb(e)
+    }
+
     suspend fun loadTemplate(e: MockupEntry): MockupTemplate = withContext(Dispatchers.IO) {
         template(e)
     }

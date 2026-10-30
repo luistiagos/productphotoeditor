@@ -438,6 +438,29 @@ export class Editor {
     const o = this.active;
     if (!o) return;
     o.set(props);
+    if ('getObjects' in o && typeof (o as { getObjects?: () => FabricObject[] }).getObjects === 'function') {
+      const items = (o as { getObjects: () => FabricObject[] }).getObjects();
+      if (props.fill !== undefined) {
+        for (const item of items) {
+          const f = item.fill;
+          if (f && typeof f === 'string') {
+            const lower = f.toLowerCase().trim();
+            // Preserva elementos brancos/transparentes (como textos brancos e vazados em selos)
+            if (lower !== '#ffffff' && lower !== '#fff' && lower !== 'white' && lower !== 'none' && lower !== 'transparent') {
+              item.set({ fill: props.fill, brandColor: props.brandColor });
+            }
+          }
+        }
+      }
+      if (props.stroke !== undefined) {
+        for (const item of items) {
+          const s = item.stroke;
+          if (s && typeof s === 'string' && s !== 'none' && s !== 'transparent') {
+            item.set({ stroke: props.stroke, brandStroke: props.brandStroke });
+          }
+        }
+      }
+    }
     if (o instanceof Textbox && Object.keys(props).some((k) => Textbox.textLayoutProperties.includes(k))) this.refitCurve(o);
     o.setCoords();
     this.commit();

@@ -209,15 +209,173 @@ def burst(fill, label, color='#ffffff', size=34):
                f'fill="{color}" text-anchor="middle">{label}</text>')
 
 
+def render_stars(cx, cy, count=5, size=18, gap=22, fill='#f59e0b'):
+    total_w = (count - 1) * gap
+    start_x = cx - total_w / 2
+    elements = []
+    for i in range(count):
+        sx = start_x + i * gap
+        pts = ' '.join(f"{p['x'] + sx:.1f},{p['y'] + cy:.1f}" for p in star_points(5, size, size * 0.42))
+        elements.append(f'<polygon points="{pts}" fill="{fill}"/>')
+    return ''.join(elements)
+
+
 STICKERS = [
-    ('selo-oferta', 'Oferta', 'Selos', burst('#e53935', 'OFERTA')),
-    ('selo-novo', 'Novo', 'Selos', burst('#1e88e5', 'NOVO', size=44)),
-    ('selo-50', '-50%', 'Selos', burst('#fdd835', '-50%', '#212121', 48)),
-    ('selo-gratis', 'Frete grátis', 'Selos', svg(
+    # ---------- ADS-04: Selos de Garantia & Confiança ----------
+    ('selo-garantia-30', 'Garantia 30 Dias', 'Garantia & Confiança', svg(
+        '<path d="M110 10 L195 45 C195 130 110 190 110 210 C110 190 25 130 25 45 Z" fill="#15803d" stroke="#f59e0b" stroke-width="6"/>'
+        '<path d="M110 22 L183 52 C183 125 110 178 110 196 C110 178 37 125 37 52 Z" fill="#166534"/>'
+        + render_stars(110, 52, 3, 10, 24, '#fbbf24') +
+        '<text x="110" y="80" font-family="sans-serif" font-weight="900" font-size="14" fill="#fbbf24" text-anchor="middle" letter-spacing="1">GARANTIA</text>'
+        '<text x="110" y="118" font-family="sans-serif" font-weight="900" font-size="34" fill="#ffffff" text-anchor="middle">30 DIAS</text>'
+        '<rect x="35" y="132" width="150" height="26" rx="13" fill="#f59e0b"/>'
+        '<text x="110" y="149" font-family="sans-serif" font-weight="900" font-size="11" fill="#14532d" text-anchor="middle">100% SATISFAÇÃO</text>'
+        '<text x="110" y="174" font-family="sans-serif" font-weight="800" font-size="10" fill="#ffffff" text-anchor="middle">OU SEU DINHEIRO DE VOLTA</text>',
+        220, 220
+    )),
+    ('selo-garantia-7', 'Garantia 7 Dias', 'Garantia & Confiança', svg(
+        '<path d="M100 10 L180 42 C180 120 100 175 100 195 C100 175 20 120 20 42 Z" fill="#0f172a" stroke="#10b981" stroke-width="5"/>'
+        '<path d="M100 20 L170 48 C170 116 100 166 100 182 C100 166 30 116 30 48 Z" fill="#1e293b"/>'
+        + render_stars(100, 48, 3, 8, 20, '#10b981') +
+        '<text x="100" y="74" font-family="sans-serif" font-weight="900" font-size="13" fill="#10b981" text-anchor="middle">GARANTIA</text>'
+        '<text x="100" y="110" font-family="sans-serif" font-weight="900" font-size="32" fill="#ffffff" text-anchor="middle">7 DIAS</text>'
+        '<rect x="35" y="124" width="130" height="24" rx="12" fill="#10b981"/>'
+        '<text x="100" y="140" font-family="sans-serif" font-weight="900" font-size="11" fill="#0f172a" text-anchor="middle">RISCO ZERO</text>'
+        '<text x="100" y="162" font-family="sans-serif" font-weight="700" font-size="9" fill="#94a3b8" text-anchor="middle">COMPRA SEGURA</text>',
+        200, 200
+    )),
+    ('selo-satisfacao-garantida', 'Satisfação Garantida', 'Garantia & Confiança', svg(
+        '<circle cx="100" cy="100" r="92" fill="#d97706"/>'
+        '<circle cx="100" cy="100" r="82" fill="#f59e0b" stroke="#ffffff" stroke-width="3" stroke-dasharray="6,4"/>'
+        '<circle cx="100" cy="100" r="70" fill="#ffffff"/>'
+        + render_stars(100, 52, 5, 9, 18, '#d97706') +
+        '<text x="100" y="78" font-family="sans-serif" font-weight="900" font-size="14" fill="#b45309" text-anchor="middle">SATISFAÇÃO</text>'
+        '<text x="100" y="104" font-family="sans-serif" font-weight="900" font-size="18" fill="#1e293b" text-anchor="middle">GARANTIDA</text>'
+        '<rect x="38" y="116" width="124" height="22" rx="11" fill="#b45309"/>'
+        '<text x="100" y="131" font-family="sans-serif" font-weight="800" font-size="10" fill="#ffffff" text-anchor="middle">QUALIDADE 100%</text>'
+        '<path d="M82 152 L94 164 L118 140" fill="none" stroke="#d97706" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>',
+        200, 200
+    )),
+    ('selo-compra-segura', 'Compra 100% Segura', 'Garantia & Confiança', svg(
+        '<rect x="4" y="6" width="242" height="78" rx="39" fill="#0f172a" stroke="#10b981" stroke-width="3"/>'
+        '<circle cx="44" cy="45" r="28" fill="#10b981"/>'
+        '<rect x="34" y="42" width="20" height="16" rx="3" fill="#ffffff"/>'
+        '<path d="M38 42 V35 C38 30 50 30 50 35 V42" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>'
+        '<circle cx="44" cy="49" r="2" fill="#0f172a"/>'
+        '<text x="150" y="38" font-family="sans-serif" font-weight="900" font-size="15" fill="#ffffff" text-anchor="middle">COMPRA 100% SEGURA</text>'
+        '<text x="150" y="58" font-family="sans-serif" font-weight="800" font-size="11" fill="#34d399" text-anchor="middle">SSL 256 BITS • DADOS PROTEGIDOS</text>',
+        250, 90
+    )),
+
+    # ---------- ADS-04: Selos de Frete & Entrega ----------
+    ('selo-frete-gratis-brasil', 'Frete Grátis Brasil', 'Frete & Entrega', svg(
+        '<rect x="4" y="6" width="242" height="78" rx="39" fill="#047857" stroke="#34d399" stroke-width="3"/>'
+        '<circle cx="44" cy="45" r="28" fill="#ffffff"/>'
+        '<path d="M26 48 H44 V34 H32 L26 40 Z" fill="#047857"/>'
+        '<rect x="36" y="36" width="18" height="12" fill="#047857"/>'
+        '<circle cx="32" cy="52" r="4" fill="#0f172a"/>'
+        '<circle cx="48" cy="52" r="4" fill="#0f172a"/>'
+        '<text x="152" y="39" font-family="sans-serif" font-weight="900" font-size="19" fill="#ffffff" text-anchor="middle">FRETE GRÁTIS</text>'
+        '<text x="152" y="60" font-family="sans-serif" font-weight="800" font-size="12" fill="#fef08a" text-anchor="middle">PARA TODO O BRASIL 🇧🇷</text>',
+        250, 90
+    )),
+    ('selo-envio-imediato-24h', 'Envio Imediato 24h', 'Frete & Entrega', svg(
+        '<rect x="4" y="6" width="242" height="78" rx="39" fill="#0f172a" stroke="#facc15" stroke-width="3"/>'
+        '<circle cx="44" cy="45" r="28" fill="#facc15"/>'
+        '<path d="M46 28 L35 44 H44 L40 60 L54 42 H45 Z" fill="#0f172a"/>'
+        '<text x="150" y="39" font-family="sans-serif" font-weight="900" font-size="18" fill="#ffffff" text-anchor="middle">ENVIO IMEDIATO</text>'
+        '<text x="150" y="60" font-family="sans-serif" font-weight="800" font-size="12" fill="#facc15" text-anchor="middle">DESPACHO EM ATÉ 24 HORAS</text>',
+        250, 90
+    )),
+    ('selo-pronta-entrega', 'Pronta Entrega', 'Frete & Entrega', svg(
+        '<rect x="4" y="6" width="232" height="72" rx="36" fill="#1d4ed8" stroke="#60a5fa" stroke-width="3"/>'
+        '<circle cx="42" cy="42" r="24" fill="#ffffff"/>'
+        '<path d="M32 42 L39 49 L53 35" fill="none" stroke="#1d4ed8" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<text x="144" y="36" font-family="sans-serif" font-weight="900" font-size="17" fill="#ffffff" text-anchor="middle">PRONTA ENTREGA</text>'
+        '<text x="144" y="56" font-family="sans-serif" font-weight="800" font-size="11" fill="#bfdbfe" text-anchor="middle">ENVIO DIRETO DO BRASIL</text>',
+        240, 84
+    )),
+
+    # ---------- ADS-04: Avaliação Social (Social Proof) ----------
+    ('selo-avaliacao-5-estrelas', '5 Estrelas (+1.200 avaliações)', 'Avaliação Social', svg(
+        '<rect x="4" y="6" width="252" height="88" rx="18" fill="#0f172a" stroke="#334155" stroke-width="2"/>'
+        + render_stars(130, 28, 5, 11, 24, '#f59e0b') +
+        '<text x="130" y="58" font-family="sans-serif" font-weight="900" font-size="17" fill="#ffffff" text-anchor="middle">NOTA 4.9 / 5.0</text>'
+        '<text x="130" y="78" font-family="sans-serif" font-weight="700" font-size="11" fill="#94a3b8" text-anchor="middle">+1.200 AVALIAÇÕES VERIFICADAS</text>',
+        260, 100
+    )),
+    ('selo-mais-vendido', '#1 Mais Vendido', 'Avaliação Social', svg(
+        '<rect x="4" y="6" width="232" height="78" rx="16" fill="#ea580c" stroke="#fbbf24" stroke-width="3"/>'
+        '<circle cx="42" cy="45" r="24" fill="#fbbf24"/>'
+        '<path d="M33 34 H51 V43 C51 48 47 51 42 51 C37 51 33 48 33 43 Z" fill="#7c2d12"/>'
+        '<path d="M39 51 H45 V57 H39 Z" fill="#7c2d12"/>'
+        '<rect x="36" y="57" width="12" height="3" fill="#7c2d12"/>'
+        '<text x="144" y="38" font-family="sans-serif" font-weight="900" font-size="18" fill="#ffffff" text-anchor="middle">#1 MAIS VENDIDO</text>'
+        '<text x="144" y="59" font-family="sans-serif" font-weight="800" font-size="11" fill="#fef08a" text-anchor="middle">CAMPEÃO DE VENDAS</text>',
+        240, 90
+    )),
+    ('selo-produto-original', '100% Original', 'Avaliação Social', svg(
+        '<circle cx="100" cy="100" r="92" fill="#1e3a8a"/>'
+        '<circle cx="100" cy="100" r="82" fill="#1e40af" stroke="#60a5fa" stroke-width="3" stroke-dasharray="6,4"/>'
+        + render_stars(100, 50, 5, 8, 16, '#fbbf24') +
+        '<text x="100" y="78" font-family="sans-serif" font-weight="900" font-size="14" fill="#93c5fd" text-anchor="middle">PRODUTO 100%</text>'
+        '<text x="100" y="108" font-family="sans-serif" font-weight="900" font-size="24" fill="#ffffff" text-anchor="middle">ORIGINAL</text>'
+        '<rect x="36" y="122" width="128" height="24" rx="12" fill="#fbbf24"/>'
+        '<text x="100" y="138" font-family="sans-serif" font-weight="900" font-size="10" fill="#1e3a8a" text-anchor="middle">QUALIDADE PREMIUM</text>'
+        '<path d="M80 162 L92 174 L120 146" fill="none" stroke="#60a5fa" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>',
+        200, 200
+    )),
+
+    # ---------- ADS-04: Promoção & Urgência ----------
+    ('selo-50-off-hoje', '50% OFF Hoje', 'Promoção & Urgência', svg(
+        '<rect x="6" y="6" width="228" height="108" rx="20" fill="#dc2626" stroke="#fef08a" stroke-width="4"/>'
+        '<text x="120" y="54" font-family="sans-serif" font-weight="900" font-size="44" fill="#ffffff" text-anchor="middle">-50% OFF</text>'
+        '<rect x="24" y="68" width="192" height="32" rx="16" fill="#fde047"/>'
+        '<text x="120" y="89" font-family="sans-serif" font-weight="900" font-size="14" fill="#7f1d1d" text-anchor="middle">SÓ HOJE • APROVEITE</text>',
+        240, 120
+    )),
+    ('selo-compre-1-leve-2', 'Compre 1 Leve 2', 'Promoção & Urgência', svg(
+        '<rect x="4" y="6" width="242" height="88" rx="22" fill="#6d28d9" stroke="#fbbf24" stroke-width="3"/>'
+        '<text x="125" y="44" font-family="sans-serif" font-weight="900" font-size="23" fill="#ffffff" text-anchor="middle">COMPRE 1 LEVE 2</text>'
+        '<rect x="25" y="54" width="200" height="26" rx="13" fill="#fbbf24"/>'
+        '<text x="125" y="71" font-family="sans-serif" font-weight="900" font-size="12" fill="#4c1d95" text-anchor="middle">PROMOÇÃO ESPECIAL</text>',
+        250, 100
+    )),
+    ('selo-ultimas-unidades', 'Últimas Unidades', 'Promoção & Urgência', svg(
+        '<rect x="4" y="6" width="242" height="82" rx="41" fill="#18181b" stroke="#ef4444" stroke-width="3.5"/>'
+        '<circle cx="44" cy="47" r="26" fill="#ef4444"/>'
+        '<path d="M44 28 C48 35 54 40 54 48 C54 54 49 59 44 59 C39 59 34 54 34 48 C34 43 37 38 41 33 C42 40 45 42 44 48 C45 46 47 43 47 40 Z" fill="#fde047"/>'
+        '<text x="150" y="40" font-family="sans-serif" font-weight="900" font-size="17" fill="#ef4444" text-anchor="middle">ÚLTIMAS UNIDADES</text>'
+        '<text x="150" y="61" font-family="sans-serif" font-weight="800" font-size="11" fill="#ffffff" text-anchor="middle">ESTOQUE QUASE ESGOTADO</text>',
+        250, 94
+    )),
+    ('selo-oferta-relampago', 'Oferta Relâmpago', 'Promoção & Urgência', svg(
+        '<rect x="4" y="6" width="242" height="82" rx="20" fill="#09090b" stroke="#facc15" stroke-width="3"/>'
+        '<circle cx="42" cy="47" r="24" fill="#facc15"/>'
+        '<path d="M44 32 L34 47 H43 L39 61 L51 45 H43 Z" fill="#09090b"/>'
+        '<text x="146" y="40" font-family="sans-serif" font-weight="900" font-size="18" fill="#facc15" text-anchor="middle">OFERTA RELÂMPAGO</text>'
+        '<text x="146" y="61" font-family="sans-serif" font-weight="800" font-size="11" fill="#ffffff" text-anchor="middle">ENQUANTO DURAR O ESTOQUE</text>',
+        250, 94
+    )),
+    ('selo-desconto-pix', '10% OFF no Pix', 'Promoção & Urgência', svg(
+        '<rect x="4" y="6" width="232" height="76" rx="38" fill="#0f766e" stroke="#2dd4bf" stroke-width="3"/>'
+        '<circle cx="42" cy="44" r="24" fill="#ffffff"/>'
+        '<path d="M42 30 L50 38 L42 46 L34 38 Z" fill="none" stroke="#0f766e" stroke-width="3"/>'
+        '<circle cx="42" cy="44" r="3" fill="#0f766e"/>'
+        '<text x="142" y="38" font-family="sans-serif" font-weight="900" font-size="17" fill="#ffffff" text-anchor="middle">10% OFF NO PIX</text>'
+        '<text x="142" y="58" font-family="sans-serif" font-weight="800" font-size="11" fill="#99f6e4" text-anchor="middle">PAGAMENTO INSTANTÂNEO</text>',
+        240, 88
+    )),
+    ('selo-oferta', 'Oferta', 'Promoção & Urgência', burst('#e53935', 'OFERTA')),
+    ('selo-novo', 'Novo', 'Promoção & Urgência', burst('#1e88e5', 'NOVO', size=44)),
+    ('selo-50', '-50%', 'Promoção & Urgência', burst('#fdd835', '-50%', '#212121', 48)),
+    ('selo-gratis', 'Frete grátis compacto', 'Frete & Entrega', svg(
         '<rect x="6" y="56" width="188" height="88" rx="44" fill="#43a047"/>'
         '<text x="100" y="94" font-family="sans-serif" font-weight="800" font-size="26" fill="#fff" text-anchor="middle">FRETE</text>'
         '<text x="100" y="126" font-family="sans-serif" font-weight="800" font-size="26" fill="#fff" text-anchor="middle">GRÁTIS</text>')),
-    ('fita', 'Faixa', 'Selos', svg(
+
+    # ---------- Formas & Destaques ----------
+    ('fita', 'Faixa', 'Formas', svg(
         '<path d="M10 60 H190 L170 100 L190 140 H10 L30 100 Z" fill="#8e24aa"/>', 200, 200)),
     ('estrela', 'Estrela', 'Formas', svg(
         '<polygon points="' + ' '.join(f"{p['x'] + 100:.1f},{p['y'] + 104:.1f}" for p in star_points(5, 92, 40)) + '" fill="#ffb300"/>')),
@@ -229,6 +387,8 @@ STICKERS = [
         'fill="#ffffff" stroke="#212121" stroke-width="6"/>')),
     ('brilho', 'Brilho', 'Formas', svg(
         '<path d="M100 10 C108 70 130 92 190 100 C130 108 108 130 100 190 C92 130 70 108 10 100 C70 92 92 70 100 10 Z" fill="#ffd54f"/>')),
+
+    # ---------- Ícones ----------
     ('seta-curva', 'Seta', 'Ícones', svg(
         '<path d="M30 160 C40 80 100 50 150 60" fill="none" stroke="#212121" stroke-width="12" stroke-linecap="round"/>'
         '<path d="M130 30 L170 62 L128 88" fill="none" stroke="#212121" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>')),

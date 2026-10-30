@@ -46,6 +46,7 @@ button.icon { min-width: 40px; padding: 6px 8px; }
 button.icon.off { opacity: 0.35; }
 button.b { font-weight: 800; }
 button.i { font-style: italic; }
+button.chip { min-height: 32px; padding: 4px 10px; font-size: 12px; border-radius: 16px; background: var(--chip); }
 
 #topbar {
   display: flex; align-items: center; gap: 6px; padding: 6px 8px;
@@ -109,6 +110,13 @@ input[type=number] { width: 90px; min-height: 40px; border: 1px solid var(--line
 .tile img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--chip); border-radius: 6px; }
 .tile span { font-size: 12px; text-align: center; overflow: hidden; text-overflow: ellipsis; }
 .tile.swatch { aspect-ratio: 1; }
+.grid.formats { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+.tile.format { padding: 6px; align-items: center; }
+.tile.format small { font-size: 11px; color: var(--muted); }
+.tile.format.primary small { color: inherit; }
+.format-thumb { display: block; width: 100%; height: 72px; flex: none; }
+.format-thumb svg { width: 100%; height: 100%; display: block; }
+.row .format-thumb { width: 48px; height: 48px; }
 .dot { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); display: inline-block; }
 .layer { display: flex; gap: 6px; }
 .layer .grow { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; }

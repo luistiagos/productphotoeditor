@@ -41,6 +41,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -50,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -235,10 +237,12 @@ private fun TemplateGrid(library: MockupLibrary, onChoose: (MockupEntry) -> Unit
     library.all.chunked(2).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             row.forEach { e ->
-                val thumb = remember(e.id) { library.thumb(e).asImageBitmap() }
+                val thumb by produceState<ImageBitmap?>(null, e.id) { value = library.loadThumb(e).asImageBitmap() }
                 Card(Modifier.weight(1f).clickable { onChoose(e) }) {
                     Box {
-                        Image(thumb, e.name, Modifier.fillMaxWidth().aspectRatio(1f), contentScale = ContentScale.Fit)
+                        val t = thumb
+                        if (t != null) Image(t, e.name, Modifier.fillMaxWidth().aspectRatio(1f), contentScale = ContentScale.Fit)
+                        else Spacer(Modifier.fillMaxWidth().aspectRatio(1f))
                         if (!library.isDownloaded(e)) {
                             Text(
                                 "Online",

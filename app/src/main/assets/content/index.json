@@ -126,33 +126,123 @@
  ],
  "stickers": [
   {
+   "id": "selo-garantia-30",
+   "name": "Garantia 30 Dias",
+   "category": "Garantia & Confiança",
+   "file": "stickers/selo-garantia-30.svg"
+  },
+  {
+   "id": "selo-garantia-7",
+   "name": "Garantia 7 Dias",
+   "category": "Garantia & Confiança",
+   "file": "stickers/selo-garantia-7.svg"
+  },
+  {
+   "id": "selo-satisfacao-garantida",
+   "name": "Satisfação Garantida",
+   "category": "Garantia & Confiança",
+   "file": "stickers/selo-satisfacao-garantida.svg"
+  },
+  {
+   "id": "selo-compra-segura",
+   "name": "Compra 100% Segura",
+   "category": "Garantia & Confiança",
+   "file": "stickers/selo-compra-segura.svg"
+  },
+  {
+   "id": "selo-frete-gratis-brasil",
+   "name": "Frete Grátis Brasil",
+   "category": "Frete & Entrega",
+   "file": "stickers/selo-frete-gratis-brasil.svg"
+  },
+  {
+   "id": "selo-envio-imediato-24h",
+   "name": "Envio Imediato 24h",
+   "category": "Frete & Entrega",
+   "file": "stickers/selo-envio-imediato-24h.svg"
+  },
+  {
+   "id": "selo-pronta-entrega",
+   "name": "Pronta Entrega",
+   "category": "Frete & Entrega",
+   "file": "stickers/selo-pronta-entrega.svg"
+  },
+  {
+   "id": "selo-avaliacao-5-estrelas",
+   "name": "5 Estrelas (+1.200 avaliações)",
+   "category": "Avaliação Social",
+   "file": "stickers/selo-avaliacao-5-estrelas.svg"
+  },
+  {
+   "id": "selo-mais-vendido",
+   "name": "#1 Mais Vendido",
+   "category": "Avaliação Social",
+   "file": "stickers/selo-mais-vendido.svg"
+  },
+  {
+   "id": "selo-produto-original",
+   "name": "100% Original",
+   "category": "Avaliação Social",
+   "file": "stickers/selo-produto-original.svg"
+  },
+  {
+   "id": "selo-50-off-hoje",
+   "name": "50% OFF Hoje",
+   "category": "Promoção & Urgência",
+   "file": "stickers/selo-50-off-hoje.svg"
+  },
+  {
+   "id": "selo-compre-1-leve-2",
+   "name": "Compre 1 Leve 2",
+   "category": "Promoção & Urgência",
+   "file": "stickers/selo-compre-1-leve-2.svg"
+  },
+  {
+   "id": "selo-ultimas-unidades",
+   "name": "Últimas Unidades",
+   "category": "Promoção & Urgência",
+   "file": "stickers/selo-ultimas-unidades.svg"
+  },
+  {
+   "id": "selo-oferta-relampago",
+   "name": "Oferta Relâmpago",
+   "category": "Promoção & Urgência",
+   "file": "stickers/selo-oferta-relampago.svg"
+  },
+  {
+   "id": "selo-desconto-pix",
+   "name": "10% OFF no Pix",
+   "category": "Promoção & Urgência",
+   "file": "stickers/selo-desconto-pix.svg"
+  },
+  {
    "id": "selo-oferta",
    "name": "Oferta",
-   "category": "Selos",
+   "category": "Promoção & Urgência",
    "file": "stickers/selo-oferta.svg"
   },
   {
    "id": "selo-novo",
    "name": "Novo",
-   "category": "Selos",
+   "category": "Promoção & Urgência",
    "file": "stickers/selo-novo.svg"
   },
   {
    "id": "selo-50",
    "name": "-50%",
-   "category": "Selos",
+   "category": "Promoção & Urgência",
    "file": "stickers/selo-50.svg"
   },
   {
    "id": "selo-gratis",
-   "name": "Frete grátis",
-   "category": "Selos",
+   "name": "Frete grátis compacto",
+   "category": "Frete & Entrega",
    "file": "stickers/selo-gratis.svg"
   },
   {
    "id": "fita",
    "name": "Faixa",
-   "category": "Selos",
+   "category": "Formas",
    "file": "stickers/fita.svg"
   },
   {

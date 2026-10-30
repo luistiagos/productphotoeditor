@@ -2,7 +2,7 @@ import './styles.css';
 import { FabricImage, FabricObject, FabricText, Textbox } from 'fabric';
 import { type CopyResult, parseCopy, parseVariants, REWRITE_STYLES, type RewriteStyle, rewritePayload } from './aiText';
 import { Bridge, BridgeRequestError, injectedTransport, offlineTransport } from './bridge';
-import { applyBrandKit, type BrandKit, parseBrandKit } from './brandkit';
+import { applyBrandKit, type BrandKit, type ColorRole, parseBrandKit } from './brandkit';
 import {
   contentUrl, type ContentIndex, knownFamilies, loadContentIndex, loadTemplate, registerBundledFonts, registerFont,
   type TemplateEntry,
@@ -10,6 +10,7 @@ import {
 import { parseDocument, type AnimationFx } from './document';
 import { button, colorInput, confirmSheet, h, openSheet, select, setBusy, slider, toast, toHex } from './dom';
 import { type Adjustments, Editor, type FilterPreset, renderThumbnail, type ShapeKind } from './editor';
+import { DESIGN_FORMATS, findFormat, formatSvg, GROUP_LABELS } from './formats';
 import type { BlobResult, ExportPayload, FontRef, SaveDraftPayload, TextBox } from './protocol';
 
 // ---------- estado ----------
@@ -205,13 +206,40 @@ function renderProps(o: FabricObject | undefined): void {
   ));
   if (o instanceof FabricText) rows.push(...textProps(o));
   else if (o instanceof FabricImage) rows.push(...imageProps(o));
-  else rows.push(h('div', { class: 'row scroll' },
-    colorInput('Preenchimento', String(o.fill ?? '#000000'), (v) => editor.set({ fill: v, brandColor: undefined })),
-    colorInput('Contorno', String(o.stroke ?? '#000000'), (v) => editor.set({ stroke: v, brandStroke: undefined })),
-    slider('Espessura', 0, 40, 1, o.strokeWidth ?? 0, (v) => editor.set({ strokeWidth: v }))));
+  else {
+    rows.push(h('div', { class: 'row scroll' },
+      colorInput('Preenchimento', String(o.fill ?? '#000000'), (v) => editor.set({ fill: v, brandColor: undefined })),
+      colorInput('Contorno', String(o.stroke ?? '#000000'), (v) => editor.set({ stroke: v, brandStroke: undefined })),
+      slider('Espessura', 0, 40, 1, o.strokeWidth ?? 0, (v) => editor.set({ strokeWidth: v }))));
+    const chips = brandColorChips((c, role) => {
+      editor.set({ fill: c, brandColor: role });
+      renderProps(editor.active);
+    });
+    if (chips) rows.push(chips);
+  }
   rows.push(h('div', { class: 'row' }, slider('Opacidade', 0, 1, 0.05, o.opacity ?? 1, (v) => editor.set({ opacity: v }))));
   props.replaceChildren(...rows);
   props.classList.add('show');
+}
+
+function brandColorChips(onPick: (color: string, role: ColorRole) => void): HTMLElement | null {
+  const roles: ColorRole[] = ['primary', 'secondary', 'accent', 'text'];
+  const available = roles.filter((r) => Boolean(brandKit.colors[r]));
+  if (available.length === 0) return null;
+  const labels: Record<ColorRole, string> = {
+    primary: 'Primária',
+    secondary: 'Secundária',
+    accent: 'Destaque',
+    text: 'Texto',
+    background: 'Fundo',
+  };
+  return h('div', { class: 'row scroll' },
+    h('span', { class: 'hint', style: 'font-size: 12px; margin-right: 4px;' }, 'Marca:'),
+    ...available.map((r) => {
+      const c = brandKit.colors[r]!;
+      return button(`● ${labels[r]}`, () => onPick(c, r), 'chip');
+    })
+  );
 }
 
 function showAnimationSheet(o: FabricObject): void {
@@ -262,6 +290,10 @@ function showAnimationSheet(o: FabricObject): void {
 function textProps(t: FabricText): Node[] {
   const families = knownFamilies();
   const m = Math.min(editor.width, editor.height);
+  const chips = brandColorChips((c, role) => {
+    editor.set({ fill: c, brandColor: role });
+    renderProps(t);
+  });
   return [
     h('div', { class: 'row scroll' },
       button('✏️ Editar texto', () => showEditText(t, false), 'primary'),
@@ -274,6 +306,7 @@ function textProps(t: FabricText): Node[] {
         editor.set({ textAlign: order[(order.indexOf(t.textAlign) + 1) % order.length] });
       }),
       button(t.shadow ? 'Sem sombra' : 'Sombra', () => { editor.setShadow(!t.shadow); renderProps(t); })),
+    ...(chips ? [chips] : []),
     h('div', { class: 'row scroll' },
       slider('Tamanho', 8, Math.round(m * 0.4), 1, Math.round(t.fontSize), (v) => editor.set({ fontSize: v })),
       slider('Espaçamento', -100, 800, 10, t.charSpacing ?? 0, (v) => editor.set({ charSpacing: v })),
@@ -541,6 +574,7 @@ const tabs: [string, () => void][] = [
   ['Texto', showText],
   ['Imagem', showImage],
   ['Formas', showShapes],
+  ['🏷️ Selos', showBadges],
   ['Adesivos', showStickers],
   ['Fundo', showBackgrounds],
   ['Tamanho', showSize],
@@ -606,6 +640,69 @@ function showShapes(): void {
     ...shapes.map(([k, label]) => button(label, () => { editor.addShape(k, color); close(); }))));
 }
 
+const BADGE_CATEGORIES = [
+  'Garantia & Confiança',
+  'Frete & Entrega',
+  'Avaliação Social',
+  'Promoção & Urgência',
+] as const;
+
+function showBadges(): void {
+  let selectedCategory: string = 'Todas';
+  const categories = ['Todas', ...BADGE_CATEGORIES];
+
+  const gridContainer = h('div', {});
+
+  const renderGrid = () => {
+    const list = selectedCategory === 'Todas'
+      ? content.stickers.filter((s) => (BADGE_CATEGORIES as readonly string[]).includes(s.category))
+      : content.stickers.filter((s) => s.category === selectedCategory);
+
+    gridContainer.replaceChildren(
+      h('div', { class: 'grid small' },
+        ...list.map((s) => h('button', {
+          class: 'tile',
+          type: 'button',
+          style: 'padding: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;',
+          onclick: () => {
+            close();
+            void run('Inserindo selo', async () => {
+              const obj = await editor.addSvgFromUrl(contentUrl(s.file), s.name);
+              toast(`Selo "${s.name}" adicionado`);
+              return obj;
+            });
+          },
+        },
+        h('img', { src: contentUrl(s.file), alt: s.name, style: 'max-height: 52px; max-width: 100%; object-fit: contain;' }),
+        h('span', { style: 'font-size: 11px; text-align: center; color: var(--text); line-height: 1.2;' }, s.name)
+      ))
+    ));
+  };
+
+  const chips = h('div', { class: 'chips', style: 'margin-bottom: 12px;' },
+    ...categories.map((cat) => {
+      const btn = button(cat, () => {
+        selectedCategory = cat;
+        for (const child of chips.children) {
+          (child as HTMLElement).classList.remove('primary');
+        }
+        btn.classList.add('primary');
+        renderGrid();
+      });
+      if (cat === 'Todas') btn.classList.add('primary');
+      return btn;
+    })
+  );
+
+  renderGrid();
+
+  const close = openSheet('Selos & Badges de Conversão', h('div', {},
+    h('p', { class: 'hint' }, 'Gatilhos visuais de alta conversão para seus anúncios. Toque para inserir e personalize cores com o Brand Kit.'),
+    chips,
+    gridContainer,
+  ), { tall: true });
+}
+
 function showStickers(): void {
   const cats = [...new Set(content.stickers.map((s) => s.category))];
   const close = openSheet('Adesivos', h('div', {}, ...cats.flatMap((c) => [h('h4', {}, c), h('div', { class: 'grid small' },
@@ -642,11 +739,12 @@ function cssOf(b: { kind: string; colors?: string[]; angle?: number }): string {
   return `linear-gradient(${(b.angle ?? 90) + 90}deg, ${c.join(',')})`;
 }
 
-const SIZES: [string, number, number][] = [
-  ['Post quadrado', 1080, 1080], ['Post retrato 4:5', 1080, 1350], ['Story / Reels', 1080, 1920],
-  ['Capa Facebook', 1640, 624], ['Banner 16:9', 1920, 1080], ['Miniatura YouTube', 1280, 720],
-  ['Logo', 1000, 1000], ['Cartão de visita', 1050, 600], ['Folheto A4 (150 dpi)', 1240, 1754], ['Pôster A3 (150 dpi)', 1754, 2480],
-];
+/** Desenho do formato (formats.ts: markup gerado só a partir do catálogo e de números). */
+function formatThumb(f: Parameters<typeof formatSvg>[0]): HTMLElement {
+  const el = h('span', { class: 'format-thumb' });
+  el.innerHTML = formatSvg(f);
+  return el;
+}
 
 function showSize(): void {
   let scale = true;
@@ -659,10 +757,28 @@ function showSize(): void {
     editor.resize(Math.round(W), Math.round(H), scale);
     close();
   };
+  // os mesmos formatos do seletor do app (core/ui MediaFormats.kt), agrupados e desenhados
+  const current = findFormat(editor.width, editor.height);
+  const custom = h('span', { class: 'format-thumb' });
+  const preview = () => {
+    const W = Number(w.value), H = Number(hh.value);
+    custom.innerHTML = W > 0 && H > 0 ? formatSvg({ width: W, height: H, platform: 'generic', look: 'plain' }) : '';
+  };
+  w.addEventListener('input', preview);
+  hh.addEventListener('input', preview);
+  preview();
+  const sections = GROUP_LABELS.flatMap(([g, label]) => {
+    const list = DESIGN_FORMATS.filter((f) => f.group === g);
+    return list.length ? [h('h4', {}, label), h('div', { class: 'grid formats' }, ...list.map((f) =>
+      h('button', { class: 'tile format' + (f === current ? ' primary' : ''), type: 'button', title: f.hint, onclick: () => apply(f.width, f.height) },
+        formatThumb(f), h('span', {}, f.label), h('small', {}, `${f.width}×${f.height}`))))] : [];
+  });
   const close = openSheet('Tamanho', h('div', {},
-    h('div', { class: 'chips' }, ...SIZES.map(([n, W, H]) => button(`${n} · ${W}×${H}`, () => apply(W, H)))),
-    h('div', { class: 'row' }, h('label', {}, 'L ', w), h('label', {}, 'A ', hh), button('Aplicar', () => apply(Number(w.value), Number(hh.value)), 'primary')),
-    h('label', { class: 'check' }, sc, h('span', {}, 'Ajustar o conteúdo ao novo tamanho'))));
+    h('label', { class: 'check' }, sc, h('span', {}, 'Ajustar o conteúdo ao novo tamanho')),
+    ...sections,
+    h('h4', {}, 'Personalizado'),
+    h('div', { class: 'row' }, custom, h('label', {}, 'L ', w), h('label', {}, 'A ', hh), button('Aplicar', () => apply(Number(w.value), Number(hh.value)), 'primary'))),
+  { tall: true });
 }
 
 function showBrand(): void {
@@ -895,6 +1011,9 @@ async function start(): Promise<void> {
   } catch (e) {
     console.warn('content', e);
   }
+  (window as unknown as Record<string, unknown>).content = content;
+  (window as unknown as Record<string, unknown>).editor = editor;
+  (window as unknown as Record<string, unknown>).contentUrl = contentUrl;
   let startPayload: StartPayload = {};
   try {
     startPayload = await bridge.request<StartPayload>('hello', { protocol: 1, editor: '0.4.0' });

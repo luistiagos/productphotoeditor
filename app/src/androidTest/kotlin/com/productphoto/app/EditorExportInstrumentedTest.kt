@@ -112,4 +112,64 @@ class EditorExportInstrumentedTest {
         android.util.Log.i("EditorExportTest", "png=${pngBytes.size} B svg=${svg.length} chars; protocolo v${EditorProtocol.VERSION}")
         Unit
     }
+
+    @Test
+    fun conversionBadgesLibraryAndRecoloringOnDevice() = runBlocking {
+        val kits = FileBrandKitRepository(File(dir, "brandkit.json"))
+        kits.save(BrandKit(colors = BrandColors(primary = "#2563EB", accent = "#FACC15")))
+        val session = EditorSession(context, scope, graph.editorAssets, graph.editorAi, FileDraftRepository(File(dir, "drafts")),
+            kits, EditorStart.New("AnuncioTeste", 1080, 1080))
+        withContext(Dispatchers.Main) {
+            webView = WebView(context)
+            session.attach(webView)
+        }
+        withTimeout(30_000) { while (js("document.body.dataset.ready === 'true'") != "true") delay(100) }
+
+        // Valida que a biblioteca de adesivos de conversão foi carregada com todas as categorias
+        val stickersCount = js("content.stickers.length").toIntOrNull() ?: 0
+        assertTrue("stickers carregados (esperado >= 20, atual=$stickersCount)", stickersCount >= 20)
+
+        val categories = js("JSON.stringify([...new Set(content.stickers.map(s => s.category))])")
+        assertTrue("categoria Garantia", categories.contains("Garantia & Confiança"))
+        assertTrue("categoria Frete", categories.contains("Frete & Entrega"))
+        assertTrue("categoria Avaliação Social", categories.contains("Avaliação Social"))
+        assertTrue("categoria Promoção & Urgência", categories.contains("Promoção & Urgência"))
+
+        // Insere selo de Garantia 30 Dias no canvas
+        js("""
+            (() => {
+                const s = content.stickers.find(x => x.id === 'selo-garantia-30');
+                if (s) editor.addSvgFromUrl(contentUrl(s.file), s.name);
+            })()
+        """.trimIndent())
+
+        withTimeout(15_000) {
+            while ((js("editor.canvas.getObjects().length").toIntOrNull() ?: 0) == 0) delay(100)
+        }
+        val count = js("editor.canvas.getObjects().length").toIntOrNull() ?: 0
+        assertEquals(1, count)
+
+        val groupType = js("editor.canvas.getObjects()[0].type").replace("\"", "").lowercase()
+        assertEquals("group", groupType)
+
+        // Aplica recolorização com a cor primária da marca (#2563EB)
+        js("""
+            (() => {
+                editor.canvas.setActiveObject(editor.canvas.getObjects()[0]);
+                editor.set({ fill: '#2563EB', brandColor: 'primary' });
+            })()
+        """.trimIndent())
+
+        val badgeFill = js("editor.canvas.getObjects()[0].fill").replace("\"", "")
+        assertEquals("#2563EB", badgeFill)
+
+        // Exporta miniatura e valida dimensões
+        val png = session.bridge.request("exportImage", buildJsonObject { put("format", "png"); put("scale", 0.5) })!!
+            .jsonObject["data"]!!.jsonPrimitive.content
+        val pngBytes = EditorAssets.dataUrlBytes(png)
+        val bmp = EditorAssets.decodeBytes(pngBytes)
+        assertEquals(540 to 540, bmp.width to bmp.height)
+        android.util.Log.i("EditorExportTest", "Badge ADS-04 validado com sucesso no aparelho: png=${pngBytes.size} B")
+        Unit
+    }
 }
