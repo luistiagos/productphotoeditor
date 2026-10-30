@@ -2264,8 +2264,11 @@ e soma o seu claim ao do outro.
 6. Conferido em produção: login sem `X-App-Id` → 400; preflight da origem do console com `x-app-id` → 200 e header
    liberado; credencial do `local.properties` com `product-photo` → 200, claim `app=product-photo`; com
    `hub-console` → 200, claim `app=hub-console`; app inexistente → 403 `app_not_allowed`.
-7. **Pendente:** E2E `generateProductPhotoRemotelyViaIawrapper` no moto (`ZY32LMNN9B`): o aparelho não estava no
-   `adb devices`. Também não testado: o login do console num navegador de verdade.
+7. E2E `generateProductPhotoRemotelyViaIawrapper` no moto (`ZY32LMNN9B`), depois do deploy, contra a produção
+   (`connectedDebugAndroidTest` com `-Pandroid.testInstrumentationRunnerArguments.class=...#generate...`) → 1/1 OK,
+   11,7 s; task `queued` → `processing` → PNG de 215 KB, 10,4 s de ponta a ponta. Com a produção exigindo o header,
+   isso prova o login do app com `X-App-Id`. **SEC-13.2 em produção.** Não testado: o login do console num
+   navegador de verdade.
 
 ##### Ajustes pequenos de backend e SPA: refresh do SPA, `logout`, `UserSerializer` (passagem de bastão, 2026-10-30)
 
@@ -2390,6 +2393,27 @@ Tasks e provas (cada uma, um commit):
 
 Frase de abertura da sessão: *"Leia em docs/backlog/README.md a seção 'App: catálogo remoto, TLS,
 `dataExtractionRules`, trava de release' e implemente, depois que a árvore do app estiver commitada."*
+
+**Implementação, análise complementar (2026-10-30, 3ª sessão, antes de editar).** Árvore do app commitada
+(`f44681a`, `68ef4c2`); o que resta sem commit (`IawrapperEndToEndInstrumentedTest.kt`, `core/*.py`,
+`docs/backlog.md`, PNGs) não é desta task e fica fora dos commits.
+- Redirects reais (`curl -sSI`/`curl -sSL -w '%{url_effective}'`, 2026-10-30):
+  - `huggingface.co/.../resolve/main/index.json` e `styles.json` → **`Location` relativo**
+    (`/api/resolve-cache/...`), mesmo host. O seguidor manual tem de resolver contra a URL atual.
+  - `.../resolve/main/mockups/menucard1.webp` e `styles/ice.webp` → `https://us.aws.cdn.hf.co/xet-bridge-us/...`.
+  - `fa.videorey.in/aiproduct/mockup.json` e `.../menucard1.webp` → 200 sem redirect.
+  - Allowlist fechada: `huggingface.co`, `hf.co` e subdomínios de ambos, `fa.videorey.in`.
+- Catálogo HF: 52 mockups, `file`/`thumb` todos em `mockups/<nome>.webp`, nenhum com `http` ou `..`; maior imagem
+  800×1201 (~0,96 MP). Teto de pixels: 16 MP. `styles.json`: 37 estilos, `url` todas em `huggingface.co`.
+- `MockupLibrary.isDownloaded` (l.191-195) também faz `File(dir, e.file)`: são 5 pontos, não 4. O cache
+  `remote_index.json` (`loadCachedRemoteIndex`) é relido sem filtro: filtrar lá também.
+- Onde a URL do servidor local entra: `TextAiScreen.kt:128` (`urlOk` só confere `http://`/`https://`) e os
+  `SettingField.Kind.URL` de `ImageFactories.kt`. **A regra "`http://` só para localhost/IP privado" fica fora
+  desta task**: muda o que o usuário consegue configurar (nome `.local`, Tailscale `100.x`), pede decisão do dono.
+  O SEC-10 aqui é só o `domain-config`.
+- `local.properties` tem `iawrapper.url=http://<IP privado>:8000`: o debug continua dependendo do `base-config`
+  com cleartext, e o release com esse arquivo falha na trava (esperado, escape por `-Pallow.test.credential=true`).
+- Código comum de download: `core/imaging` (as duas features já dependem dele), arquivo `RemoteFetch.kt`.
 
 ##### Acesso ao Postgres de produção (só leitura)
 - Rodar a partir de `D:\projects\iawrapper`: o vínculo do Railway CLI é guardado por caminho, e o mesmo diretório com
