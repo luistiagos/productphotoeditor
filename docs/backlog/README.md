@@ -2411,9 +2411,46 @@ Frase de abertura da sessão: *"Leia em docs/backlog/README.md a seção 'App: c
   `SettingField.Kind.URL` de `ImageFactories.kt`. **A regra "`http://` só para localhost/IP privado" fica fora
   desta task**: muda o que o usuário consegue configurar (nome `.local`, Tailscale `100.x`), pede decisão do dono.
   O SEC-10 aqui é só o `domain-config`.
-- `local.properties` tem `iawrapper.url=http://<IP privado>:8000`: o debug continua dependendo do `base-config`
-  com cleartext, e o release com esse arquivo falha na trava (esperado, escape por `-Pallow.test.credential=true`).
+- `local.properties` tem `iawrapper.url=http://127.0.0.1:8000` (iawrapper local via `adb reverse`; antes eu tinha
+  anotado "IP privado", errado): o debug continua dependendo do `base-config` com cleartext, e o release com esse
+  arquivo falha na trava (esperado, escape por `-Pallow.test.credential=true`).
 - Código comum de download: `core/imaging` (as duas features já dependem dele), arquivo `RemoteFetch.kt`.
+
+**Implementação: registro (2026-10-30, 3ª sessão).** Feito, um commit por task:
+- `d7b64b8` task 2: `core/imaging::RemoteFetch` (`rejectReason`, `resolveRedirect`, `readLimited`,
+  `checkPixels`, `download`, `downloadImage`, `downloadString`); os `downloadBytes`/`downloadString` da
+  `MockupLibrary` e da `SceneLibrary` delegam para ele. Em erro, lança `IOException`: o `thumb` e o
+  `getOrDownloadRemoteBitmap` continuam caindo no fallback cinza, o `template` propaga (igual a antes).
+  Prova: `RemoteFetchTest` 4/4. Mutações: sufixo sem o `.` (`endsWith(it)`) → 1 falha; teto de leitura
+  desligado → 1 falha.
+- `c87dad9` task 1: `safeChild(dir, name)` e `MockupEntry.hasSafePaths()` em `MockupLibrary.kt`; os 5 pontos
+  usam `safeChild`; `parseAnyMockupCatalog` e `loadCachedRemoteIndex` descartam só as entradas ruins.
+  **Desvio do desenho:** o `..` não é recusado por texto, só pelo `canonicalPath` (`sub/../a.png` dentro da pasta
+  passa). Assim a mutação pedida (tirar o `canonicalPath`) derruba o teste: 2 falhas. `MockupTest` 9/9.
+- `79f2e0c` task 3: `domain-config` sem cleartext para `up.railway.app`, `huggingface.co`, `hf.co`, `videorey.in`.
+  Prova no moto `ZY32LMNN9B` (debug instalado com `adb install -r`, sem limpar dados): tela Mockup carregou o
+  catálogo do HF, e as miniaturas "Online" foram baixadas de novo (`files/content/mockups/mockups/*.webp` com
+  hora 18:50, a da abertura) passando pelo redirect para `us.aws.cdn.hf.co`. **`http://` local: não testado.**
+  O túnel `adb reverse tcp:8000` não chegou a um `http.server` ligado em `127.0.0.1` (nem por `nc` no aparelho,
+  provavelmente porque o adb conecta em `::1`). Subir o servidor em `::` foi negado (exporia na rede), e o
+  `Http.call` vira toda `IOException` em `AiError.Network` sem log, então a UI não distingue cleartext bloqueado
+  de conexão recusada. Para provar: subir o iawrapper local de verdade (o que o `local.properties` aponta) e
+  gerar uma imagem no debug.
+- `271e424` task 4: `res/xml/data_extraction_rules.xml` (todos os domínios, `cloud-backup` e `device-transfer`)
+  e `android:dataExtractionRules` no manifest. Prova: `:app:processReleaseManifest`; o manifest mesclado de
+  release tem `android:dataExtractionRules="@xml/data_extraction_rules"` ao lado do `allowBackup="false"`.
+- `aec9be2` task 5: task `check<Variant>IawrapperConfig` por `androidComponents.onVariants` (build type
+  `release`), dependência do `pre<Variant>Build`. Provas: `assembleRelease` com o `local.properties` → falha
+  ("IAWRAPPER_CREDENTIAL preenchido; IAWRAPPER_URL em http://"); `-Piawrapper.credential=` sozinho → falha pela
+  URL; credencial vazia + URL https → passa; `:app:preDebugBuild` → passa; credencial + `-Pallow.test.credential=true`
+  → `assembleRelease` BUILD SUCCESSFUL com aviso no log.
+- Task 6: `./gradlew :feature:mockup:test :feature:product:test :app:testDebugUnitTest :ai:remote-http:test
+  :core:imaging:testDebugUnitTest` → BUILD SUCCESSFUL, 0 falhas. E2E do relight/ADS no moto não rodado: a task 2
+  mexe só no catálogo (mockups e estilos), não no caminho das imagens do iawrapper.
+
+Fora desta task (registrar quando for pegar): regra "`http://` só para localhost/IP privado" em
+`TextAiScreen.kt:128` e nos `SettingField.Kind.URL` (decisão do dono); `Http.call` sem limite de tamanho
+(achado "Baixo" da tabela); keystore própria e R8 (SEC-08); cofre ilegível → novo login (SEC-09).
 
 ##### Acesso ao Postgres de produção (só leitura)
 - Rodar a partir de `D:\projects\iawrapper`: o vínculo do Railway CLI é guardado por caminho, e o mesmo diretório com
