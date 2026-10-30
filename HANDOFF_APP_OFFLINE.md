@@ -863,3 +863,486 @@ Pedido do dono: baixar todos os mockups, templates de design e assets das aplica
   * presets/prompts.json e artprompts.json: banco de prompts multilíngue
   * presets/fonts.json e fonts/: tipografias em .ttf com imagens de amostra
 * **Consumo no app**: Os endpoints oficiais apontam para as URLs diretas Git LFS (/resolve/main/), realizando o download e cache offline no aparelho (context.filesDir/content/) no primeiro uso.
+
+## 39. Sessão 29 (2026-10-21): Integração do Provedor iawrapper (Vast.ai GPU Serverless) no App Android
+Pedido do dono: dar continuidade na funcionalidade de geração de imagem remota agora que temos o backend `iawrapper` configurado com Vast.ai.
+
+### Feito e testado:
+1. **Cliente HTTP do iawrapper (`IawrapperBackend.kt` e `IawrapperImageFactory.kt`)**:
+   - Criado backend implementando `ImageBackend` no pacote `com.productphoto.ai.remotehttp.image`.
+   - Suporte híbrido e automático de autenticação: credencial `email:senha` (executa login em `POST /api/auth/login/` com cache em memória do token JWT `access`) ou token Bearer JWT direto.
+   - Despacho de tarefas assíncronas em `POST /api/tasks/` com o payload da feature (`feature_slug`, `prompt`, `negative_prompt`, `width`, `height`, `steps`, `seed`).
+   - Polling de status com notificação de progresso na interface (`pending` / `running` → `success` / `failed`).
+   - Cancelamento limpo via coroutine: se o usuário cancela no app, dispara `POST /api/tasks/{id}/cancel/` para liberar a GPU no cluster serverless Vast.ai e não gastar créditos.
+   - Download da imagem gerada por URL absoluta pública (Cloudflare R2 ou Cloudinary CDN), com isolamento de headers para não vazar token JWT para CDNs externos.
+2. **Integração na UI e DI (`ImageGenScreen.kt` e `AppGraph.kt`)**:
+   - `ImageServer.IAWRAPPER` adicionado como primeira opção no seletor de provedor ("iawrapper (Vast.ai / Nuvem)").
+   - Campos configuráveis de endereço (`baseUrl`, padrão `http://10.0.2.2:8000` para emulador ou IP local/produção), credencial segura (salva em `IMAGE_IAWRAPPER_SECRET` no keystore/keystore AEAD) e `featureSlug` (padrão `product-photo-vast`).
+   - Tratamento detalhado de erros HTTP (401 credencial inválida, 402 créditos insuficientes, falhas no cluster Vast.ai).
+   - Registrado no `ProviderRegistry` do `AppGraph`.
+3. **Testes Unitários**:
+   - `IawrapperBackendTest`: 5 testes cobrindo login e obtenção de JWT, token direto, polling com progresso, falhas na task e cancelamento remoto.
+   - `ImageFactoriesTest`: validação de schema, requisitos, indisponibilidade e `supports = setOf(ImageFeature.TXT2IMG)`.
+   - `ImageGenConfigTest`: roundtrip de configuração, persistência segura e mensagens de erro.
+   - Suíte completa `:ai:remote-http:testDebugUnitTest`, `:app:testDebugUnitTest` e montagem do APK `:app:assembleDebug` 100% verdes.
+4. **Teste End-to-End Real no Celular Motorola Físico (`ZY32LMNN9B`)**:
+   - Configurado `adb reverse tcp:8000 tcp:8000`.
+   - Executado teste instrumentado `IawrapperEndToEndInstrumentedTest#generateProductPhotoRemotelyViaIawrapper` diretamente no Motorola.
+   - O aparelho executou login JWT no `iawrapper`, submeteu task da feature `product-photo-vast` para GPU cluster Vast.ai (instância RTX 5090), recebeu a URL, realizou o download da imagem final e decodificou para `Bitmap` nativo em 7,8s (`OK (1 test)`).
+   - Imagem de teste (perfume de luxo com tampa dourada) inspecionada e validada.
+   - Proteção de custos ativa: endpoint Vast.ai escalado de volta para `min_load = 0` (saldo preservado em $8.25).
+
+## 40. Sessão 30 (2026-10-21): Otimizações de Latência Ponta a Ponta na Geração Remota (iawrapper + Vast.ai)
+Pedido do dono: aplicar todas as otimizações para reduzir o tempo total de geração (que no teste inicial levava ~7,87s).
+
+### Diagnóstico de Gargalos (Telemetria Real):
+- **Tempo de GPU na RTX 5090:** Apenas **1,299s** (para 20 passos de inferência).
+- **Overhead Desnecessário identificado (~6,5s):**
+  1. Consulta síncrona `https://run.vast.ai/route/`: **~2,07s** a cada requisição.
+  2. Upload síncrono para o Cloudinary CDN no backend: **~1,34s**.
+  3. Download HTTP da imagem na CDN pelo celular: **~1,15s**.
+  4. Hashing de senha e roundtrip de login JWT inicial: **~1,75s**.
+  5. Passos excessivos na GPU para modelos rápidos (20 steps vs 8 steps): **~0,60s**.
+
+### Otimizações Implementadas:
+1. **Worker Route Cache no backend `iawrapper` (`vast_serverless_provider.py`)**:
+   - Cache em memória de rotas ativas de workers por endpoint com TTL de 180s.
+   - Failover automático: se o worker em cache falhar por erro de conexão ou timeout, invalida o cache na hora e consulta uma nova rota fresca sem quebrar a requisição.
+   - **Ganho:** Elimina a chamada síncrona ao Vast `/route/` (**-2,07s** em chamadas aquecidas).
+2. **Zero-Hop Base64 + Upload Assíncrono para Cloudinary**:
+   - `vast_serverless_provider.py`: O worker do Vast já retorna `data` (Base64). O backend agora expõe `b64_data` diretamente no JSON do output (`outputs[0]['b64_data']`).
+   - O upload de persistência para o Cloudinary foi movido para uma thread em segundo plano (`threading.Thread`) com retry loop para atualizar o `TaskOutput.objects.filter(...)` no banco após persistência, sem bloquear a resposta HTTP.
+   - `core/task_views.py`: Exposição direta de `b64_data` em `_task_detail`.
+   - `IawrapperBackend.kt` (Android): Ao receber o output, se `b64_data` estiver presente, decodifica imediatamente em memória via `java.util.Base64.getDecoder().decode(...)` em **45ms**, eliminando o download HTTP da CDN.
+   - **Ganho:** Economia de **~2,44s** (1,34s de upload síncrono + 1,10s de download móvel).
+3. **Modo Síncrono Inline (`sync=true`) no `POST /api/tasks/`**:
+   - Quando `sync=true` é enviado pelo app Android, o backend executa `_run_inline(task)` e responde `201 Created` já com `status='success'` e o Base64 da imagem no mesmo roundtrip HTTP, eliminando ciclos de polling.
+   - Polling de fallback no app otimizado de 1.500ms para 250ms com backoff.
+4. **Fast Inference Mode (8 Steps na RTX 5090)**:
+   - Default de `steps` reduzido de 20 para 8 em `IawrapperOptions` e `IawrapperImageFactory.kt`.
+   - Tempo de GPU caiu para **0,50s - 0,80s** mantendo excelente qualidade fotográfica.
+5. **Configuração de `ALLOWED_HOSTS`**:
+   - Adicionado `10.0.2.2` e `testserver` em `ALLOWED_HOSTS` do `settings.py` para compatibilidade nativa com emuladores Android e testes de rede.
+
+### Validação e Resultados:
+- **Testes Unitários:** Novos testes em `IawrapperBackendTest` validando retorno imediato Zero-Hop Base64 sem polling nem download externo. Suíte `:ai:remote-http` e `:app` 100% verde.
+- **Teste Instrumentado Android (`IawrapperEndToEndInstrumentedTest`):**
+  - Tempo total de ponta a ponta caiu de **7,876s** para **5,557s** (incluindo overhead de rede transcontinental até a GPU).
+  - Tempo no backend quente caiu para **4,30s**.
+  - Decodificação em memória no Android: **45ms**!
+  - Imagem gerada: [`e2e_optimized_perfume.png`](file:///C:/Users/luist/.gemini/antigravity-ide/brain/b7874fdb-048f-4b5b-8b3d-21fa15713948/e2e_optimized_perfume.png) (frasco de perfume de luxo com tampa dourada, 512×512, 433 KB).
+- **Proteção de Custo:** Endpoint Vast.ai reescalado para `min_load = 0` e instância pausada (saldo preservado em **$7.99**).
+
+## 41. Sessão 31 (2026-10-21): Implementação de ADS-01 (Harmonização & Relighting) e ADS-02 (Expansão Multiformato / Outpainting)
+Pedido do dono: Implementar os itens 1 e 2 do backlog de criação de anúncios (`docs/backlog/README.md`).
+
+### Feito e testado:
+1. **Contratos e Modelos em `:core:ai-api` (`AdCreative.kt`)**:
+   - `LightDirection`: 5 modos de direção de iluminação (`AMBIENT`, `LEFT`, `RIGHT`, `TOP`, `BACKLIGHT`) com seus prompts técnicos descritivos para relighting.
+   - `RelightRequest` e capability `ProductRelighter`.
+   - `AdAspectRatio`: 4 proporções chave para anúncios (`RATIO_1_1` Feed, `RATIO_9_16` Stories/Reels/TikTok, `RATIO_16_9` Banners/YouTube, `RATIO_4_5` Feed Vertical) com plataforma alvo.
+   - `OutpaintPreparation`, `OutpaintRequest` e capability `AdFormatExpander`.
+2. **Matemática e Processamento de Imagem em `:core:imaging`**:
+   - `OutpaintBuilder`: calcula geometria exata da expansão com arredondamento para múltiplo de 8 (`snapTo8`), centraliza a arte original no miolo protegido (*Safe Zone*), espelha e estende suavemente as bordas e gera a máscara de inpainting com transição/feathering suave de 16 px. Suporta `Raster` puro para testes rápidos sem depender de Bitmap.
+   - `LocalRelighter`: harmonizador e relighter determinístico offline. Aplica iluminação direcional (rim light, key light e ambient balance) e equalização de luminância de acordo com a direção escolhida.
+   - `LocalAdFormatExpander`: expansor de formatos local que utiliza `OutpaintBuilder` e delega ao `Inpainter` local ou gera espelhamento suavizado caso offline.
+   - Testes unitários dedicados em `AdCreativeImagingTest.kt` validando expansões 9:16 e 16:9, safe zone, feathering de máscara e realces direcionais de iluminação.
+3. **Pipeline Remoto em `:ai:remote-http` e `:app`**:
+   - `IawrapperBackend`: refatorado com `dispatchAndAwait(...)`, adicionando suporte para envio de `init_image` (Base64), `mask_image` (Base64), `strength` e `light_direction`, além dos métodos `relight(...)` e `outpaint(...)`.
+   - `IawrapperImageFactory`: atualizado para declarar suporte a `TXT2IMG`, `IMG2IMG` e `INPAINT`.
+   - `IawrapperRelighter` e `IawrapperAdFormatExpander` (`com.productphoto.app.ad`): wrappers que despacham as tarefas remotas para o cluster GPU iawrapper, com fallback automático e transparente para os engines locais (`LocalRelighter` e `LocalAdFormatExpander`) caso a rede falhe ou o aparelho esteja offline.
+   - `AppGraph` e `AppProductDeps`: instanciados e conectados via injeção de dependências no fluxo de produto.
+4. **Interface Visual e Experiência do Usuário (`ProductFlowScreen.kt` e `ProductFlowViewModel.kt`)**:
+   - `ProductFlowViewModel`: adicionadas as ações `setLightDirection(...)`, `setSelectedRatio(...)`, `applyRelighting()` e `applyAdOutpaint()`, com medição de tempo (`relightingMillis`, `outpaintMillis`) e feedback de progresso no banner de mensagem.
+   - `ResultStep`: redesign completo com dois novos cards dedicados:
+     - Card de **Harmonização & Relighting IA** com chips seletores de direção de luz e botão de execução.
+     - Card de **Formato do Anúncio (Expansão)** com chips seletores das proporções de anúncio (1:1, 9:16, 16:9, 4:5), indicação da rede social de destino e botão de expansão com outpainting.
+5. **Backend `iawrapper` (`d:\projects\iawrapper`)**:
+   - Atualizado `vast_serverless_provider.py` para repassar `init_image`, `mask_image`, `strength` e `light_direction` para as modificações do worker da GPU.
+   - Atualizado comando Django `seed_vast_features.py` registrando as features oficiais `product-relight` e `product-outpaint` no banco de dados. Executado `python manage.py seed_vast_features` com sucesso.
+6. **Validação**:
+   - Suíte completa de testes unitários (`./gradlew testDebugUnitTest`) 100% verde em todos os módulos.
+   - Compilação do APK (`./gradlew assembleDebug`) 100% verde sem erros.
+
+## 42. Sessão 32 (2026-10-21): Teste End-to-End no Celular Físico Motorola (ADS-01 e ADS-02)
+Pedido do dono: Realizar teste end-to-end completo no celular Motorola conectado dos recursos ADS-01 e ADS-02.
+
+### Executado e validado no aparelho físico (`ZY32LMNN9B`, Motorola moto g86 5G - Android 16):
+1. **Instrumentação E2E Criada (`IawrapperEndToEndInstrumentedTest.kt`)**:
+   - Adicionado método `testRelightingAds01OnDevice()`:
+     - Cria imagem teste de produto (512×512);
+     - Aciona `graph.relighter.relight(...)` com `LightDirection.LEFT` e `strength = 0.65f`;
+     - Executa equalização de luminância e rim light direcional à esquerda com falloff gradual;
+     - Salva e valida arquivo no cache interno do app (`cache/e2e_ads01_relighted_left.png`).
+   - Adicionado método `testOutpaintingAds02OnDevice()`:
+     - Cria arte de anúncio quadrada 1:1 (512×512);
+     - Aciona `graph.adFormatExpander.expand(...)` para formato **9:16** (Stories/Reels/TikTok) com feathering de 16px;
+     - Executa cálculo de geometria com `snapTo8` (512×912 px), centralização com *Safe Zone* protegida e máscara de inpainting;
+     - Salva e valida arquivo no cache interno do app (`cache/e2e_ads02_outpainted_9_16.png`).
+2. **Compilação e Instalação**:
+   - Compilação do APK principal e do APK de testes instrumentados (`./gradlew :app:assembleAndroidTest :app:assembleDebug`).
+   - Instalação via ADB no Motorola:
+     - `adb -s ZY32LMNN9B install -r app/build/outputs/apk/debug/app-debug.apk` -> **Success**
+     - `adb -s ZY32LMNN9B install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` -> **Success**
+3. **Execução no Aparelho Real**:
+   - **ADS-01**: `adb shell am instrument ... #testRelightingAds01OnDevice`
+     - Resultado: **`OK (1 test)`** em **2,351s** (`INSTRUMENTATION_CODE: -1`).
+   - **ADS-02**: `adb shell am instrument ... #testOutpaintingAds02OnDevice`
+     - Resultado: **`OK (1 test)`** em **4,815s** (`INSTRUMENTATION_CODE: -1`).
+4. **Artefatos e Evidências Extraídas**:
+   - Imagens recuperadas do cache privado do app via `adb exec-out run-as com.productphoto.offline`:
+     - [`e2e_motorola_ads01.png`](file:///C:/projects/sandbox/product_photo_offline/e2e_motorola_ads01.png) (512×512, 8.874 bytes): iluminação harmonizada com key light direcional à esquerda.
+     - [`e2e_motorola_ads02.png`](file:///C:/projects/sandbox/product_photo_offline/e2e_motorola_ads02.png) (512×912, 117.363 bytes): expansão vertical 9:16 com arte do produto no centro seguro.
+
+## 43. Sessão 33 (2026-10-21): Implementação e Validação de ADS-04 (Badges e Selos de Conversão no Canvas)
+Pedido do dono: Implementar o ADS-04 do `backlog.md` (biblioteca de selos de garantia, frete, prova social e urgência editáveis e integrados ao Brand Kit).
+
+### Feito e testado:
+1. **Catálogo de Selos Vetoriais SVG (`tools/gen_content.py` e `app/src/main/assets/content/`)**:
+   - Criados 15 novos selos vetoriais SVG de alta conversão estruturados em 4 categorias oficiais:
+     - **Garantia & Confiança**: *"Garantia 30 Dias"*, *"Satisfação Garantida"*, *"Garantia 7 Dias"*, *"Compra 100% Segura"*;
+     - **Frete & Entrega**: *"Frete Grátis Brasil"*, *"Envio Imediato 24h"*, *"Pronta Entrega"*;
+     - **Avaliação Social**: *"5 Estrelas / Nota 4.9 (+1.200 avaliações)"*, *"#1 Mais Vendido"*, *"100% Original"*;
+     - **Promoção & Urgência**: *"50% OFF Hoje"*, *"Compre 1 Leve 2"*, *"Últimas Unidades"*, *"Oferta Relâmpago"*, *"10% OFF no Pix"*.
+   - Executado gerador de assets atualizando `index.json` e gerando os SVGs na pasta `stickers/`.
+2. **Editor Fabric.js Web (`editor-web/`)**:
+   - `editor.ts`: Aprimorado método `set(props)` para aplicar recursivamente cores (`fill`, `stroke`) e papéis de marca (`brandColor`, `brandStroke`) aos nós internos de grupos SVG (`Group`), preservando elementos de contraste e texto branco.
+   - `main.ts`:
+     - Adicionada aba dedicada **"🏷️ Selos"** na barra de navegação com filtros por chips (`Todas`, `Garantia & Confiança`, `Frete & Entrega`, `Avaliação Social`, `Promoção & Urgência`);
+     - Inserção direta de selos no canvas com centralização e escala automática;
+     - Painel de propriedades (`renderProps`) atualizado com o componente `brandColorChips` para harmonização instantânea com as cores do Brand Kit (`Primária`, `Secundária`, `Destaque`, `Texto`);
+     - Exposição global de `window.content`, `window.editor` e `window.contentUrl` para garantir acesso nos testes e DevTools.
+   - `content.ts`: Adicionado `AbortSignal.timeout(1500)` para resiliência 100% offline contra travamento de rede no WebView.
+   - `brandkit.test.ts`: 9 testes unitários incluindo teste de recolorização de badges agrupados com papéis de marca.
+   - `npm test`: **42 testes verdes em 10 arquivos**.
+   - `npm run build`: Assets compilados e sincronizados para `editor/src/main/assets/editor/`.
+3. **Módulo Android e UI (`:feature:product` e `:app`)**:
+   - `ProductFlowScreen.kt`: Botão do `ResultStep` aprimorado para `"🏷️ Criar Anúncio / Inserir Selos no Editor"`.
+   - `./gradlew testDebugUnitTest`: Suíte unitária completa **100% verde** em todos os módulos.
+   - `./gradlew assembleDebug` e `assembleAndroidTest`: APKs compilados com sucesso.
+4. **Validação Instrumentada no Celular Físico Motorola (`ZY32LMNN9B`)**:
+   - Adicionado teste instrumentado `conversionBadgesLibraryAndRecoloringOnDevice` em `EditorExportInstrumentedTest.kt`.
+   - Execução via ADB no aparelho físico:
+     - Verificação do carregamento dos selos e das 4 categorias de conversão;
+     - Inserção do selo `selo-garantia-30` no canvas;
+     - Confirmação de objeto do tipo `group`;
+     - Recolorização dinâmica com `#2563EB` via papel `primary` do Brand Kit;
+     - Exportação e decodificação do bitmap PNG.
+     - **Resultado:** `OK (1 test)` em **1,38s** (`INSTRUMENTATION_CODE: -1`).
+
+## 44. Sessão 34 (2026-10-21): Apontamento para o Servidor Remoto Railway (`iawrapper`)
+Pedido do dono: Mudar o servidor do `iawrapper` para a instância remota no Railway.
+
+### Feito e testado:
+1. **Identificação e Validação da Instância Railway**:
+   - Host remoto ativo: `https://iawrappernew-production.up.railway.app`
+   - Autenticação e credenciais validadas com sucesso (JWT Bearer Token via `/api/auth/login/`).
+2. **Sincronização do Backend e Banco Remoto**:
+   - Criados no PostgreSQL do Railway via API de administração:
+     - `AIProvider`: `vast_ai_serverless` (Vast.ai Serverless GPU)
+     - `AIModelBinding`: `vast_comfy_product_photo` (Vast.ai ComfyUI Product Photo Studio)
+     - `Features`: `product-photo-vast` (Foto de Produto GPU), `product-relight` (ADS-01) e `product-outpaint` (ADS-02).
+   - Enviadas as melhorias locais do backend (`ia_wrapper`) para o GitHub (`main -> origin/main` em `iawrappernew`):
+     - Zero-Hop Base64, worker route cache, inline execution para `sync=true` e suporte a relight/outpaint.
+3. **Atualização no App Android (`product_photo_offline`)**:
+   - `AppGraph.kt`: `baseUrl` padrão de `relighter` e `adFormatExpander` atualizado de `http://10.0.2.2:8000` para `https://iawrappernew-production.up.railway.app`.
+   - `ImageFactories.kt`: `IawrapperImageFactory.BASE_URL` padrão e exemplo atualizados para `https://iawrappernew-production.up.railway.app`.
+   - `ImageGenScreen.kt`: Placeholder do servidor `ImageServer.IAWRAPPER` atualizado para `https://iawrappernew-production.up.railway.app`.
+   - `IawrapperEndToEndInstrumentedTest.kt`: Adicionada URL do Railway como primeira opção prioritária na resolução dinâmica de servidor.
+4. **Validação**:
+   - `./gradlew testDebugUnitTest`: Suíte unitária 100% verde em todos os módulos.
+   - `./gradlew assembleDebug`: Compilação do APK concluída com sucesso em 18s.
+
+
+
+
+## 44. Sessão 34 (2026-10-22): Tela "Gerar imagem" para o usuário leigo (sem configuração técnica)
+Pedido do dono: o usuário final é leigo; tirar da tela tudo o que é técnico (tipo de servidor, endereço, slug da
+feature, credencial, quantidade). Decisões do dono nesta sessão:
+- **Só nuvem, sem seletor.** Não há gerador no aparelho (fase 8); A1111/ComfyUI são servidores de rede, que um leigo
+  não tem. As factories `http.a1111`/`http.comfyui` continuam registradas no código, mas saem da tela. O seletor
+  "No aparelho / Na nuvem" volta quando a fase 8 existir.
+- **Credencial vem do build:** `iawrapper.credential` (email:senha ou JWT) em `local.properties` (fora do git), ou
+  gradle property / env `IAWRAPPER_CREDENTIAL`, injetada em `BuildConfig`. Risco aceito: dá para extrair do APK, então
+  use uma conta de serviço com limite de créditos. O caminho mais seguro (token por instalação emitido pelo iawrapper)
+  fica para depois: backlog **SEC-01** (`docs/backlog/README.md`, Épico 10).
+- Saem também: o card Referência/ControlNet, o checkbox de tradução (que passa a ser sempre ligada) e o botão Salvar.
+  A quantidade fica fixa em 1, e os formatos mantêm os pixels no rótulo.
+
+### Análise (símbolos abertos)
+- `ImageGenScreen.kt::ImageGenScreen`: o seletor `ImageServer` + os campos baseUrl/featureSlug/checkpoint/secret
+  alimentam `save()` → `graph.saveImageChain(imageChainOf(...))`; `generate()` chama `save()` antes de cada geração.
+- `ImageFactories.kt::IawrapperImageFactory.create`: lê `baseUrl` (sem ele lança `AiError.Unavailable(emptyList())`),
+  `featureSlug`, e a credencial via `SecretStore.get(settings[authSecret])`. `requirements` exige `Requirement.Secret`
+  se `authSecret` estiver presente, e o `checker` do `AppGraph` usa `secrets.get(key) != null`.
+- `IawrapperImageFactory.supports()` = TXT2IMG/IMG2IMG/INPAINT, **sem CONTROL_\***: o card de ControlNet só dava erro
+  com o iawrapper.
+- `AppGraph::relighter`/`adFormatExpander`: leem `secrets.get(IMAGE_IAWRAPPER_SECRET)` + o baseUrl da cadeia de imagem,
+  com fallback literal para a URL de produção.
+- `ImageServer`/`imageGenStateOf`/`imageChainOf`/`secretNameFor` têm só estes usos: a própria tela,
+  `ImageGenConfigTest` e `IawrapperEndToEndInstrumentedTest` (`grep` em todo o repositório).
+- O app não tinha `BuildConfig` (AGP 8.7.3: `buildFeatures.buildConfig` vem desligado por padrão).
+
+### O que fazer
+1. `app/build.gradle.kts`: `buildConfig = true`; campos `IAWRAPPER_URL`, `IAWRAPPER_FEATURE`, `IAWRAPPER_CREDENTIAL`
+   (local.properties → gradle property → env → padrão).
+2. `AppGraph`: `secrets` embrulhado em `BuiltInSecretStore`, que serve `image.iawrapper` = credencial do build quando
+   não vazia (os pedidos de imagem, relight e outpaint passam todos por ela); o fallback de URL vira
+   `BuildConfig.IAWRAPPER_URL`.
+3. `ImageGenScreen.kt`: remover ImageServer/ImageGenSettings/imageGenStateOf/imageChainOf/secretNamefor e as constantes
+   A1111/Comfy; criar `cloudImageChain(...)` (fixa) e gravá-la só se for diferente da salva (não invalidar a cadeia a
+   cada geração, o que perderia o JWT em cache); `describeImageError(e)` com mensagens para leigo; UI só com
+   pedido, evitar, formato, Gerar/Cancelar, progresso e resultados.
+4. Testes: `ImageGenConfigTest` (a cadeia fixa, as mensagens e `BuiltInSecretStore`) e o E2E passando a usar
+   `cloudImageChain(baseUrl)`.
+
+### Feito e testado
+- Tasks 1–4 implementadas como descrito acima. Na tela ficaram: o pedido, "Evitar", o formato, Gerar/Cancelar, o
+  progresso (texto neutro "Criando a imagem" + fração; as etapas do servidor não aparecem mais) e os resultados com
+  "Ampliar 2×". O nome do provedor saiu das mensagens de status.
+- `./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin` → verde (`ImageGenConfigTest` 4/4; `:app` 9/9).
+- **Não testado no aparelho.** O `BuildConfig.IAWRAPPER_CREDENTIAL` gerado está **vazio**, porque o `local.properties`
+  ainda não tem `iawrapper.credential`: sem ela o pedido vai sem autenticação e o usuário vê "recusou o acesso".
+
+### Próximo passo
+1. Dono: criar uma conta de serviço no iawrapper com limite de créditos e pôr `iawrapper.credential=email:senha` no
+   `local.properties`.
+2. `./gradlew :app:assembleDebug`, instalar no moto (`ZY32LMNN9B`) e gerar uma imagem pela tela. Rodar também
+   `IawrapperEndToEndInstrumentedTest#generateProductPhotoRemotelyViaIawrapper`.
+- (2026-10-22) O card "Gerar imagem" da home (`HomeScreen.kt`) também foi trocado: dizia "servidor Stable Diffusion seu
+  (A1111 ou ComfyUI)". APK instalado no moto por **adb Wi-Fi**, e a tela nova foi conferida por print. O USB não
+  enumera (o Windows marca o "moto g86 5G" como `Present=False`). Pareamento Wi-Fi: a porta de pareamento vem de
+  `adb mdns services` (`_adb-tls-pairing`), e não é a porta mostrada na tela de Depuração por Wi-Fi, que é a de conexão.
+  A geração em si **não foi testada**: a credencial no build continua vazia.
+- (2026-10-22) Credencial de teste (`admin@test.com`, conta **admin**: só para o APK de desenvolvimento) colocada no
+  `local.properties` e APK reinstalado. O 401 sumiu. A geração pela tela agora falha com "Não foi possível gerar a imagem":
+  as tasks 4 (app) e 5 (curl direto) terminam `failed` em ~0,2 s com
+  `Chave de API nao configurada para Vast.ai (esperado em VAST_API_KEY)`. **A causa está no backend de produção**
+  (Railway sem a env `VAST_API_KEY`), não no app. Próximo passo: configurar `VAST_API_KEY` no serviço do Railway e
+  repetir a geração no moto.
+- (2026-10-22, cont.) Railway CLI logado e projeto `iawrapper`/production vinculado em `d:\projects\iawrapper`.
+  `VAST_API_KEY` **existe** no serviço `iawrappernew` (o dono do domínio), mas o deploy ativo continua sendo
+  `786ea4b2` de 2026-10-21 01:06, anterior à variável. `railway redeploy` responde
+  **"Deploys have been paused due to an upstream issue"**: os deploys estão pausados por um incidente do Railway.
+  Ficou um laço em segundo plano tentando o redeploy a cada 5 min por 1 h. Depois do deploy, falta testar no
+  servidor e no moto. As tasks 4–20 falharam e consumiram 1 crédito cada da conta de teste.
+- **Segurança:** um print do Raw Editor do Railway passou pelo chat com `VAST_API_KEY`, `REPLICATE_API_TOKEN`,
+  `CLOUDINARY_API_SECRET` e `SECRET_KEY` visíveis. Recomendado: rotacionar todas essas chaves.
+
+## 45. Sessão 35 (2026-10-22): iawrapper local + moto apontando para o PC
+Pedido do dono: testar com o iawrapper local (não o Railway), com o moto acessando o servidor do PC.
+
+### Configuração feita
+- Backend: `d:\projects\iawrapper\ia_wrapper`, SQLite (`USE_SQLITE` vale `True` por padrão e não há `DATABASE_URL`),
+  `python manage.py runserver 127.0.0.1:8000 --noreload` com env `BACKGROUND_INLINE_TASKS=True` (em `DEBUG=True` o
+  padrão é `False`, e aí o POST /api/tasks/ ficaria preso até a GPU responder). As features Vast têm
+  `use_temporal=False`, então não precisa de worker Temporal. `migrate` sem pendências; `seed_vast_features` rodado.
+  Conta `admin@test.com` já existia no SQLite; `add_credits.py` somou +500 créditos (saldo 1983).
+- Moto (`ZY32LMNN9B`, adb Wi-Fi `192.168.18.112:35281`): `adb reverse tcp:8000 tcp:8000`, então o app usa
+  `http://127.0.0.1:8000` sem depender de IP da rede nem do firewall. O `adb reverse` some quando o adb reconecta: refazer.
+- App: `local.properties` ganhou `iawrapper.url=http://127.0.0.1:8000` (o `BuildConfig.IAWRAPPER_URL` gerado confere).
+  APK debug reinstalado. Cleartext já liberado em `network_security_config.xml`. **Remover a linha para voltar ao Railway.**
+- Provado: login local `POST /api/auth/login/` → 200 (do PC); `nc -z 127.0.0.1 8000` no moto → porta ok.
+- `IawrapperEndToEndInstrumentedTest::resolveBaseUrl` tenta o Railway primeiro, então não serve para o teste local sem alteração.
+
+### Bloqueio: worker do Vast parado
+- A task 11 (curl direto no servidor local, `product-photo-vast`, 512², 8 steps) fica em `processing` sem fim:
+  `vast_serverless_provider.py::_get_route` faz loop em `https://run.vast.ai/route/` e, sem `deadline` no modo inline,
+  nunca desiste.
+- `/route/` responde `total workers: 1 loading workers: 0 standby workers: 0` sem `url`. Endpoint 42006 (`iawrapper`):
+  `cold_workers=0`, `max_workers=1`, `min_load=0`. Worker 57085897 com `status=unavail`; a instância está
+  `intended_status=stopped` / `actual_status=exited` (RTX 5090, US$ 0,75/h).
+- **Causa (corrigida):** `cold_workers=0` está certo, porque o wake on demand é do autoscaler do Vast (o iawrapper
+  não tem nem precisa de código de wake). O autoscaler não consegue religar 57085897 porque a GPU da máquina 137398
+  foi alugada por outro cliente (`POST /api/v0/bundles/` com `machine_id=137398` → 1 oferta, `rented=True`, 0 livres).
+  Instância parada no Vast só volta com a GPU do host livre. E com `max_workers=1` o worker `unavail` ocupa a única
+  vaga, então nada novo é recrutado.
+- Próximo passo (decisão do dono, mexe na conta do Vast): `max_workers` ≥ 2 no endpoint 42006 (ainda escala a zero) e/ou
+  destruir o worker preso 57085897 para o autoscaler recrutar outro (cold start com download da imagem). Depois,
+  repetir a geração pela tela do moto.
+- Fora do escopo, mas é um defeito: `_get_route` sem `deadline` gera loop infinito e uma thread presa por task.
+- **Feito (decisão do dono):** endpoint 42006 com `max_workers=2` (`PUT /api/v0/endptjobs/42006/` → `success`; conferido:
+  `max_workers=2, cold_workers=0, min_load=0`) e instância presa 57085897 destruída (`DELETE /api/v0/instances/57085897/` → 200).
+  O autoscaler recrutou o worker 57247072 (RTX 6000D). A task 11 terminou `success` às 17:24:54Z com 1 output, e o worker
+  voltou sozinho para `stopped`: a escala a zero continua funcionando. `max_workers` é teto, não reserva; com
+  `min_load=0`/`cold_workers=0` só existe o worker recrutado sob demanda. Parado, ele cobra apenas o disco.
+- O daemon do adb morreu no meio da sessão e levou junto o servidor local (exit 4, sem traceback) e o `adb reverse`.
+  Refeito: `adb connect 192.168.18.112:35281`, `adb reverse tcp:8000 tcp:8000`, servidor no ar de novo.
+- Falta: gerar uma imagem pela tela do moto.
+
+### 45.1 Geração pela tela do moto fica "gerando" para sempre (2026-10-22)
+**Análise (símbolos abertos):**
+- Task 12 (app, `product-photo-vast`, 512²) em `processing` desde 19:52:14Z. O log do servidor mostra o login, mas nenhuma
+  linha do `POST /api/tasks/`, porque o POST ainda não respondeu.
+- `IawrapperBackend.kt::IawrapperOptions`: `sync=true` (padrão), `maxWaitMs=300_000`. Em `dispatchAndAwait` o
+  `maxWaitMs` só vale no laço de polling, **depois** do POST. O POST usa `Http.kt` `readTimeoutMs=600_000`, então o app
+  espera até 10 min e cai com erro de rede genérico.
+- `task_views.py::task_list_create`: com `sync` e `use_temporal=False`, chama `_run_inline(task)` no próprio request.
+  `vast_serverless_provider.py::_get_route`: com `deadline=None`, faz `while True` enquanto `/route/` não traz `url`. Nunca desiste.
+- Vast: worker 57247072 (recrutado depois da destruição do 57085897) está `unavail`. A instância está
+  `intended_status=stopped`, na máquina 151950, com as 4 ofertas da máquina em `rentable=False` (host fora do mercado).
+  `/route/` → `total workers: 1 loading 0 standby 0`. Mesmo com `max_workers=2`, nenhum substituto foi recrutado.
+**Hipótese descartada:** "`max_workers=1` era a única trava". Com 2 também não recrutou; o worker parado preso no host é recorrente.
+**O que fazer (proposta, falta a decisão do dono):**
+1. Backend `_get_route`/`_process_image`: deadline também no modo inline (ex.: 180 s), falhando com
+   `ProviderCapacityError` (mensagem "sem GPU disponível") e estornando o crédito. Teste: `core/tests/test_serverless_providers.py`
+   com `/route/` mockado sem `url` → falha dentro do deadline.
+2. Backend: autocura. Quando o `/route/` não traz `url` por N s e `get_endpoint_workers` mostra todos `unavail`,
+   destruir os `unavail` (`DELETE /api/v0/instances/{id}/`) para o autoscaler recrutar outro. Teste: mocks das duas chamadas.
+3. App `dispatchAndAwait`: o POST com `sync` usa `readTimeoutMs` = `maxWaitMs`, e o estouro vira uma mensagem para leigo
+   ("servidor ocupado, tente de novo"). Teste: `IawrapperBackendTest` com servidor que segura o POST.
+**Complemento da análise (antes de editar):**
+- `activities.py:232` (Temporal) passa `deadline = time.monotonic() + ...`, assim como `mock_provider`/`simplerllm_image`, mas
+  `vast_serverless_provider.py` (`_get_route` e `_call_worker`) compara com `time.time()`. Via Temporal, o prazo daria
+  como esgotado na hora. Hoje está latente (Vast com `use_temporal=False`). O único teste que depende disso é
+  `test_vast_capacity_error_when_no_worker_until_deadline` (`time.time() + 0.05`).
+- `_run_inline` → em exceção, `TaskService.complete_failure` marca `failed` e estorna `credits_charged`. Basta levantar o erro.
+- Worker id do `get_endpoint_workers` = id da instância (57085897 foi lido em `/instances/57085897/`).
+- App: falha da task → `AiError.Remote(500, msg)` → `describeImageError` → "Não foi possível gerar a imagem. Tente de novo em instantes.".
+**Tasks fechadas:**
+1. Backend `VastAIServerlessProvider.process`: sem `deadline`, usa `monotonic() + binding_config.max_wait_seconds` (padrão 240 s,
+   abaixo dos 300 s do app). `_get_route`/`_call_worker` passam a usar `time.monotonic()`; teste existente ajustado.
+2. Backend `_get_route`: depois de 30 s sem `url` (e a cada 60 s), `_heal_unavailable_workers(endpoint)` → `endptjobs` (id pelo
+   nome) → `get_endpoint_workers` → `DELETE /instances/{id}/` só dos `status == 'unavail'`. Uma falha na autocura é logada e não
+   derruba o pedido. Testes: autocura destrói só os unavail; deadline inline padrão aplicado.
+3. App `IawrapperBackend.dispatchAndAwait`: o POST usa `readTimeoutMs = maxWaitMs`. Teste em `IawrapperBackendTest`.
+**Feito e testado (2026-10-22):**
+- Worker preso 57247072 destruído (decisão do dono). O Vast recrutou o 57265893 (RTX PRO 4000). A task 12 (app) terminou
+  `success` às 20:04:34Z, mas o app já tinha desistido, porque o POST estava aberto desde 19:52.
+- Tasks 1–3 implementadas como descrito. Backend: `python manage.py test core.tests` → `Ran 139 tests ... OK` (3 novos:
+  `test_vast_inline_without_deadline_uses_binding_max_wait`, `test_vast_route_heals_unavailable_workers_while_waiting`,
+  `test_vast_heal_destroys_only_unavailable_workers`). Obs.: `manage.py test core` quebra na descoberta (conflito com o
+  pacote `core/tests/`); use `core.tests`. App: `IawrapperBackendTest` 7/7 (novo:
+  `sync POST held by the server gives up at maxWaitMs...`), `:ai:remote-http` 43/43, `:app` 9/9, APK reinstalado.
+- Servidor local reiniciado com o código novo. A task 13 `sync` (curl, mesmo corpo do app) deu `success` em 6,1 s com `b64_data`.
+- Backend sem commit (repo `d:\projects\iawrapper\ia_wrapper`): `core/providers/vast_serverless_provider.py`,
+  `core/tests/test_serverless_providers.py`. Produção (Railway) ainda roda o código antigo.
+- Falta: o dono gerar pela tela do moto.
+- **Validado no moto (2026-10-22 17:14 local):** "Gerar imagem" com o pedido "caneca vermelha de ceramica sobre mesa de
+  madeira", Quadrado 512×512 → "Pronta em 6.3 s", imagem correta (conferida por print), via servidor local + `adb reverse`.
+- Pendente: commits (app e backend) e deploy do backend no Railway; tirar `iawrapper.url` do `local.properties` ao voltar à produção.
+
+## 46. Sessão 36 (2026-10-22): Seletor de formato único (redes sociais + personalizado, com prévia visual)
+**Pedido do dono:** em toda tela que escolhe tamanho, um componente único com os formatos de hoje + post/capa/reels do
+Facebook, Shorts/thumbnail/capa do YouTube, vídeo e anúncio do TikTok, post/reels/perfil do Instagram e tamanho
+personalizado, cada um com um desenho que mostra o formato.
+**Símbolos abertos (onde se escolhe tamanho hoje):**
+- `app/.../ImageGenScreen.kt::ImageFormat` — enum de 3 (`Quadrado 512×512`, `Retrato 512×768`, `Paisagem 768×512`) em
+  `FilterChip`; `generate()` manda `format.width/height` direto no `ImageRequest` (sem teto; o provedor faz `snapTo8`).
+- `app/.../HomeScreen.kt::NEW_SIZES` — 7 `Triple` num `AlertDialog` de texto → `onNewDesign(name, w, h)`.
+- `editor-web/src/main.ts::SIZES` + `showSize()` — 10 presets em chips + campos L/A (16..8000) → `editor.resize(W, H, scale)`.
+- `core/ai-api/.../AdCreative.kt::AdAspectRatio` — enum de 4 proporções; usado por `OutpaintBuilder.buildRaster/build`
+  (só `widthRatio/heightRatio`), `LocalAdFormatExpander` (`label`), `IawrapperAdFormatExpander.prepare`,
+  `ProductFlowViewModel` (`selectedRatio`, `applyAdOutpaint`: `label`, `platformTarget`), `ProductFlowScreen` (chips de
+  `AdAspectRatio.entries`), testes `AdCreativeImagingTest` e `IawrapperEndToEndInstrumentedTest` (`RATIO_9_16`, `RATIO_16_9`).
+- Mockup (`feature/mockup`): a proporção vem do slot do mockup, não é escolha do usuário — fora do escopo.
+**Decisões:**
+1. Novo módulo `:core:ui` (Compose): `MediaFormat` + catálogo `MediaFormats` + `FormatPicker` (botão com o formato atual →
+   folha com grade de cartões desenhados em `Canvas`, agrupados, + aba "Personalizado" com L/A e teto `maxSide` por tela).
+   `app` e `feature:product` passam a depender dele.
+2. Editor web: o mesmo catálogo em `editor-web/src/formats.ts` (mesmos ids e tamanhos) e o desenho em SVG; o Kotlin não
+   lê o TS em runtime, então um teste JVM (`MediaFormatsTest`) lê `formats.ts` e confere ids/tamanhos — uma divergência quebra o teste.
+3. `AdAspectRatio` vira `data class` com os 4 de hoje no `companion` (os testes e chamadores compilam sem mudar);
+   o ViewModel converte o `MediaFormat` escolhido. Depois da expansão, o resultado é redimensionado para o tamanho exato do formato.
+4. Gerar imagem: se `w×h` ≤ 512×768 px gera no tamanho pedido (os 3 de hoje não mudam); acima disso gera na mesma
+   proporção dentro desse orçamento (lado maior ≤ 1024, múltiplo de 8) e redimensiona para o tamanho exato. Função pura
+   `generationSize(w, h)` com teste. Teto do personalizado ali: 2560 px.
+5. "Capa de página do Instagram" não existe (o Instagram não tem capa). Dono (2026-10-22): sem substituto; capa só a do
+   Facebook. O "Perfil Instagram" que chegou a entrar foi retirado.
+**Tamanhos (px):** Post Instagram 1080×1350 · Reels Instagram 1080×1920 · Post Facebook
+1080×1080 · Capa Facebook 1640×624 · Reels Facebook 1080×1920 · Shorts YouTube 1080×1920 · Thumbnail YouTube 1280×720 ·
+Capa do canal YouTube 2560×1440 · Vídeo TikTok 1080×1920 · Anúncio TikTok 1080×1920 · básicos (Quadrado 1080², Retrato
+2:3 1080×1620, Paisagem 3:2 1620×1080, Banner 16:9 1920×1080, Story 9:16 1080×1920) · impressão (Logo 1000², Cartão
+1050×600, A4 1240×1754, A3 1754×2480) · rápidos da IA (os 3 de 512, só em Gerar imagem).
+**Tasks (arquivo → prova):**
+1. `:core:ui` `MediaFormats.kt`, `FormatPicker.kt` → `MediaFormatsTest` (ids únicos, tamanhos > 0, paridade com `formats.ts`).
+2. `ImageGenScreen.kt`: `FormatPicker` + `generationSize` → teste em `ImageGenConfigTest`.
+3. `HomeScreen.kt`: `AlertDialog` → `FormatPicker` em modo folha.
+4. `AdCreative.kt` + `ProductFlowViewModel/Screen`: `FormatPicker` → `AdCreativeImagingTest` continua verde.
+5. `editor-web/src/formats.ts` + `showSize()` → `test/formats.test.ts`; `npm run build` regenera `editor/src/main/assets/editor`.
+
+## 47. Sessão 37 (2026-10-22): [BUG] miniaturas do Mockup aparecem cinza (selo "Online")
+**Sintoma:** na grade do Mockup, todos os itens remotos (Hugging Face) mostram um quadrado cinza no lugar da miniatura.
+**Símbolos abertos:**
+- `feature/mockup/.../MockupScreen.kt::TemplateGrid` — `remember(e.id) { library.thumb(e).asImageBitmap() }`: roda
+  **na composição, na main thread**.
+- `feature/mockup/.../MockupLibrary.kt::thumb` — cache em disco → assets → `downloadBytes` (HttpURLConnection) dentro de
+  `runCatching`; em erro devolve `createFallbackBitmap()` (160×160 LTGRAY = o quadrado cinza da tela). O erro é engolido.
+- Na main thread o Android lança `NetworkOnMainThreadException` → `runCatching` engole → cinza; e o `remember(e.id)` guarda
+  o cinza até um novo `syncVersion`. Nenhum log porque a exceção é engolida.
+**Prova de que o servidor está ok:** `curl -sIL .../resolve/main/mockups/menucard1.webp` → 302 → 200 `image/webp`
+167180 bytes; `file` → WebP 800x533. `index.json` remoto: `thumb = "mockups/<nome>.webp"`, `remoteBaseUrl` com `/` final
+(o `resolveRemoteUrl` faz `trimEnd('/')`, ok).
+**Hipótese descartada:** URL/CSP/redirect do HF — o `curl` acima baixa a imagem; `instanceFollowRedirects = true`
+(mesmo host→CDN https, segue).
+**O que fazer:**
+1. `MockupLibrary.loadThumb(e)` suspend em `Dispatchers.IO`.
+2. `TemplateGrid`: `produceState<ImageBitmap?>(null, e.id) { value = library.loadThumb(e).asImageBitmap() }`; enquanto
+   null, mostra o fundo do card (sem bloquear a UI).
+3. Prova: build + abrir o Mockup no moto (`ZY32LMNN9B`) e ver as miniaturas.
+**Feito e testado (2026-10-22):**
+- Tasks 1–5 implementadas como descrito. Novos: `core/ui` (`MediaFormats.kt`, `FormatPicker.kt` com `FormatPicker`,
+  `FormatPickerSheet`, `FormatThumbnail`, `parseCustomSize`), `editor-web/src/formats.ts` (`formatSvg`, `findFormat`),
+  `editor-web/test/formats.test.ts`. `AdAspectRatio` agora é `data class`; o `UiState.selectedRatio` virou `adFormat: MediaFormat`.
+- Testes: `MediaFormatsTest` 4/4 (inclui a paridade com `formats.ts`), `ImageGenConfigTest` 5/5 (novo: `generation size …`),
+  `AdCreativeImagingTest` 3/3, vitest 46/46, `tsc --noEmit` limpo, `:app:compileDebugAndroidTestKotlin` ok.
+- `npm run build` regenerou `editor/src/main/assets/editor` (index-B-gjrdto.css, index-JIISOCpS.js); APK debug instalado no moto.
+- **Falta:** conferir no moto (estava bloqueado na hora): Gerar imagem → "Trocar" → folha com os desenhos; gerar um
+  "Reels Instagram" e ver o resultado 1080×1920; Home → Novo design; editor → Tamanho; Foto de produto → Formato do anúncio.
+- Sem commit.
+**Feito e testado (2026-10-22):** `loadThumb` + `produceState` implementados; `:app:assembleDebug` ok; instalado no moto
+(`ZY32LMNN9B`): Mockup → miniaturas reais (Menucard1, Photoframe, T Shirt1, Photoframe1, Perfume, Milkpack1, …).
+Observação: no índice remoto `thumb == file` (mesmo `.webp`), então baixar a miniatura já faz `isDownloaded` = true e o
+selo "Online" some depois do primeiro carregamento — comportamento correto (o modelo fica offline).
+**Pedido 2 do dono (2026-10-22): formatos pequenos, posts do LinkedIn e uma foto de perfil para todas as redes.**
+- Novos grupos/entradas (Kotlin e TS): **Foto de perfil** 800×800 (círculo; 800 é o recomendado pelo YouTube, o maior entre
+  Instagram 320, Facebook ≥320, X 400, LinkedIn 400, TikTok 200; as redes reduzem); **LinkedIn**: post 1200×627, quadrado
+  1200×1200, vertical 1080×1350, capa do perfil 1584×396 (4:1, entra na expansão de anúncio); **Pequenos**: ícone 256², quadrado 500², retrato 400×600, paisagem 600×400, foto 4:3 640×480,
+  vertical 360×640, widescreen 640×360, anúncio de site 300×250, banner de site 728×90.
+- Problemas que os pequenos trazem, e a decisão:
+  1. Gerar imagem em 256 px ou 728×90 exato daria imagem ruim (o modelo trabalha perto de 512). `generationSize` passa a usar
+     o tamanho exato só quando o menor lado ≥ 512, a área ≤ 512×768 e o maior lado ≤ 1024 (os 3 rápidos continuam iguais).
+     Fora disso: orçamento de área, proporção limitada a 4:1. O resultado vai para o tamanho final com **corte central +
+     escala** (`feature/mockup/Crop.kt::centerCrop`, que o `app` já usa), não esticando — com o limite de 4:1, esticar distorceria.
+  2. Expansão de anúncio (outpaint) em 728×90 (8:1) faria um canvas de ~8000×1024 a partir de uma foto de 1024 px. `forAds`
+     fica só com proporção entre 1:4 e 4:1, e o personalizado ali ganha o mesmo limite (`parseCustomSize(maxAspect)`).
+- Prova: `MediaFormatsTest` (paridade, `forAds` sem proporção > 4, `maxAspect`), `ImageGenConfigTest` (pequenos geram no
+  orçamento, 728×90 → 4:1, rápidos inalterados), vitest.
+
+## 48. Sessão 38 (2026-10-22): Levantamento de segurança do app e do iawrapper (hub multi-app), sem código
+Pedidos do dono, nesta ordem:
+1. "Hoje o app está totalmente inseguro; o que fazer em autenticação e segurança para publicar?"
+2. Requisitos novos:
+   - cada usuário cria a própria conta no iawrapper (a conta padrão é só para testes);
+   - login Google + e-mail/senha;
+   - nenhum crédito grátis;
+   - login na primeira abertura e sessão guardada;
+   - RevenueCat é feature futura, servidor↔servidor com o iawrapper (a rota atual é herança do app legado).
+3. "Levante todos os possíveis problemas de segurança do app e do iawrapper, lembrando que o iawrapper será um hub
+   para vários produtos de IA em vários apps."
+
+Resultado:
+- Só análise e planejamento, sem código. O registro completo está em `docs/backlog/README.md`, **Épico 11**:
+  17 frentes, achados com gravidade e marcação V/A, provas, hipóteses descartadas, fases e verificação. O Épico 10
+  (token por instalação) foi **substituído** pelas contas individuais.
+- **Exposto agora em produção (Fase 0, ações do dono):**
+  1. SEC-02: `admin@test.com` é admin no Railway, com senha de lista de senhas comuns. A senha está literal em
+     `create_admin.py`, no `local.properties` e 3× no `IawrapperEndToEndInstrumentedTest.kt` (sem commit; não
+     commitar assim).
+  2. SEC-03: webhook da RevenueCat sem autenticação (probe com token inválido → 400). Correção de hoje: tirar a rota.
+  3. SEC-04: o `SECRET_KEY`, que assina os JWT, passou no chat (§44). Rotacionar junto com as chaves dos provedores.
+  4. Confirmar se a produção tem `DATABASE_URL` e se o worker Trellis está exposto.
+- **Crítico no código (Fase 1):** SEC-15.1. O `workflow_json` do usuário substitui o da feature
+  (`vast_serverless_provider.py:86`), e nenhum schema tem `additionalProperties:false`. Com crédito, qualquer usuário
+  roda um grafo ComfyUI arbitrário na GPU paga. Hoje a cadeia está aberta: cadastro livre + webhook.
+- Para as contas individuais:
+  - `auth/refresh/` não funciona com o `core.User` (500);
+  - o `token_blacklist` quebraria o login;
+  - o `is_active` é ignorado;
+  - o limite de login é burlável pelo `X-Forwarded-For` (DRF 3.16.1).
+- Nesta sessão a senha do admin apareceu numa saída de ferramenta (um `sed` de máscara falhou). Mais um motivo para
+  trocá-la.
+- **Próximo passo:**
+  - dono: Fase 0 no Railway;
+  - código: numa sessão nova no backend, ler o Épico 11 e começar pela Fase 1 (SEC-15.1–3, SEC-14.3, SEC-15.5,
+    SEC-07.2).

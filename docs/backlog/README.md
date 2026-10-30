@@ -282,7 +282,7 @@ Com o cluster de GPU remota operacional, podemos executar fluxos pesados de infe
 |---|---|---|---|
 | 1 | Alto (V) | `CustomJWTAuthentication.get_user`, `login` e `google_login` ignoram `is_active`: banir não corta acesso | Checar nos três e no refresh |
 | 2 | Alto (V) | `auth/refresh/` busca no `auth.User` → 500 ou usuário errado | `TOKEN_REFRESH_SERIALIZER` próprio |
-| 3 | Alto (V+A) | Nada revoga token. O `logout` falha calado. O `token_blacklist` quebraria o login. Trocar senha ou e-mail não derruba sessões | `User.token_version` no token, conferido na autenticação e no refresh. **Parte feita (SEC-07.8, `d19e073`, 2026-10-30):** logout e rotação revogam o refresh (blacklist com `CoreRefreshToken`). **Falta:** troca de senha/e-mail derrubar as sessões |
+| 3 | Alto (V+A) | Nada revoga token. O `logout` falha calado. O `token_blacklist` quebraria o login. Trocar senha ou e-mail não derruba sessões | `User.token_version` no token, conferido na autenticação e no refresh. **Parte feita (SEC-07.8, `d19e073`, 2026-10-30):** logout e rotação revogam o refresh (blacklist com `CoreRefreshToken`). **Falta:** troca de senha/e-mail derrubar as sessões (implementado em `7082a78`, sem push) |
 | 4 | Baixo (A) | `SessionAuthentication` ligada: a sessão do Django admin vale como outro `core.User` com o mesmo id | Tirar da API |
 | 5 | Médio (A) | O SPA guarda o refresh em `localStorage` e não tem CSP | Cookie `HttpOnly`/`Secure`/`SameSite` + CSP |
 
@@ -484,11 +484,12 @@ Identificação do app:
   - `strings` no APK release não acha credencial.
 
 #### A confirmar / decisões em aberto
-- Produção tem `DATABASE_URL` (Postgres)? (SEC-04.6)
+- ~~Produção tem `DATABASE_URL` (Postgres)? (SEC-04.6)~~ Sim (2026-10-30): o serviço `iawrappernew` tem
+  `DATABASE_URL`, e o Postgres responde (ver "SEC-13.2 — cadastro por app").
 - O worker Trellis está exposto ou atrás do PyWorker da Vast? (SEC-17.1)
 - Existe lifecycle no R2 e cron do `purge_expired_tasks`? (SEC-12.2)
-- Conta e carteira: únicas para todos os apps ou por app? (SEC-13.2) — **direção do dono (2026-10-30), a discutir
-  numa sessão própria:** isonomia por app. Crédito comprado num app não vale em outro, então o cadastro fica ligado
+- Conta e carteira: únicas para todos os apps ou por app? (SEC-13.2) — **decidido e desenhado em 2026-10-30, ver
+  "SEC-13.2 — cadastro por app (desenho)".** Registro original: isonomia por app. Crédito comprado num app não vale em outro, então o cadastro fica ligado
   a um app: baixar outro app = outro cadastro, mesmo com o mesmo e-mail Google. O custo em créditos por
   funcionalidade continua global no iawrapper; o que varia por app é a monetização (preço do crédito, créditos de
   cortesia, planos), que é feature separada e não entra nessa discussão. A conta admin de teste pode seguir única
@@ -1888,6 +1889,489 @@ seguem 200; (d) token sem o claim (emitido à mão) → 200 com `token_version=0
 (`auth.User` de mesmo id, `force_login`) e sem Bearer, `/api/users/me/` → 401. Mutações: tirar a checagem do
 `get_user` → (a) access cai; tirar a do serializer → (a) refresh cai; não somar no `change_user_profile` → (b) cai;
 `SessionAuthentication` de volta → (e) cai. Suíte inteira ≥ 244.
+
+**Implementado (2026-10-30), commit `7082a78`** na branch `sec-05.3-token-version` (a partir de `d19e073`, sem
+push). Desenho seguido sem desvio; o helper `views.py::_session_tokens` emite o par novo com os claims do login.
+- Provas: `core.tests.test_token_version` → 5 OK. Mutações (restauradas): sem checagem no `get_user` → FAIL em
+  (a), (b) e (d); sem checagem no serializer → FAIL em (a) e (b); sem somar no `change_user_profile` → FAIL em (b);
+  `SessionAuthentication` de volta → FAIL em (e). `makemigrations --check` → sem mudanças; `migrate` aplica `0015`.
+  `python manage.py test core.tests` → **249 OK** (244 + 5).
+- Teste existente alterado: `test_users.py::test_change_password_success` refazia o login com o Bearer antigo
+  (`client.credentials`) e passou a receber 401. O DRF autentica até em view `AllowAny`, então um Bearer revogado
+  no `/api/auth/login/` dá 401. Era o mesmo antes com access vencido. O teste agora limpa as credenciais antes do
+  novo login. O app Android não manda `Authorization` no login (`IawrapperBackend.kt:225-228`, conexão própria).
+- **Em produção (2026-10-30, com OK do dono):** `git merge --ff-only sec-05.3-token-version` na `main` e
+  `git push origin main` (`d19e073..7082a78`). Deploy `b78e1556` do `iawrappernew` → `SUCCESS`
+  (`railway deployment list --service iawrappernew`).
+- **Aceite em produção** (`https://iawrappernew-production.up.railway.app`, conta descartável; a conta de serviço do
+  APK não foi tocada): script fora do repo, em Python/urllib, sem imprimir tokens nem senhas. Resultado **10/10 OK**:
+  - `POST /api/users/` `sec053-accept-1793376787@example.invalid` → 201 (id 5);
+  - login → 200; `users/me/` com o access → 200;
+  - `auth/change-password/` → 200, com `access` + `refresh` na resposta;
+  - access antigo em `users/me/` → **401**; refresh antigo em `auth/refresh/` → **401**;
+  - access novo → 200; refresh novo → 200;
+  - `DELETE /api/users/5/delete/` → 200; login depois → 401.
+  - Resíduo: esse último login falho pode ter gravado uma linha em `login_failures` para o e-mail descartável
+    (bloqueio temporário, sem conta). Não foi conferido no banco.
+- Não testado em produção: a troca de e-mail (coberta pela prova (b) da suíte) e a ausência de
+  `SessionAuthentication` (prova (e); a produção não tem uma sessão do admin com o mesmo id para testar sem risco).
+- **SEC-05.3 e SEC-05.4 fechadas.** A SEC-13.2 (abaixo) entra sobre esta: a migração dela é a `0016` e o claim
+  `app` se soma ao `token_version` no `for_user`.
+
+##### SEC-13.2 — cadastro por app (desenho, 2026-10-30, nada editado)
+
+Sessão própria pedida em "A confirmar". `ia_wrapper` na `main` = `d19e073`, limpo. A SEC-05.3 acima (desenhada, sem
+código) mexe nos mesmos pontos (`for_user`, `get_user`, refresh): quem entrar segundo ajusta a migração (`0015`/`0016`)
+e soma o seu claim ao do outro.
+
+**Decisões do dono (2026-10-30):**
+- Cadastro ligado a um app: outro app = outro cadastro, mesmo com o mesmo e-mail (Google ou senha). O custo em créditos
+  por feature segue global.
+- A única conta de hub (válida em todos os apps) é a `admin@test.com`.
+- O SPA `ia_wrapper_frontend` vira **console do hub**: só contas de hub entram e não há cadastro público.
+
+**Dados de produção** (Postgres do Railway, só leitura; a receita está em "Acesso ao Postgres de produção" abaixo):
+- `select count(*), count(*) filter (where app_client_id is not null), count(*) filter (where is_admin) from users` →
+  **2, 0, 1**. São eles:
+  - id 1, `admin@test.com`, admin, 70 créditos;
+  - id 3, `teste-a600ce6f@example.com`, não admin, 32 créditos (usuário descartável da verificação da Fase 1, usado
+    pelo app).
+- `select lower(email), count(*) from users group by 1 having count(*) > 1` → vazio: a restrição nova cabe sem
+  limpeza.
+- `app_clients` vazia. `tasks` 40, nenhuma com `app_client_id`. `login_failures` 2 linhas.
+- O serviço `iawrappernew` tem `DATABASE_URL` (`railway variables --service iawrappernew --json`), o que fecha o
+  SEC-04.6: a produção roda em Postgres.
+
+**Símbolos abertos:**
+- `core/models.py`:
+  - `User.email` (l.22) tem `unique=True` global e diferencia maiúsculas.
+  - `User.app_client` (l.33) é FK com `on_delete=SET_NULL` e nunca é gravado. Apagar um `AppClient` transformaria os
+    usuários dele em contas de hub.
+  - `AppClient.api_key` (l.9) é `unique`, não nula, em texto puro, e nada a lê.
+  - `Task.app_client` (l.238) nunca é gravado.
+  - `LoginFailure.email` (l.476) é `unique`.
+- `core/serializers.py`:
+  - `UserCreateSerializer` (ModelSerializer) herda o `UniqueValidator` do `unique=True` do campo. Sem o `unique`, o
+    e-mail repetido vira `IntegrityError` (500), a não ser que a checagem seja reescrita.
+  - `ChangeEmailAndNameSerializer.validate_new_email` (l.59-70) checa `User.objects.filter(email=...)` no banco inteiro.
+  - `CoreTokenRefreshSerializer.validate` (l.103) busca o usuário por id e só confere `is_active`.
+- `core/views.py`:
+  - `login` (l.97-162) chama o lockout pelo e-mail antes de buscar a conta e faz `User.objects.get(email=email)`.
+  - `google_login` (l.166-232) faz `get_or_create(email=email)` com um único `GOOGLE_OAUTH_CLIENT_ID`.
+  - `create_user` (l.15) é aberto.
+- `core/authentication.py::CustomJWTAuthentication.get_user`: busca por `user_id` e confere `is_active`; não olha
+  nenhum claim de app.
+- `core/login_lockout.py`: chave = e-mail normalizado. `_exempt` usa `LOGIN_LOCKOUT_EXEMPT_EMAILS`, uma lista só de
+  e-mails.
+- `core/revenuecat_views.py:59`: busca o usuário por e-mail, o que fica ambíguo; o SEC-03.2 já previa usar o id.
+- Clientes do login:
+  - o SPA (`api.ts:49` refresh, `:74` login, página `/register`);
+  - o app ([IawrapperBackend.kt:225](../../ai/remote-http/src/main/kotlin/com/productphoto/ai/remotehttp/image/IawrapperBackend.kt#L225));
+  - o E2E ([IawrapperEndToEndInstrumentedTest.kt:189](../../app/src/androidTest/kotlin/com/productphoto/app/IawrapperEndToEndInstrumentedTest.kt#L189)).
+- simplejwt 5.5.1 `backends.py::TokenBackend` e PyJWT 2.13 `api_jwt.py::_validate_aud`, lidos do site-packages:
+  - `decode` passa `verify_aud = self.audience is not None`. Sem `AUDIENCE` no `SIMPLE_JWT`, nenhum `aud` é
+    conferido.
+  - `encode` (l.134-135) sobrescreve o `aud` do payload quando `AUDIENCE` está configurado.
+  - Conclusão: o app vai num claim próprio (`app`), conferido pelo nosso código.
+
+**Hipóteses descartadas:**
+- *Usar `aud` para o app*: a lib não confere o `aud` sem `AUDIENCE` e o sobrescreve com `AUDIENCE`. Além disso, `aud`
+  é o destinatário (o hub), não o cliente.
+- *Identidade global com uma carteira por app*: contraria a decisão do dono. Com cadastros separados, a exclusão de
+  conta também fica por app, como a Play exige.
+- *`unique (lower(email), app_client)` sozinho*: no Postgres dois NULLs não colidem, então seriam possíveis duas contas
+  de hub com o mesmo e-mail. É preciso uma segunda restrição condicional para `app_client IS NULL`.
+- *Exigir Play Integrity neste passo*: hoje o `app_id` só separa dados; declarar outro app não dá nada de graça. O Play
+  Integrity tem de entrar **antes dos créditos de cortesia por app**, que serão o alvo de abuso.
+- *Hipótese a confirmar, não usada no desenho*: no Credential Manager, o `azp` do ID token do Google seria o client
+  Android (pacote + SHA-1) e poderia amarrar o app antes do Play Integrity.
+
+**Desenho:**
+1. **Modelo** (migração `0015` ou `0016`):
+   - `User.email` perde o `unique=True` e ganha duas restrições:
+     - `UniqueConstraint(Lower('email'), 'app_client')`;
+     - `UniqueConstraint(Lower('email'), condition=Q(app_client__isnull=True))`.
+   - `User.app_client` passa a `PROTECT`.
+   - `AppClient.api_key` passa a `null=True`. Ela vira hash + prefixo só quando existir um cliente servidor↔servidor.
+   - `AppClient.hub_only = BooleanField(default=False)`.
+   - `LoginFailure` ganha FK `app_client` e `unique (app_client, email)`; as 2 linhas atuais são apagadas (bloqueios
+     temporários).
+2. **Dados** (na mesma migração):
+   - cria os `AppClient` `product-photo` e `hub-console` (`hub_only=True`);
+   - usuários com `is_admin=True` ficam com `app_client` NULL, como contas de hub (hoje só o id 1);
+   - os demais vão para `product-photo` (hoje o id 3).
+3. **Identificação do app:** o header `X-App-Id: <slug>` é obrigatório em `POST users/`, `auth/login/` e
+   `auth/google/`. Sem o header: 400 `app_id_required`. Slug desconhecido ou inativo: 403. Um helper resolve o app nos
+   três pontos.
+4. **Busca da conta:** conta do app com aquele e-mail (`email__iexact`); se não houver, a conta de hub com o mesmo
+   e-mail.
+   - Em app `hub_only`, só conta de hub; cadastro e criação pelo Google → 403.
+   - Cadastro num app com e-mail de conta de hub → o mesmo 400 de "já em uso".
+   - Google: busca do mesmo jeito e cria no app pedido. Numa corrida de criação, o `IntegrityError` faz buscar de
+     novo.
+   - E-mail gravado em minúsculas.
+5. **Token:** `for_user` grava o claim `app` (slug) com o app pelo qual a pessoa entrou. `get_user` e o refresh
+   recusam com 401 nestes casos:
+   - token sem `app`: os tokens de antes do deploy caem, e o SPA e o app logam de novo;
+   - app inativo: é o kill-switch por app do SEC-13.4;
+   - `user.app_client` diferente de NULL e diferente do app do token.
+   
+   As views leem o app em `request.auth['app']`, não em `user.app_client`.
+6. **Lockout:**
+   - a chave passa a ser `(app, e-mail)`;
+   - a isenção vira uma lista `slug:email` (ex.: `product-photo:admin@test.com`);
+   - a conta de hub ganha N tentativas por app, o que é aceitável.
+7. **Resto:**
+   - `validate_new_email` checa só no app da conta (hub: só entre contas de hub; app: no app e entre contas de hub);
+   - `POST tasks/` grava `Task.app_client` a partir do token;
+   - `list_users` devolve o slug do app;
+   - o webhook usa o id (SEC-03.2).
+8. **Clientes:**
+   - o app envia `X-App-Id: product-photo` (valor no `BuildConfig`), no `IawrapperBackend` e no E2E;
+   - o SPA envia `X-App-Id: hub-console` no login e perde a página `/register`.
+
+**Tasks e provas** (`core/tests/test_app_accounts.py`; a suíte inteira tem de continuar verde):
+1. Modelo + migração:
+   - o mesmo e-mail em dois apps cria duas contas;
+   - `A@x` e `a@x` no mesmo app → `IntegrityError`;
+   - duas contas de hub com o mesmo e-mail → `IntegrityError`;
+   - a migração de dados num banco com 1 admin e 1 comum leva cada um ao lugar certo;
+   - `makemigrations --check` limpo.
+2. Header:
+   - sem header → 400;
+   - slug inexistente → 403;
+   - app inativo → 403.
+3. Cadastro, login e Google:
+   - login no app B com a conta do app A → 401;
+   - a conta de hub entra em `product-photo` e em `hub-console`;
+   - a conta do app → 401 no `hub-console`;
+   - cadastro no `hub-console` → 403;
+   - cadastro com e-mail de conta de hub → 400;
+   - Google com o mesmo e-mail em dois apps → duas contas, e `created=true` na segunda (`verify_oauth2_token`
+     mockado).
+4. Token:
+   - token sem `app` → 401 em `users/me/` e no refresh;
+   - app desativado → 401 com token válido;
+   - token de conta de app com o `app` de outro app (emitido à mão) → 401.
+5. Lockout: falhas em `(A, e)` não bloqueiam `(B, e)`; `slug:email` isenta só naquele app.
+6. Resto: troca de e-mail para um e-mail usado em outro app → 200, e no mesmo app → 400; a task criada grava o
+   `app_client` do token.
+7. App:
+   - teste em `IawrapperBackendTest` conferindo o header no `/api/auth/login/`;
+   - E2E no moto `ZY32LMNN9B` gerando com `X-App-Id`.
+
+   SPA: o login do console com `admin@test.com`.
+
+**Mutações:**
+- tirar o filtro de app do `login` → (3) cai;
+- tirar a checagem de app do `get_user` → (4) cai;
+- voltar a chave do lockout para só e-mail → (5) cai.
+
+**Fora deste passo:**
+- Play Integrity (antes dos créditos de cortesia);
+- catálogo de features por app;
+- papéis do SEC-13.3;
+- orçamento em USD por app;
+- audiences do Google por app (só se um app ficar noutro projeto do GCP).
+
+**Implementação das tasks 1–6 (2026-10-30) — registro antes da primeira edição:**
+- Branch `sec-13.2-app-accounts` no `ia_wrapper`, criado **em cima de `sec-05.3-token-version` (`7082a78`)**, que
+  ainda não foi mergeado na `main`. A migração é a `0016` (depende da `0015_user_token_version`) e o claim `app` soma
+  com o `token_version`. Mergear o SEC-05.3 antes deste.
+- Suíte base: `python manage.py test core.tests` (não `core`: o `core/tests.py` colide com o pacote `core/tests/`) →
+  **249 testes, OK**, em SQLite local.
+- Símbolos abertos além do desenho:
+  - `core/tokens.py::CoreRefreshToken.for_user` grava `token_version`; o `access_token` da lib copia os claims do
+    refresh, então o `app` gravado no refresh chega ao access.
+  - `core/views.py::_session_tokens` (troca de senha/e-mail) emite tokens novos: precisa do app do token atual.
+  - `core/services/task_service.py::TaskService.create_task` cria a `Task` dentro de `@transaction.atomic`; o único
+    chamador é `task_views.task_list_create`.
+  - `force_authenticate` nos testes deixa `request.auth = None`: quem lê o app do token tem de aceitar `None`.
+  - Os testes existentes logam por `/api/auth/login/` sem header e criam usuários sem `app_client` (contas de hub
+    pelo desenho): basta mandar `X-App-Id: product-photo`. Há `TransactionTestCase` na suíte, que apaga os
+    `AppClient` criados pela migração: os testes novos fazem `get_or_create` dos apps.
+- Decisões de implementação:
+  - Na `0016`, primeiro apagar `login_failures` (sem FK, não gera trigger), depois as operações de esquema, e só no
+    fim o `RunPython` de dados. No Postgres, ALTER TABLE depois de UPDATE em coluna FK na mesma transação dá
+    `pending trigger events`; com os dados por último, nada vem depois.
+  - `LOGIN_LOCKOUT_EXEMPT_EMAILS` vira `LOGIN_LOCKOUT_EXEMPT_ACCOUNTS` (`slug:email`). **No deploy, trocar a
+    variável no Railway**; o nome antigo deixa de ser lido.
+  - O webhook RevenueCat fica fora: a rota está desligada (SEC-03.1) e a troca para o id é do SEC-03.2.
+- Tasks (arquivo → prova em `core/tests/test_app_accounts.py`):
+  1. `models.py` + `0016` → contas por app, `IntegrityError` em caixa/hub, migração de dados, `makemigrations
+     --check`;
+  2. `core/app_clients.py` (helper do header) + `views.create_user/login/google_login` → 400/403/403;
+  3. `app_clients.find_account` nas três views → as seis provas da task 3;
+  4. `tokens.py` (claim `app`, `token_app_matches`) + `authentication.get_user` + `CoreTokenRefreshSerializer` → 401;
+  5. `login_lockout.py` com chave `(app, e-mail)` → isolamento e isenção por app;
+  6. `validate_new_email`, `TaskService.create_task(app_client=)`, `UserSerializer.app` → e-mail e task.
+
+**Resultado das tasks 1–6 (2026-10-30, commit `01caca9` no branch `sec-13.2-app-accounts`, sem push):**
+- Arquivos: `core/models.py`, `core/migrations/0016_app_accounts.py`, `core/app_clients.py` (novo: header,
+  `find_account`, `email_in_use`, `request_app`), `core/tokens.py` (`APP_CLAIM`, `token_app_matches`,
+  `for_user(user, app)`), `core/authentication.py`, `core/serializers.py`, `core/views.py`, `core/login_lockout.py`,
+  `core/services/task_service.py`, `core/task_views.py`, `ia_wrapper/settings.py`.
+- Provas: `python manage.py test core.tests.test_app_accounts` → 26 testes, OK. Suíte inteira
+  `python manage.py test core.tests` → **275, OK**. Os testes antigos só ganharam `X-App-Id: product-photo` no
+  `APIClient`, a isenção nova no `test_login_lockout` e o app no `for_user` do `test_token_version`.
+  `makemigrations --check` limpo (também dentro da suíte).
+- Mutações (arquivo restaurado depois de cada uma): login com `User.objects.filter(email__iexact=...)` → 2 falhas em
+  `AccountLookupTests`; `get_user` sem `token_app_matches` → 3 falhas em `AppTokenTests`; lockout só por e-mail → 2
+  falhas em `AppLockoutTests`.
+- Também feito: e-mail em minúsculas no cadastro, no Google e na troca; `list_users` e o login devolvem `app` (slug,
+  `null` = hub); o refresh rotacionado mantém o claim `app`.
+- **Não provado:** a `0016` no Postgres. Rodou só em SQLite (não há Postgres local). A ordem anti `pending trigger
+  events` é por leitura; testar num Postgres descartável antes do deploy.
+- **Antes do deploy (bloqueante):**
+  - o backend recusa login sem `X-App-Id` (400): o app e o SPA atuais param de logar. Subir junto com a task 7 (app e
+    SPA mandando o header) ou com o APK novo já publicado;
+  - no Railway, criar `LOGIN_LOCKOUT_EXEMPT_ACCOUNTS=product-photo:<e-mail da conta de serviço>`; o
+    `LOGIN_LOCKOUT_EXEMPT_EMAILS` deixa de ser lido;
+  - mergear o `sec-05.3-token-version` antes deste branch.
+- Fica para depois: task 7 (app, E2E, SPA); webhook por id (SEC-03.2, rota desligada).
+
+**Task 7 (2026-10-30) — registro antes da primeira edição:**
+- Estado do git no `ia_wrapper`: o `01caca9` está na **`main` local** (1 à frente de `origin/main`), não no branch
+  `sec-13.2-app-accounts`, que aponta para `7082a78`. A `origin/main` já é `7082a78` (SEC-05.3 empurrado). O
+  `01caca9` segue sem push.
+- Símbolos abertos:
+  - `IawrapperBackend.resolveAuthHeader` (l.208-247): o login é um `HttpURLConnection` próprio, fora do `Http`; só
+    ele precisa do header. As demais chamadas usam o Bearer e o servidor lê o app do claim. Num 401 com
+    `cachedToken`, o `dispatchAndAwait` loga de novo: os tokens antigos, sem `app`, se renovam sozinhos após o deploy.
+  - `IawrapperOptions` não tem app. Quem constrói o backend: `IawrapperImageFactory.create` (opções vindas de
+    `options(settings)`) e o `AppGraph` (`relighter` e `adFormatExpander`, l.153 e l.165, sem opções).
+  - `ImageGenScreen.kt::cloudImageChain` monta as settings da cadeia a partir do `BuildConfig`. O
+    `useCloudServer` regrava a cadeia quando ela muda, então a chave nova entra sozinha no `provider_config.json` já
+    gravado.
+  - `FakeHttpServer` grava os headers em minúsculas (`x-app-id`).
+  - E2E `obtainJwtToken`: sem o header, o servidor novo dá 400 e o teste cai em `email:senha`, que também passa
+    pelo login do backend.
+  - SPA `ia_wrapper_frontend` (`main`, limpo):
+    - `api.ts` com a instância `api` (login l.74, cadastro l.76) e o refresh por `axios.post` cru (l.49), que não
+      precisa do header;
+    - o cadastro aparece em `App.tsx:41` (rota), `pages/auth/Register.tsx`, `Navbar.tsx:121` e `Login.tsx:65`
+      ("Sign up"), em `AuthContext.register` e no tipo `RegisterCredentials`;
+    - não há login Google no SPA, nem teste: a prova é `npm run build` (`tsc -b`) e `npm run lint`.
+- **Achado fora do desenho:** `settings.py::CORS_ALLOW_HEADERS` (l.278) é uma lista fechada, sem `x-app-id`. Em
+  produção o SPA é servido na mesma origem (`WHITENOISE_ROOT = frontend_dist`), então não há preflight. No dev
+  (`localhost:5173` → `:8000`) o preflight barraria o login do console. Entra `'x-app-id'` na lista, com teste.
+- O que fazer:
+  1. `IawrapperOptions.appId` (nulo = sem header) e `IawrapperBackend.APP_HEADER`. O login manda o header →
+     teste no `IawrapperBackendTest` conferindo `x-app-id` no `/api/auth/login/`.
+  2. `IawrapperImageFactory.APP_ID` lido em `options(settings)`, e `BuildConfig.IAWRAPPER_APP_ID` (padrão
+     `product-photo`, `-Piawrapper.app_id`) em `cloudImageChain` e no `AppGraph` → `ImageGenConfigTest` e
+     `ImageFactoriesTest`.
+  3. E2E: `obtainJwtToken` com o header → `connectedDebugAndroidTest` só do
+     `generateProductPhotoRemotelyViaIawrapper` no `ZY32LMNN9B`, se o aparelho estiver conectado. Antes do deploy a
+     produção ignora o header, então isso só prova que nada quebrou. A prova real é rodar de novo depois do deploy.
+  4. SPA: `X-App-Id: hub-console` na instância `api`; tirar o cadastro (rota, página, links, `register`, tipo) →
+     `npm run build` e `npm run lint`.
+  5. Backend: `'x-app-id'` em `CORS_ALLOW_HEADERS` → teste de preflight em `test_app_accounts.py`; suíte inteira.
+  6. Login do console com `admin@test.com` contra o backend local (SQLite descartável, branch com a `0016`):
+     `hub-console` → 200, sem header → 400.
+
+**Resultado da task 7 (2026-10-30, nada commitado nos três repositórios):**
+- App (`product_photo_offline`):
+  - `IawrapperOptions.appId` e `IawrapperBackend.APP_HEADER`: o login manda `X-App-Id` quando há app;
+  - `IawrapperImageFactory.APP_ID` (`appId`) é lido em `options(settings)`;
+  - `BuildConfig.IAWRAPPER_APP_ID` (padrão `product-photo`, `-Piawrapper.app_id` / `IAWRAPPER_APP_ID` /
+    `local.properties`) vai para `cloudImageChain` e para os dois `IawrapperBackend` do `AppGraph`;
+  - E2E: `obtainJwtToken` manda o header.
+  - Atenção: `IawrapperBackend.kt`, `IawrapperBackendTest.kt` e o E2E ainda estão **untracked** neste repositório
+    (a integração com o iawrapper nunca foi commitada). Um commit da task 7 leva esses arquivos inteiros.
+- Provas do app:
+  - `gradlew :ai:remote-http:testDebugUnitTest :app:testDebugUnitTest` → 57 testes, 0 falhas. Teste novo
+    `login sends the X-App-Id of the options and no header without one`, mais `iawrapper app id comes from the
+    settings` e `APP_ID` no `cloud chain is a fixed iawrapper entry`.
+  - Mutação: tirar a linha do `setRequestProperty(APP_HEADER, …)` → 1 falha em `IawrapperBackendTest` (arquivo
+    restaurado).
+  - E2E `generateProductPhotoRemotelyViaIawrapper` no `ZY32LMNN9B` contra a produção → 1/1 OK, 10,7 s, PNG de 210 KB.
+    A produção ainda não tem a `0016` e ignora o header: isso só prova que nada quebrou. **Rodar de novo depois do
+    deploy.**
+- SPA (`ia_wrapper_frontend`):
+  - `X-App-Id: hub-console` fixo na instância `api` de `api.ts`;
+  - cadastro removido: rota `/register`, `pages/auth/Register.tsx` (`git rm`), botão no `Navbar`, "Sign up" no
+    `Login`, `AuthContext.register`, `auth.register`, `RegisterCredentials`;
+  - `npm run build` → OK, e `git grep -i register -- src` → vazio;
+  - `eslint` nos 6 arquivos tocados → 2 erros que **já existiam** (`AuthContext.tsx` exporta `useAuth` junto do
+    provider; `catch (err: any)` no `Login`).
+- Backend (`ia_wrapper`, em cima do `01caca9` na `main` local):
+  - `'x-app-id'` em `CORS_ALLOW_HEADERS`;
+  - teste `AppHeaderTests.test_cors_preflight_allows_the_header`. Mutação (tirar da lista) → o teste cai;
+  - `python manage.py test core.tests` → **276, OK**.
+- Login do console com `admin@test.com`: backend local, `runserver` com settings descartáveis no scratchpad (SQLite
+  fora do repo, `migrate` + `createcachetable`), requisições com `Origin: http://localhost:5173`:
+  - preflight → 200, `x-app-id` liberado;
+  - `hub-console` → 200, e o claim `app` do token é `hub-console`;
+  - sem header → 400 `app_id_required`;
+  - conta do `product-photo` no `hub-console` → 401;
+  - cadastro no `hub-console` → 403 `registration_closed`.
+  
+  Não testado num navegador de verdade: o header do SPA é uma constante na instância `axios`, coberta só pelo build.
+- Pegadinha de banco local: o throttle (SEC-07.6) usa `DatabaseCache`, então um banco novo precisa de
+  `createcachetable`. Sem ela, todo login dá 500 `no such table: django_cache`. O deploy já roda o comando
+  (`ia_wrapper/Dockerfile` CMD e `Procfile`).
+- **Deploy, na ordem:**
+  1. commitar o app e gerar o APK com o header;
+  2. commitar o SPA. O `Dockerfile` da raiz compila o frontend num estágio próprio e copia para `frontend_dist`,
+     então o código novo entra na mesma imagem do backend;
+  3. acertar o branch do `ia_wrapper` (o `01caca9` está na `main` local);
+  4. testar a `0016` num Postgres descartável;
+  5. criar `LOGIN_LOCKOUT_EXEMPT_ACCOUNTS` no Railway;
+  6. deploy do backend;
+  7. rodar o E2E de novo no moto.
+
+**Deploy da SEC-13.2 (2026-10-30) — registro antes de executar (corrige a ordem acima):**
+- Railway (`railway status` e `railway deployment list --service <s> --json` em `D:\projects\iawrapper`): são **dois
+  serviços**, cada um com deploy automático no push da `main` do seu repositório no GitHub:
+  - `iawrappernew` ← `luistiagos/iawrappernew` (= `ia_wrapper/`), `configFile: /railway.json` → `ia_wrapper/Dockerfile`,
+    cujo CMD roda `migrate`, `createcachetable` e `seed_features`. Último deploy: `7082a78`, SUCCESS;
+  - `iawrappernew_frontend` ← `luistiagos/iawrappernew_frontend` (= `ia_wrapper_frontend/`). Último deploy: `0df998e`.
+  - O `Dockerfile` da raiz de `D:\projects\iawrapper` (que não é repositório git) **não é usado** pelo Railway. A
+    premissa do passo 2 ("o SPA entra na mesma imagem do backend") está errada.
+- Consequência: o SPA roda em outra origem (`VITE_API_URL` = `https://iawrappernew-production.up.railway.app/api`;
+  `CORS_ALLOWED_ORIGINS` = a origem do frontend). O preflight do `x-app-id` vale **em produção**, não só no dev; o
+  `'x-app-id'` no `CORS_ALLOW_HEADERS` da task 7 é obrigatório. Ordem: push do backend, esperar o deploy SUCCESS, e
+  só então push do SPA (SPA novo com backend velho: preflight barra o login; o contrário dá 400 até o SPA subir).
+- Lockout: no Railway `LOGIN_LOCKOUT_EXEMPT_EMAILS` está **vazia** (decisão do dono de 2026-10-29: não isentar
+  agora) e a credencial do APK é o `admin@test.com`, conta admin. Criar `LOGIN_LOCKOUT_EXEMPT_ACCOUNTS` agora tiraria
+  um admin do bloqueio de força bruta. **Passo 5 não executado**: a variável nova fica vazia, como a antiga (o
+  estado atual se mantém).
+- `local.properties` tem `iawrapper.url=http://127.0.0.1:8000`: o APK sai com `-Piawrapper.url=<produção>`.
+- APKs antigos (sem header) recebem 400 no login depois do deploy; só o APK novo loga.
+- Decisões do dono nesta sessão: app commitado por área (iawrapper+anúncios+task 7; editor/conteúdo; docs), sem os
+  vazios `core/task_views.py` e `core/throttling.py`, sem `docs/backlog.md` e os PNG `e2e_motorola_*`; a `0016` testada
+  numa cópia da produção (`pg_dump` só leitura) restaurada em Postgres portátil no scratchpad, apagado no fim.
+
+##### Ajustes pequenos de backend e SPA: refresh do SPA, `logout`, `UserSerializer` (passagem de bastão, 2026-10-30)
+
+Escolha do dono (2026-10-30), item 3 da lista do que já dá para adiantar. Nada editado.
+
+**Bloqueio:** este trabalho mexe no `core/views.py` e no `src/services/api.ts`, que a SEC-13.2 está alterando. Hoje o
+`01caca9` está na `main` local, o `origin/main` está em `7082a78`, e há alterações sem commit no `ia_wrapper`
+(`core/tests/test_app_accounts.py`, `ia_wrapper/settings.py`) e no SPA (7 arquivos, `Register.tsx` apagado). **Só
+começar com a SEC-13.2 commitada e o `git status` limpo nos dois repositórios.** Abrir de novo cada símbolo antes de
+editar, porque as linhas abaixo são de antes do fim da SEC-13.2.
+
+Símbolos abertos (2026-10-30, árvore com a SEC-13.2 em andamento):
+- `ia_wrapper_frontend/src/services/api.ts`, interceptor de resposta (l.~43-66): num 401, faz
+  `axios.post(.../auth/refresh/, { refresh })` e grava só `data.access`. Com `ROTATE_REFRESH_TOKENS` +
+  `BLACKLIST_AFTER_ROTATION` (`settings.py:136-138`), o refresh antigo vai para a blacklist e o 2º refresh dá 401, o
+  que manda para `/login`. Esse `axios.post` cru não leva o `X-App-Id`, e o refresh não precisa dele (a SEC-13.2 só o
+  exige em `users/`, `auth/login/` e `auth/google/`). Conferir isso no código final da SEC-13.2.
+- `core/views.py::logout` (l.268-291): `CoreRefreshToken(refresh).blacklist()` sem conferir se `token['user_id']` é o
+  `request.user.id`. Quem tem o refresh de outro usuário consegue derrubá-lo. Em erro: `except Exception` → 400
+  `{'error': str(e)}`, o que vaza a mensagem da lib (SEC-06.3).
+- `core/serializers.py::UserSerializer` (l.89-99): `read_only_fields = ['id', 'credits_balance', 'created_at']`;
+  `email` e `is_admin` são graváveis (o `app` é `read_only`). Hoje nenhum call-site faz escrita com ele: todos os 7
+  usos em `views.py` são de leitura (`UserSerializer(user)` / `.data`). O risco é latente (SEC-06.4).
+
+Tasks e provas:
+1. **SPA grava o refresh rotacionado.** `api.ts`: depois do refresh, `if (data.refresh) localStorage.setItem('refresh_token', data.refresh)`.
+   Prova: o SPA não tem teste unitário (conferir se hoje há `vitest`; se não, `npm run build` + `eslint` no arquivo,
+   e um teste à mão no backend local: login → apagar o access → 2 chamadas seguidas que pedem refresh → as duas
+   200). Registrar se ficar só no build.
+2. **`logout` só do próprio refresh.** Se `token['user_id'] != request.user.id` → 400, sem blacklist. Erro com
+   mensagem fixa (`'invalid_refresh'`), sem `str(e)`. Provas novas em `core/tests/`: logout com o refresh de outro
+   usuário → 400 e esse refresh continua → 200 no `auth/refresh/`; logout com o próprio → 200 e o refresh → 401;
+   refresh inválido → 400 sem o texto da lib. Mutação: tirar a checagem → o 1º teste cai.
+3. **`UserSerializer` só leitura.** `read_only_fields` com `email`, `is_admin` e `name` também (a troca de nome e e-mail
+   é pelo `ChangeEmailAndNameSerializer`). Prova: um teste que passa `data={'is_admin': True, 'email': ...}` ao
+   `UserSerializer(user, data=..., partial=True)` e, depois do `save()`, os dois continuam iguais. Mutação: tirar
+   `is_admin` da lista → cai.
+4. `python manage.py test core.tests` inteiro, pelo menos no número da SEC-13.2 + os novos. Commit, push e aceite em
+   produção só com OK do dono. Aceite com conta descartável: logout com o refresh de outra conta descartável → 400.
+
+Frase de abertura da sessão: *"Leia em docs/backlog/README.md a seção 'Ajustes pequenos de backend e SPA' e
+implemente, se a SEC-13.2 já estiver commitada."*
+
+##### App: catálogo remoto, TLS, `dataExtractionRules`, trava de release (SEC-08 a SEC-11, passagem de bastão, 2026-10-30)
+
+Escolha do dono (2026-10-30), item 4 da lista do que já dá para adiantar. Nada editado.
+
+**Bloqueio:** a árvore do `product_photo_offline` tem muitas alterações sem commit, misturando várias frentes:
+`MockupLibrary.kt`, `MockupScreen.kt`, `ProductFlow*`, `Http.kt`, `IawrapperBackend.kt` (novo), `app/build.gradle.kts`
+(com o `IAWRAPPER_APP_ID` da SEC-13.2), assets e editor-web. **Começar commitando o que está pendente, por assunto e
+com o OK do dono, ou esperar a SEC-13.2 commitar o app** (passo 1 do "Deploy, na ordem" acima). Sem isso, os
+commits desta task levam junto código alheio.
+
+Símbolos abertos (2026-10-30):
+- `feature/mockup/.../MockupLibrary.kt`:
+  - `thumb(e)` (l.~197-223) e `template(e)` (l.~226-260) gravam em `File(localDir, e.thumb)` / `File(localDir, e.file)`,
+    com `e.file` e `e.thumb` vindos do JSON remoto sem validação. **Um `../` grava fora da pasta: o risco é real.**
+  - `resolveRemoteUrl(path, baseUrl)` (l.114-128): um `path` que começa com `http://` ou `https://` é usado como URL,
+    para qualquer host. A base padrão é o HF; `parseVideoreyMockups` usa `https://fa.videorey.in/...`.
+  - `downloadBytes` (companion, l.~304-310): `HttpURLConnection`, timeouts de 12 e 15 s, `instanceFollowRedirects = true`,
+    `readBytes()` sem limite de tamanho. Em erro, propaga; `thumb` engole com `runCatching` e devolve o fallback;
+    `template` propaga.
+- `feature/product/.../SceneLibrary.kt`:
+  - `parseStylesJson` (l.~113-137): o `id` é `style_<[a-z0-9_]>_<idx>`, **já sanitizado**, e o arquivo é
+    `File(localDir, "${e.id}.webp")`. O `../` do SEC-11 **não vale aqui** (o backlog citava `SceneLibrary.kt:160`).
+  - O `p.url` do JSON vira `remoteUrl` para qualquer host e esquema.
+  - `downloadBytes` (l.~185-191): mesma cópia do da `MockupLibrary`, sem limite.
+- `app/src/main/res/xml/network_security_config.xml`: só `<base-config cleartextTrafficPermitted="true" />`, porque o
+  usuário configura servidores locais `http://` (Ollama, LM Studio, A1111; ARQUITETURA §18.5).
+- `app/src/main/AndroidManifest.xml:14-15`: `allowBackup="false"` e `networkSecurityConfig`. **Sem
+  `dataExtractionRules`**: no Android 12+, o `allowBackup=false` não cobre a transferência D2D. `targetSdk = 35`.
+- `app/build.gradle.kts`:
+  - `iawrapper(key, default)` (l.15-19) lê de gradle property, env `IAWRAPPER_*` e `local.properties`;
+  - `IAWRAPPER_CREDENTIAL` (l.~34) entra no `BuildConfig` de todo build;
+  - `release` (l.~43-47): `isMinifyEnabled = false` e `signingConfig = debug`.
+- Testes existentes: `feature/mockup/src/test/.../MockupTest.kt` e `feature/product/src/test/.../MaskViewportTest.kt`.
+
+Hipótese descartada:
+- *Allowlist de cleartext só para IPs privados pelo `network_security_config`*: o `domain-config` aceita nome de
+  domínio (e IP literal), não faixa CIDR, e o IP do servidor do usuário não é conhecido no build. Desenho: o
+  `base-config` continua permitindo cleartext, e entra um `domain-config cleartextTrafficPermitted="false"` com
+  `includeSubdomains` para `huggingface.co`, `hf.co`, `up.railway.app` e os CDNs que o catálogo usa (conferir no CSP
+  do editor, commit `953eb0e`). A regra "`http://` só para localhost ou IP privado" vai para o código, onde a URL do
+  usuário é aceita. **Abrir esse ponto antes** (onde a URL do servidor local é validada) e confirmar que ele existe.
+
+Tasks e provas (cada uma, um commit):
+1. **SEC-11, catálogo de mockups.** Um helper `safeChild(dir, name)`: recusa nome vazio, absoluto, com `..`, `\` ou
+   `:`, e confere `canonicalPath.startsWith(dir.canonicalPath + File.separator)`. Usar nos 4 `File(dir, e.file|e.thumb)`
+   da `MockupLibrary` e filtrar as entradas inválidas no parse (não quebrar o catálogo inteiro por uma). Prova em
+   `MockupTest.kt`: `../x.png`, `/abs.png`, `a/../../x.png` → recusados; `sub/a.png` → aceito. Mutação: tirar a
+   checagem do `canonicalPath` → `a/../../x.png` passa.
+2. **SEC-11, hosts e tamanho.** Um `downloadBytes` comum aos dois (ou dois com o mesmo contrato):
+   - só `https`;
+   - host numa allowlist (`huggingface.co`, `cdn-lfs*.hf.co` e afins, `fa.videorey.in`). Conferir os hosts reais
+     de redirect do HF antes de fechar a lista;
+   - redirect seguido à mão, com o host conferido a cada salto;
+   - limite de bytes (sugestão 15 MB a imagem, 2 MB o JSON), abortando a leitura;
+   - `inJustDecodeBounds` para recusar acima de N MP.
+   
+   Provas JVM: a função pura de validação de URL (`http://` → recusado, host fora → recusado) e o leitor com limite
+   sobre um `InputStream` de N+1 bytes → erro. Sem rede no teste.
+3. **SEC-10, TLS.** `domain-config` acima. Prova: `assembleDebug` + instalar no moto `ZY32LMNN9B`; o catálogo carrega
+   (HTTPS) e um servidor local `http://192.168.x.x` continua funcionando. Se não houver servidor local à mão,
+   registrar como não testado.
+4. **SEC-09, `dataExtractionRules`.** `res/xml/data_extraction_rules.xml` com `<cloud-backup>` e `<device-transfer>`
+   excluindo tudo (`domain="root"`, `file`, `database`, `sharedpref`), e `android:dataExtractionRules` no manifest.
+   Prova: `processReleaseManifest` + conferir o atributo no manifest mesclado. O resto do SEC-09 (cofre ilegível →
+   novo login) depende do `AuthSession` (SEC-01) e fica fora.
+5. **SEC-08, trava de release.** No `app/build.gradle.kts`, uma task que falha os builds `release` quando o
+   `IAWRAPPER_CREDENTIAL` não está vazio, ou quando o `IAWRAPPER_URL` começa com `http://`. Fazer pela variant API
+   (`androidComponents.onVariants`), não no `defaultConfig`. Prova: `assembleRelease` com a credencial no
+   `local.properties` → falha com mensagem clara; `-Piawrapper.credential=` → passa. **Decisão do dono antes de
+   ligar:** com a credencial no `local.properties`, o `assembleRelease` do círculo de teste deixa de funcionar. O
+   círculo passa a usar o debug, ou a trava sai com uma flag de escape explícita (`-Pallow.test.credential=true`)?
+   Keystore própria e R8 ficam de fora: a keystore é do dono, e o R8 pede regras para o ORT e o WebView (task
+   própria).
+6. `./gradlew :feature:mockup:test :feature:product:test :app:testDebugUnitTest :ai:remote-http:test` verde, e o
+   E2E no moto se a task 2 mexer no caminho das imagens.
+
+Frase de abertura da sessão: *"Leia em docs/backlog/README.md a seção 'App: catálogo remoto, TLS,
+`dataExtractionRules`, trava de release' e implemente, depois que a árvore do app estiver commitada."*
+
+##### Acesso ao Postgres de produção (só leitura)
+- Rodar a partir de `D:\projects\iawrapper`: o vínculo do Railway CLI é guardado por caminho, e o mesmo diretório com
+  `d:\` minúsculo dá "No linked project".
+- `railway variables --service Postgres --json` → `DATABASE_PUBLIC_URL`. Nunca imprimir a URL.
+- Conectar com `psycopg` 3 e `conn.read_only = True`, consultas com `LIMIT`.
+- Instalar o driver: `python -m pip install --user --use-deprecated=legacy-certs "psycopg[binary]==3.2.10"`. Sem a
+  flag, o pip 26.2 do Python 3.14 entra em recursão no `truststore`.
+- O driver fica no site-packages do usuário: o script roda com `python -E`, não `-I`.
 
 - **Prioridade**: Fase 0 hoje (dono); Fase 1 antes de qualquer usuário novo com crédito; o restante antes de
   distribuir fora do círculo de teste. O SEC-13 entra antes do segundo app no hub.
