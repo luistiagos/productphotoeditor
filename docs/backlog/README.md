@@ -2243,6 +2243,30 @@ e soma o seu claim ao do outro.
   vazios `core/task_views.py` e `core/throttling.py`, sem `docs/backlog.md` e os PNG `e2e_motorola_*`; a `0016` testada
   numa cópia da produção (`pg_dump` só leitura) restaurada em Postgres portátil no scratchpad, apagado no fim.
 
+**Resultado do deploy (2026-10-30):**
+1. App: commits `f44681a` (iawrapper + anúncios + formatos + task 7), `68ef4c2` (editor/conteúdo), `e1f230c` (docs),
+   sem push. O E2E `IawrapperEndToEndInstrumentedTest.kt` **ficou fora** e segue untracked: tem a senha do
+   `admin@test.com` literal 3× (achado 1 da tabela de segurança); commitar só depois de passar a credencial por
+   argumento de instrumentação. `gradlew :ai:remote-http:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
+   -Piawrapper.url=https://iawrappernew-production.up.railway.app` → 57 testes, 0 falhas; `app-debug.apk` com
+   `IAWRAPPER_URL` de produção e `IAWRAPPER_APP_ID = product-photo` (conferido no `BuildConfig.java` gerado).
+2. SPA: commit `6f70a4c`, push `0df998e..6f70a4c` depois do backend; Railway SUCCESS; o bundle publicado contém
+   `hub-console`.
+3. Backend: CORS commitado como `6eca25f` em cima do `01caca9` na `main`; `sec-13.2-app-accounts` movido para a
+   `main`. `python manage.py test core.tests` → 276, OK. Push `7082a78..6eca25f`; Railway SUCCESS.
+4. `0016` na cópia (PG 18.6 portátil, binários da EDB; prod é 18.6): `migrate` OK. Antes: 2 usuários (1 admin), sem
+   app, 3 `login_failures`. Depois: admin com `app_client` NULL (hub), o outro `product-photo`; `app_clients` =
+   `product-photo` e `hub-console` (`hub_only`); `login_failures` = 0; `uniq_hub_user_email`,
+   `uniq_user_email_per_app` e `uniq_login_failure_app_email` criadas. Em produção, depois do deploy, o mesmo estado.
+   Pegadinha: `pg_ctl start` com a saída capturada por pipe (`subprocess` com `capture_output`) trava no Windows;
+   iniciar com `</dev/null >arquivo`.
+5. `LOGIN_LOCKOUT_EXEMPT_ACCOUNTS`: não criada (ver registro acima).
+6. Conferido em produção: login sem `X-App-Id` → 400; preflight da origem do console com `x-app-id` → 200 e header
+   liberado; credencial do `local.properties` com `product-photo` → 200, claim `app=product-photo`; com
+   `hub-console` → 200, claim `app=hub-console`; app inexistente → 403 `app_not_allowed`.
+7. **Pendente:** E2E `generateProductPhotoRemotelyViaIawrapper` no moto (`ZY32LMNN9B`): o aparelho não estava no
+   `adb devices`. Também não testado: o login do console num navegador de verdade.
+
 ##### Ajustes pequenos de backend e SPA: refresh do SPA, `logout`, `UserSerializer` (passagem de bastão, 2026-10-30)
 
 Escolha do dono (2026-10-30), item 3 da lista do que já dá para adiantar. Nada editado.
@@ -2288,6 +2312,8 @@ implemente, se a SEC-13.2 já estiver commitada."*
 ##### App: catálogo remoto, TLS, `dataExtractionRules`, trava de release (SEC-08 a SEC-11, passagem de bastão, 2026-10-30)
 
 Escolha do dono (2026-10-30), item 4 da lista do que já dá para adiantar. Nada editado.
+**Estado (2026-10-30, 2ª sessão):** a árvore ainda estava suja (28 modificados, ~40 novos). O dono escolheu
+**esperar a SEC-13.2 commitar o app** antes de implementar. Nada de código foi tocado.
 
 **Bloqueio:** a árvore do `product_photo_offline` tem muitas alterações sem commit, misturando várias frentes:
 `MockupLibrary.kt`, `MockupScreen.kt`, `ProductFlow*`, `Http.kt`, `IawrapperBackend.kt` (novo), `app/build.gradle.kts`
@@ -2356,7 +2382,8 @@ Tasks e provas (cada uma, um commit):
    `local.properties` → falha com mensagem clara; `-Piawrapper.credential=` → passa. **Decisão do dono antes de
    ligar:** com a credencial no `local.properties`, o `assembleRelease` do círculo de teste deixa de funcionar. O
    círculo passa a usar o debug, ou a trava sai com uma flag de escape explícita (`-Pallow.test.credential=true`)?
-   Keystore própria e R8 ficam de fora: a keystore é do dono, e o R8 pede regras para o ORT e o WebView (task
+   **Decidido pelo dono (2026-10-30): flag de escape.** A trava falha o release com credencial ou URL `http://`,
+   exceto com `-Pallow.test.credential=true` explícito. Prova extra: credencial + a flag → passa. Keystore própria e R8 ficam de fora: a keystore é do dono, e o R8 pede regras para o ORT e o WebView (task
    própria).
 6. `./gradlew :feature:mockup:test :feature:product:test :app:testDebugUnitTest :ai:remote-http:test` verde, e o
    E2E no moto se a task 2 mexer no caminho das imagens.
