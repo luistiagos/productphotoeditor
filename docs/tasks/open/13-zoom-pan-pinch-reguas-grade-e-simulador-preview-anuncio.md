@@ -288,3 +288,90 @@ Item é task: "causa" = o que existe hoje e onde a funcionalidade entra. Linhas 
   de gestos com o transform interno do Fabric (campo protegido, ordem de render): raciocínio, não digitação.
 - teste: effort medium, ultrathink não — o roteiro está escrito no `task13.mjs`; o cuidado é a pinça por CDP e a
   tolerância do snap (6 px de tela), já descritos aqui.
+
+### Nota do dev (2026-11-05) — o que o código corrigiu no plano
+
+Base do dev: `origin/main` em `b35e837` (a TASK-05 entrou depois do planejamento: as linhas citadas acima andaram ~+35
+em `editor.ts`; os símbolos são os mesmos). Três pontos que o plano não tinha e que mudaram a implementação:
+
+- `node_modules/fabric/src/canvas/SelectableCanvas.ts::renderTop` (l.436–441) **também** dispara `after:render`, com o
+  contexto de CIMA (`contextTop`, retângulo de seleção / pincel). O handler antigo desenhava os overlays nele também.
+  Agora o `after:render` só desenha quando `opt.ctx === canvas.getContext()` (o inferior).
+- Máscara de fora da página: em vez de pintar a cor do `#stage` (o `#stage` não tem fundo próprio; é o `body`, e muda no
+  tema escuro), o `after:render` APAGA o que está fora da página (`globalCompositeOperation = 'destination-out'`,
+  `fill('evenodd')`) e o CSS `#stage.zoomed .canvas-container` fica transparente: aparece o fundo real do palco.
+- `StaticCanvas.ts::_setSVGBgOverlayColor` (l.1171–1190): o fundo-gradiente do SVG usa, além do vpt invertido,
+  `this.width/height` (o tamanho do ELEMENTO, que com zoom vira o do palco). `exportSvg` troca os dois durante o
+  `toSVG` (vpt identidade e `width/height` = página), como o `toCanvasElement` do próprio Fabric faz (l.1387–1427).
+- Eventos de toque do Fabric 7.4.0 (`Canvas.ts::addOrRemove` l.168–196, `_onTouchStart` l.623–668,
+  `enablePointerEvents: false` em `CanvasOptions.ts` l.284): `touchstart` no `upperCanvasEl`, `touchmove`/`touchend` no
+  `document` (bolha). Listener em CAPTURA no `#stage` + `stopPropagation()` corta os dois; o `touchend` final passa
+  (o `_onTouchEnd` do Fabric solta os listeners do documento e o `mainTouchId`). `_isClick` (private), `_groupSelector`
+  e `_isCurrentlyDrawing` (protected) são zerados por cast; `_currentTransform` é público.
+
+## Correcao (pipeline 20261105-1638, rodada 1)
+
+**O que mudou** (`arquivo::simbolo` — o quê / por quê):
+
+- `editor-web/src/viewportZoom.ts` (novo) — matemática pura em coordenadas do palco: `clampFactor` ([0,5; 4]),
+  `pageOffset`/`viewportMatrix` (`[Z,0,0,Z,e,f]` com `Z = base·factor`, `e = (palcoW − docW·Z)/2 + panX`),
+  `stageToDoc`, `anchoredZoom` (o ponto do documento sob a âncora não anda), `touchGeometry` + `pinchStep` (sempre a
+  partir do início do gesto: escala `d_t/d_0` e o ponto sob `M_0` vai para `M_t`), `clampPan` (sobra ≥ `min(64 px,
+  lado)` da página no palco), `stepFactor` (paradas 50/75/100/150/200/300/400%) e `zoomLabel`.
+- `editor-web/src/editor.ts::Editor`
+  - `baseZoom` (o antigo `zoom`) + `view: ViewState`; `fit()`: com fator 1 e pan 0 faz exatamente o de antes
+    (elemento = página × zoom, vpt `[base,0,0,base,0,0]`); senão elemento = área do `#stage` (só `setDimensions`
+    quando o tamanho muda), classe `zoomed` no host, `clampPan` e vpt = `viewportMatrix`. Avisa `onZoom`.
+  - Públicos: `zoomFactor`, `isZoomed`, `viewState`, `setZoom(f, anchorClient?)`, `zoomBy(±1)`, `resetZoom()`,
+    `panBy(dx, dy)`, `addCustomGuide(axis, pos)`, `clearCustomGuides()`, `gridOverlay`, `customGuides`, `onZoom`.
+  - `load`/`newDocument` e `resize` voltam ao encaixe; guia manual fora da página nova sai. `ResizeObserver` (teclado,
+    painel de propriedades) mantém o fator. `addImage` usa `baseZoom`.
+  - `installGestures` — `touchstart/move/end/cancel` em captura no `#stage` (`passive: false`). Ao entrar o 2º dedo:
+    `abortFabricGesture` (devolve `target.set(_currentTransform.original)` + `setCoords`, zera `_currentTransform`,
+    `_groupSelector`, `_isCurrentlyDrawing`, `_isClick`, limpa o `contextTop`, cancela o `LongPress`, apaga as guias
+    ativas) — sem `object:modified`, logo sem passo de undo; `canvas.selection = false` até soltar. Cada `touchmove` de
+    2 dedos: `pinchStep` + `clampPan`. Dedo que sai com 2+ restantes recomeça a base da pinça; com 1 restante, segue
+    bloqueado até todos saírem.
+  - Duplo toque fora de objetos (toque < 300 ms, < 12 px de arrasto, dois em < 400 ms e < 40 px; medido no palco,
+    confirmado no `mouse:up` sem `target`) → `resetZoom()`.
+  - `after:render` — só no contexto inferior; com zoom: `maskOutsidePage` (apaga fora da página + borda de 1 px);
+    `save; transform(vpt)`; grade, zona segura, guias manuais, guias ativas com `canvas.getZoom()`; `restore`; com zoom
+    redesenha as alças (`canvas.drawControls`). **Corrige o bug lateral** `editor-guias-e-zonas-seguras-fora-de-escala`.
+  - `extraSnapTargets` — terços (com `gridOverlay === 'thirds'`) + guias manuais → `computeSnap(..., extra)`.
+  - `exportSvg` — vpt identidade e `width/height` = página durante o `toSVG`, devolvidos antes do `await` e no
+    `finally`.
+- `editor-web/src/overlays.ts` — `GridOverlayMode`, `GridLine`, `ManualGuide`, `gridLines` (puro), `thirdsPoints`,
+  `renderGridOverlay` (terços tracejados `#ffb300` + 4 pontos de ouro; quadriculada 10% com 50% principal),
+  `renderManualGuides` (`#7c4dff`), `isValidGuide`.
+- `editor-web/src/snapping.ts::computeSnap` — 6º parâmetro opcional `extra?: ExtraSnapTargets` (candidatos de página
+  inteira, tipo `edge`); sem ele, resultado idêntico.
+- `editor-web/src/adPreview.ts` (novo) — `previewModel(kit, nome)` (`company || 'Sua Loja'`, logo ou inicial,
+  "Patrocinado", "Comprar agora ›", "R$ 99,90", "Frete grátis", card 170 px, 3 concorrentes fictícios),
+  `storiesFrameWidth` (9:16 que cabe), `buildAdPreview(mode, url, model, {aspect, maxW, maxH})` para
+  `feed | stories | marketplace` com o `h()` de `dom.ts`. Moldura própria (sem logotipo/marca de terceiros).
+- `editor-web/src/main.ts` — `updateTopbar`: botão `.preview` "👁️ Preview" antes de "Exportar" (o rótulo " Preview"
+  some com largura ≤ 480 px: com ele a barra passava da tela do celular); `showAdPreview` (`thumbnail(1080)` + folha
+  alta com os 3 chips de modo); pílula `#zoom-pill` (−, `🔍 NN%` que reseta, +) sempre visível no canto inferior
+  direito do `#stage`, destacada (`.active`) fora do encaixe; `showSize`: select "Grade" (Nenhuma / Regra dos terços
+  (3×3) / Grade quadriculada (10%)) e "Guias manuais" (eixo, posição em px, Adicionar, Limpar, lista).
+- `editor-web/src/styles.css` — `#stage { position: relative; touch-action: none }`, `#stage.zoomed .canvas-container`
+  transparente, pílula, botão do preview, e a folha de preview (`.adp-*`).
+- Testes: `test/viewportZoom.test.ts` (novo, 31 casos: âncora invariável tol 1e-6 em 3 estados × 4 âncoras × 5 fatores,
+  limites, pan puro, clamp, fator 1 ⇒ matriz do `fit()`), `test/overlays.test.ts` (novo), `test/adPreview.test.ts`
+  (novo), `test/snapping.test.ts` (+6 casos: terços, guia manual, sem `extra` = antes). `npx vitest run`: 24 arquivos,
+  252 testes, 0 falha; `npx tsc --noEmit` limpo.
+- `tools/e2e/task13.mjs` (novo) — roteiro da T2 (passos A–I + T3), cada passo num `try` (o controle positivo reporta
+  FAIL sem abortar).
+
+**Ajustes ao Plano de teste** (o roteiro está no `task13.mjs`):
+- **A:** a pinça é na DIAGONAL e a distância final é `min(450, o que cabe no palco)` — `pinch(cx, cy, 150, 450)` na
+  horizontal põe os dedos fora de uma tela de ~412 px CSS. O esperado é `d2/150` (≈ 3 no moto). O 1º dedo pousa no
+  retângulo e arrasta 8 px ANTES do 2º dedo (exercita o desfazer do transform do Fabric).
+- **C:** pinças 90 → 380 px (×3) e 380 → 60 px (×3), dentro da tela.
+- **E:** os dois "+" da pílula dão 200% (paradas 100 → 150 → 200). A exportação pela UI é "Exportar → Salvar na
+  galeria": o PNG vai para `Pictures/ProductPhoto/` (não `Download/`; `EditorExports.kt::save`), com nome único
+  `E2E13_<ms>`; o script faz `adb pull`, lê o IHDR e apaga o arquivo.
+- **G:** o script põe um brand kit vazio na página (`ppEditor.setBrandKit`, não grava no app) para "Sua Loja" ser
+  determinístico, e depois um com empresa "Loja Teste E2E".
+- **H:** a guia é conferida também pelo pixel (violeta `#7c4dff` em x = 200).
+- **F/I:** amostra 8 pontos ao longo da linha tracejada e exige ≥ 1 com a cor; terços = âmbar `#ffb300`.

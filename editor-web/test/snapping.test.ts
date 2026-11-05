@@ -76,3 +76,45 @@ describe('computeSnap', () => {
   });
 });
 
+describe('computeSnap com alvos extras (TASK-13: terços e guias manuais)', () => {
+  const W = 1080;
+  const H = 1080;
+
+  it('borda esquerda a 3 px de W/3 encaixa em W/3', () => {
+    const target: BoundingBox = { left: W / 3 + 3, top: 100, width: 100, height: 100 };
+    const res = computeSnap(target, W, H, [], 6, { x: [W / 3, (2 * W) / 3], y: [H / 3, (2 * H) / 3] });
+    expect(target.left + res.deltaX).toBeCloseTo(W / 3, 9);
+    expect(res.guides.some((g) => g.axis === 'x' && g.pos === W / 3 && g.from === 0 && g.to === H)).toBe(true);
+  });
+
+  it('centro a 2 px de 2H/3 encaixa em 2H/3', () => {
+    const target: BoundingBox = { left: 100, top: (2 * H) / 3 - 50 - 2, width: 80, height: 100 };
+    const res = computeSnap(target, W, H, [], 6, { x: [], y: [(2 * H) / 3] });
+    expect(target.top + target.height / 2 + res.deltaY).toBeCloseTo((2 * H) / 3, 9);
+  });
+
+  it('guia manual em x = 200 atrai a borda direita', () => {
+    const target: BoundingBox = { left: 96, top: 400, width: 100, height: 100 };
+    const res = computeSnap(target, W, H, [], 6, { x: [200], y: [] });
+    expect(target.left + target.width + res.deltaX).toBe(200);
+  });
+
+  it('sem `extra` (ou com listas vazias) o resultado é o de antes', () => {
+    const target: BoundingBox = { left: W / 3 + 3, top: 100, width: 100, height: 100 };
+    const before = computeSnap(target, W, H, [], 6);
+    expect(before.deltaX).toBe(0);
+    expect(computeSnap(target, W, H, [], 6, { x: [], y: [] })).toEqual(before);
+  });
+
+  it('o centro da página continua ganhando quando está mais perto que o alvo extra', () => {
+    const target: BoundingBox = { left: 489, top: 100, width: 100, height: 100 }; // centro 539, a 1 px de 540
+    const res = computeSnap(target, W, H, [], 6, { x: [536], y: [] });
+    expect(res.deltaX).toBe(1);
+  });
+
+  it('posição não finita é ignorada', () => {
+    const target: BoundingBox = { left: 300, top: 300, width: 10, height: 10 };
+    const res = computeSnap(target, W, H, [], 6, { x: [Number.NaN, Number.POSITIVE_INFINITY], y: [] });
+    expect(res.deltaX).toBe(0);
+  });
+});

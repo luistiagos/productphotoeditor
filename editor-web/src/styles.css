@@ -58,7 +58,7 @@ button.chip { min-height: 32px; padding: 4px 10px; font-size: 12px; border-radiu
   text-decoration: underline dotted var(--muted); text-underline-offset: 4px; }
 input.name { width: 100%; min-height: 44px; padding: 0 10px; margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 
-#stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; touch-action: none; }
 #stage .canvas-container { box-shadow: 0 2px 12px rgba(0,0,0,0.18); background: #fff; }
 
 #props {
@@ -211,3 +211,53 @@ button:disabled { opacity: 0.4; }
 .table-grid { display: grid; gap: 4px; min-width: min-content; }
 .table-grid input { min-height: 40px; width: 100%; padding: 0 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .table-grid input.head { font-weight: 700; }
+
+/* ---------- zoom do palco, preview do anúncio (TASK-13) ---------- */
+/* com zoom do usuário o <canvas> ocupa o palco e a página anda pelo viewport: fora dela o canvas fica transparente */
+#stage.zoomed .canvas-container { background: transparent; box-shadow: none; }
+#zoom-pill {
+  position: absolute; right: 8px; bottom: 8px; z-index: 2; display: flex; align-items: center; gap: 2px; padding: 2px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 1px 6px rgba(0,0,0,0.18); opacity: 0.85;
+}
+#zoom-pill.active { opacity: 1; border-color: var(--accent); }
+#zoom-pill button { min-height: 32px; min-width: 32px; padding: 2px 8px; border: none; border-radius: 16px; background: transparent; font-size: 13px; }
+#zoom-pill .zoom-label { font-variant-numeric: tabular-nums; min-width: 72px; }
+#topbar button.preview { padding: 6px 8px; }
+@media (max-width: 480px) { #topbar button.preview .lbl { display: none; } }
+.row.guides select { min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 0 6px; }
+.row.guides input.guide-pos { width: 84px; }
+
+.ad-preview { display: flex; justify-content: center; padding: 8px 0; }
+.adp-modes .chip.primary { color: var(--accent-text); }
+.adp-feed { width: 100%; max-width: 360px; background: #fff; color: #111; border: 1px solid #dbdbdb; border-radius: 8px; overflow: hidden; }
+.adp-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+.adp-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex: none; background: #eee; }
+.adp-avatar.small { width: 26px; height: 26px; }
+.adp-avatar.initial { display: inline-flex; align-items: center; justify-content: center; background: #3b6fd8; color: #fff; font-weight: 700; }
+.adp-who { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.2; }
+.adp-who small { color: #737373; font-size: 11px; }
+.adp-more { color: #262626; letter-spacing: 1px; }
+.adp-feed .adp-creative { display: block; width: 100%; height: auto; object-fit: cover; background: #f2f2f2; }
+.adp-cta { display: flex; justify-content: space-between; padding: 10px 12px; background: #3b6fd8; color: #fff; font-weight: 600; font-size: 14px; }
+.adp-actions { display: flex; gap: 14px; padding: 8px 12px 2px; font-size: 20px; }
+.adp-actions .adp-save { margin-left: auto; }
+.adp-caption { padding: 4px 12px 12px; font-size: 13px; }
+.adp-stories { position: relative; aspect-ratio: 9 / 16; background: #000; border-radius: 12px; overflow: hidden; color: #fff; }
+.adp-stories .adp-creative { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.adp-st-top { position: absolute; left: 0; right: 0; top: 0; padding: 8px 10px; background: linear-gradient(rgba(0,0,0,0.45), transparent); }
+.adp-st-progress { height: 2px; background: rgba(255,255,255,0.4); border-radius: 1px; margin-bottom: 8px; }
+.adp-st-progress span { display: block; width: 35%; height: 100%; background: #fff; }
+.adp-st-who { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.adp-st-who small { opacity: 0.85; font-size: 11px; }
+.adp-st-x { margin-left: auto; }
+.adp-st-side { position: absolute; right: 8px; bottom: 96px; display: flex; flex-direction: column; gap: 16px; font-size: 22px; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+.adp-st-bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 10px 12px; background: linear-gradient(transparent, rgba(0,0,0,0.55)); }
+.adp-st-cta { margin: 0 auto 10px; width: fit-content; padding: 6px 16px; border-radius: 16px; background: #fff; color: #111; font-weight: 600; font-size: 13px; }
+.adp-st-reply { display: flex; align-items: center; gap: 12px; font-size: 18px; }
+.adp-st-input { flex: 1; border: 1px solid rgba(255,255,255,0.8); border-radius: 18px; padding: 6px 12px; font-size: 13px; }
+.adp-market { display: grid; gap: 10px; justify-content: center; background: #ebebeb; padding: 10px; border-radius: 8px; color: #333; }
+.adp-card { background: #fff; border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; padding-bottom: 8px; }
+.adp-card-img { display: block; object-fit: contain; background: #fff; }
+.adp-card-title { padding: 6px 8px 2px; font-size: 12px; line-height: 1.25; height: 2.5em; overflow: hidden; }
+.adp-card-price { padding: 0 8px; font-size: 18px; font-weight: 500; }
+.adp-card-ship { padding: 0 8px; font-size: 12px; font-weight: 600; color: #00a650; }

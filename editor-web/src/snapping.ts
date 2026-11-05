@@ -20,15 +20,23 @@ export interface SnapResult {
   guides: GuideLine[];
 }
 
+/** Alvos magnéticos extras de página inteira (TASK-13: linhas dos terços e guias manuais), em px do documento. */
+export interface ExtraSnapTargets {
+  x: number[];
+  y: number[];
+}
+
 /**
  * Calcula o ajuste de posição magnética (snap) e as linhas-guia a serem desenhadas.
+ * `extra` (opcional) soma candidatos que atravessam a página inteira; sem ele o resultado é o de antes.
  */
 export function computeSnap(
   target: BoundingBox,
   docWidth: number,
   docHeight: number,
   otherObjects: BoundingBox[],
-  threshold: number = 6
+  threshold: number = 6,
+  extra?: ExtraSnapTargets
 ): SnapResult {
   let bestDeltaX = 0;
   let minDiffX = threshold + 1e-4;
@@ -64,6 +72,9 @@ export function computeSnap(
     { pos: docWidth * 0.05, type: 'edge', from: 0, to: docHeight },
     { pos: docWidth * 0.95, type: 'edge', from: 0, to: docHeight },
   ];
+  for (const pos of extra?.x ?? []) {
+    if (Number.isFinite(pos)) candidatesX.push({ pos, type: 'edge', from: 0, to: docHeight });
+  }
 
   // Adiciona candidatos de outros objetos
   for (const obj of otherObjects) {
@@ -120,6 +131,9 @@ export function computeSnap(
     { pos: docHeight * 0.05, type: 'edge', from: 0, to: docWidth },
     { pos: docHeight * 0.95, type: 'edge', from: 0, to: docWidth },
   ];
+  for (const pos of extra?.y ?? []) {
+    if (Number.isFinite(pos)) candidatesY.push({ pos, type: 'edge', from: 0, to: docWidth });
+  }
 
   for (const obj of otherObjects) {
     const objCenterY = obj.top + obj.height / 2;

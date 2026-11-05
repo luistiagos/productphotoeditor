@@ -21,7 +21,9 @@ import { LIST_OPTIONS, matchSnippet } from './textTools';
 import { isFreehandPath, keepAlpha, PEN_MAX, PEN_MIN, PEN_PRESETS, type PenId, penWidth, withAlpha } from './freehandDraw';
 import type { FitMode } from './imageGeometry';
 import { DESIGN_FORMATS, findFormat, formatSvg, GROUP_LABELS } from './formats';
-import type { OverlayGuideMode } from './overlays';
+import type { GridOverlayMode, OverlayGuideMode } from './overlays';
+import { AD_PREVIEW_MODES, type AdPreviewMode, buildAdPreview, previewModel } from './adPreview';
+import { zoomLabel } from './viewportZoom';
 import { DOT_STYLES, type DotStyle, encodeQr, EYE_STYLES, type EyeStyle, type QrConfig, type QrEcc, qrSvg } from './qrcode';
 import { buildPayload, QR_KINDS, type QrKind, WIFI_AUTH } from './qrPayloads';
 import {
@@ -175,8 +177,53 @@ function updateTopbar(): void {
     h('button', { class: 'title', type: 'button', title: 'Renomear', onclick: showRename }, editor.name),
     button('Camadas', showLayers),
     button('Salvar', () => void saveDraft().then(() => toast(transport ? 'Rascunho salvo' : 'Sem app nativo'))),
+    // o rótulo some em tela estreita (styles.css): a barra não pode passar da largura do celular
+    h('button', { type: 'button', class: 'preview', title: 'Preview do anúncio', 'aria-label': 'Preview', onclick: showAdPreview },
+      '👁️', h('span', { class: 'lbl' }, ' Preview')),
     button('Exportar', showExport, 'primary'),
   );
+}
+
+// ---------- zoom do palco (TASK-13) ----------
+
+const zoomText = h('span', {}, '🔍 100%');
+const zoomPill = h('div', { id: 'zoom-pill' },
+  button('−', () => editor.zoomBy(-1), 'icon zoom-out'),
+  h('button', { type: 'button', class: 'zoom-label', title: 'Encaixar na tela (100%)', onclick: () => editor.resetZoom() }, zoomText),
+  button('+', () => editor.zoomBy(1), 'icon zoom-in'));
+stage.append(zoomPill);
+editor.onZoom = () => {
+  zoomText.textContent = `🔍 ${zoomLabel(editor.zoomFactor)}`;
+  zoomPill.classList.toggle('active', editor.isZoomed);
+};
+
+// ---------- preview do anúncio (TASK-13) ----------
+
+function showAdPreview(): void {
+  let url: string;
+  try {
+    url = editor.thumbnail(1080);
+  } catch (e) {
+    toast(describe(e));
+    return;
+  }
+  const model = previewModel(brandKit, editor.name);
+  let mode: AdPreviewMode = 'feed';
+  const chips = h('div', { class: 'chips adp-modes' });
+  const holder = h('div', { class: 'ad-preview' });
+  const render = (): void => {
+    chips.replaceChildren(...AD_PREVIEW_MODES.map(([m, label]) =>
+      button(label, () => { mode = m; render(); }, 'chip' + (m === mode ? ' primary' : ''))));
+    holder.replaceChildren(buildAdPreview(mode, url, model, {
+      aspect: editor.width / editor.height,
+      maxW: Math.min(window.innerWidth - 32, 360),
+      maxH: window.innerHeight * 0.88 - 140,
+    }));
+  };
+  render();
+  openSheet('👁️ Preview do anúncio', h('div', {}, chips, holder,
+    h('p', { class: 'hint' }, 'Simulação da moldura: confira se o texto e o preço continuam legíveis e se nada importante fica coberto.')),
+  { tall: true });
 }
 
 /** O nome não entra no desfazer: o `restore` do histórico não relê o `name`. */
@@ -1635,6 +1682,19 @@ function showSize(): void {
   });
   const snapCheck = h('input', { type: 'checkbox', checked: editor.snappingEnabled }) as HTMLInputElement;
   snapCheck.addEventListener('change', () => { editor.snappingEnabled = snapCheck.checked; });
+  // guias manuais (TASK-13): estado de tela da sessão, não entram no documento
+  const guideAxis = h('select', {}, h('option', { value: 'x' }, 'Vertical (x)'), h('option', { value: 'y' }, 'Horizontal (y)'));
+  const guidePos = h('input', { type: 'number', min: 0, max: 8000, value: Math.round(editor.width / 2), class: 'guide-pos' });
+  guideAxis.addEventListener('change', () => {
+    guidePos.value = String(Math.round((guideAxis.value === 'x' ? editor.width : editor.height) / 2));
+  });
+  const guideList = h('span', { class: 'hint guide-list' });
+  const refreshGuides = (): void => {
+    guideList.textContent = editor.customGuides.length
+      ? editor.customGuides.map((g) => `${g.axis === 'x' ? 'x' : 'y'} = ${Math.round(g.pos)}`).join(' · ')
+      : 'Nenhuma guia manual';
+  };
+  refreshGuides();
 
   const close = openSheet('Tamanho e Guias', h('div', {},
     h('label', { class: 'check' }, sc, h('span', {}, 'Ajustar o conteúdo ao novo tamanho')),
@@ -1650,7 +1710,27 @@ function showSize(): void {
         editor.canvas.requestRenderAll();
       })
     ),
+    h('div', { class: 'row' },
+      select('Grade', [
+        ['none', 'Nenhuma'],
+        ['thirds', 'Regra dos terços (3×3)'],
+        ['grid-100', 'Grade quadriculada (10%)'],
+      ], editor.gridOverlay, (val) => {
+        editor.gridOverlay = val as GridOverlayMode;
+        editor.canvas.requestRenderAll();
+      })
+    ),
     h('label', { class: 'check' }, snapCheck, h('span', {}, 'Smart Guides (Alinhamento Magnético)')),
+    h('h4', {}, 'Guias manuais'),
+    h('div', { class: 'row guides' },
+      h('label', { class: 'select' }, h('span', {}, 'Guia'), guideAxis),
+      h('label', {}, 'em ', guidePos, ' px'),
+      button('Adicionar', () => {
+        if (!editor.addCustomGuide(guideAxis.value as 'x' | 'y', Number(guidePos.value))) toast('A guia tem de ficar dentro da página');
+        refreshGuides();
+      }),
+      button('Limpar', () => { editor.clearCustomGuides(); refreshGuides(); })),
+    h('div', { class: 'row' }, guideList),
     ...sections,
     h('h4', {}, 'Personalizado'),
     h('div', { class: 'row' }, custom, h('label', {}, 'L ', w), h('label', {}, 'A ', hh), button('Aplicar', () => apply(Number(w.value), Number(hh.value)), 'primary'))),

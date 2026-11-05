@@ -44,8 +44,15 @@ import { FfmpegCommandBuilder, type LayerRenderItem } from './video/FfmpegComman
 import { VideoPreview } from './video/VideoPreview';
 import { audioChannels } from './video/audioTrack';
 import type { ExportVideoBundle } from './protocol';
-import { computeSnap, renderGuideLines, type GuideLine } from './snapping';
-import { renderOverlayGuide, type OverlayGuideMode } from './overlays';
+import { computeSnap, renderGuideLines, type ExtraSnapTargets, type GuideLine } from './snapping';
+import {
+  type GridOverlayMode, gridLines, isValidGuide, type ManualGuide, renderGridOverlay, renderManualGuides, renderOverlayGuide,
+  type OverlayGuideMode,
+} from './overlays';
+import {
+  anchoredZoom, clampPan, FIT_VIEW, isFitView, type PinchStart, pinchStep, type Pt, type StageLayout, stepFactor, touchGeometry,
+  viewportMatrix, type ViewState,
+} from './viewportZoom';
 import { buildFabricGradient, evenStops, gradientBox, type GradientSpec, isGradientSpec } from './gradients';
 import { type ConnectorSpec, connectorGeometry, dashArrayFor, type DashStyle, isConnectorSpec, isDashStyle } from './connectors';
 import { collectTextLayers, countMatches, detectListStyle, findAndReplaceInText, type ListStyle, toggleListStyle } from './textTools';
@@ -80,12 +87,34 @@ export interface Adjustments { brightness: number; contrast: number; saturation:
 
 const BACKGROUND_LAYER = 'background';
 
-/** Editor sobre um Fabric Canvas cujo elemento tem o tamanho da página × zoom (§15). */
+/** Campos internos do Fabric 7.4.0 que o gesto de 2 dedos precisa zerar (Canvas.ts / SelectableCanvas.ts). */
+interface FabricGestureInternals {
+  _groupSelector: unknown;
+  _isCurrentlyDrawing: boolean;
+  _isClick: boolean;
+}
+
+/**
+ * Editor sobre um Fabric Canvas. No encaixe (zoom do usuário 100%, sem pan) o elemento tem o tamanho da página × zoom
+ * (§15); com zoom/pan do usuário (TASK-13) o elemento ocupa o palco inteiro e a página anda pelo `viewportTransform`.
+ */
 export class Editor {
   readonly canvas: Canvas;
   private docWidth = 1080;
   private docHeight = 1080;
-  private zoom = 1;
+  /** Zoom de encaixe (página inteira na tela), recalculado a cada `fit()`. */
+  private baseZoom = 1;
+  /** Zoom/pan do usuário (estado de tela: fora do documento e do undo). */
+  private view: ViewState = { ...FIT_VIEW };
+  /** Pinça em curso (início do gesto) e se há um gesto de 2+ dedos desde que todos os dedos saíram. */
+  private pinch: PinchStart | null = null;
+  private gesture = false;
+  private selectionBeforeGesture = true;
+  /** Toque de 1 dedo curto e parado (candidato a duplo toque), medido nos listeners do palco. */
+  private tapStart: { t: number; x: number; y: number } | null = null;
+  private lastTouchWasTap = false;
+  private lastTap: { t: number; x: number; y: number } | null = null;
+  private readonly longPress: LongPress<FabricText>;
   name = 'Sem nome';
   /** Papel do brand kit aplicado ao fundo do canvas (fabric.brandBackground). */
   brandBackground: string | undefined;
@@ -108,9 +137,15 @@ export class Editor {
   readonly videoPreview: VideoPreview;
 
   guideOverlay: OverlayGuideMode = 'none';
+  /** Grade de composição (TASK-13); os terços também viram alvos do snapping. */
+  gridOverlay: GridOverlayMode = 'none';
+  /** Guias manuais da sessão (px do documento); também viram alvos do snapping. */
+  customGuides: ManualGuide[] = [];
   snappingEnabled = true;
   isExporting = false;
   private activeGuides: GuideLine[] = [];
+  /** Avisado a cada mudança de zoom/pan (a pílula atualiza o rótulo). */
+  onZoom: () => void = () => {};
 
   constructor(el: HTMLCanvasElement, private readonly host: HTMLElement) {
     this.canvas = new Canvas(el, { preserveObjectStacking: true, enableRetinaScaling: true, backgroundColor: '#ffffff' });
@@ -134,7 +169,7 @@ export class Editor {
         .filter((o) => o !== target && o.visible && o.get('layerName') !== BACKGROUND_LAYER && o.selectable)
         .map((o) => o.getBoundingRect());
 
-      const snap = computeSnap(targetBBox, this.docWidth, this.docHeight, otherBBoxes, threshold);
+      const snap = computeSnap(targetBBox, this.docWidth, this.docHeight, otherBBoxes, threshold, this.extraSnapTargets());
       if (snap.deltaX !== 0 || snap.deltaY !== 0) {
         target.set({
           left: target.left + snap.deltaX,
@@ -155,16 +190,26 @@ export class Editor {
     this.canvas.on('mouse:up', clearGuides);
     this.canvas.on('selection:cleared', clearGuides);
 
+    // [[task-13-zoom-pan-pinch-reguas-grade-e-simulador-preview-anuncio]]: o Fabric dispara o after:render depois do
+    // `ctx.restore()` do viewportTransform (StaticCanvas.renderCanvas), com o contexto só na escala de retina; os overlays
+    // são em coordenadas do documento, então entram sob `transform(vpt)`. O `renderTop()` também dispara o evento, com o
+    // contexto de cima: os overlays são só do inferior.
     this.canvas.on('after:render', (opt) => {
-      if (this.isExporting) return;
       const ctx = opt.ctx;
-      if (!ctx) return;
-      if (this.guideOverlay !== 'none') {
-        renderOverlayGuide(ctx, this.guideOverlay, this.docWidth, this.docHeight, this.zoom);
-      }
-      if (this.activeGuides.length > 0) {
-        renderGuideLines(ctx, this.activeGuides, this.zoom);
-      }
+      if (this.isExporting || !ctx || ctx !== this.canvas.getContext()) return;
+      const zoomed = !isFitView(this.view);
+      const v = this.canvas.viewportTransform;
+      if (zoomed) this.maskOutsidePage(ctx, v);
+      const zoom = this.canvas.getZoom();
+      ctx.save();
+      ctx.transform(v[0], v[1], v[2], v[3], v[4], v[5]);
+      if (this.gridOverlay !== 'none') renderGridOverlay(ctx, this.gridOverlay, this.docWidth, this.docHeight, zoom);
+      if (this.guideOverlay !== 'none') renderOverlayGuide(ctx, this.guideOverlay, this.docWidth, this.docHeight, zoom);
+      if (this.customGuides.length > 0) renderManualGuides(ctx, this.customGuides, this.docWidth, this.docHeight, zoom);
+      if (this.activeGuides.length > 0) renderGuideLines(ctx, this.activeGuides, zoom);
+      ctx.restore();
+      // as alças saem antes do after:render (drawControls) e a máscara de fora da página as apagaria: redesenha por cima
+      if (zoomed && this.canvas.getActiveObject()) this.canvas.drawControls(ctx);
     });
     this.canvas.on('path:created', ({ path }) => {
       if (this.maskPaths) {
@@ -180,12 +225,213 @@ export class Editor {
     });
     // toque longo num texto abre a edição (a inline do Fabric está desligada, ver IText.ownDefaults)
     const longPress = new LongPress<FabricText>((t) => this.onEditText(t));
+    this.longPress = longPress;
     this.canvas.on('mouse:down', ({ target, viewportPoint }) => {
       if (target instanceof FabricText && !this.canvas.isDrawingMode && !this.cropState) longPress.down(target, viewportPoint.x, viewportPoint.y);
     });
     this.canvas.on('mouse:move', ({ viewportPoint }) => longPress.move(viewportPoint.x, viewportPoint.y));
     this.canvas.on('mouse:up', () => longPress.cancel());
+    // duplo toque fora de objetos volta ao encaixe (TASK-13); o toque é medido nos listeners do palco (installGestures)
+    this.canvas.on('mouse:up', ({ target }) => {
+      const tap = this.lastTouchWasTap;
+      this.lastTouchWasTap = false;
+      const p = this.tapStart;
+      if (!tap || !p || target || this.canvas.isDrawingMode || this.cropState || isFitView(this.view)) { this.lastTap = null; return; }
+      const prev = this.lastTap;
+      if (prev && p.t - prev.t < 400 && Math.hypot(p.x - prev.x, p.y - prev.y) < 40) {
+        this.lastTap = null;
+        this.resetZoom();
+      } else {
+        this.lastTap = { ...p };
+      }
+    });
+    this.installGestures();
     new ResizeObserver(() => this.fit()).observe(host);
+  }
+
+  // ---------- zoom e pan do usuário (TASK-13) ----------
+
+  /** Fator do usuário sobre o encaixe (1 = página inteira na tela). */
+  get zoomFactor(): number { return this.view.factor; }
+  /** Zoom/pan do usuário ligado (elemento do tamanho do palco). */
+  get isZoomed(): boolean { return !isFitView(this.view); }
+  get viewState(): ViewState { return { ...this.view }; }
+
+  private stageLayout(): StageLayout {
+    return {
+      stageW: Math.max(50, this.host.clientWidth),
+      stageH: Math.max(50, this.host.clientHeight),
+      docW: this.docWidth,
+      docH: this.docHeight,
+      base: this.baseZoom,
+    };
+  }
+
+  /** clientX/Y → coordenadas do palco (área útil do #stage). */
+  private clientToStage(clientX: number, clientY: number): Pt {
+    const r = this.host.getBoundingClientRect();
+    return { x: clientX - r.left - this.host.clientLeft, y: clientY - r.top - this.host.clientTop };
+  }
+
+  private applyView(next: ViewState): void {
+    // resíduo de ponto flutuante não pode deixar o editor fora do encaixe
+    const snap = (n: number) => (Math.abs(n) < 1e-6 ? 0 : n);
+    this.view = { factor: Math.abs(next.factor - 1) < 1e-9 ? 1 : next.factor, panX: snap(next.panX), panY: snap(next.panY) };
+    this.fit();
+  }
+
+  /** Muda o fator do usuário ancorado num ponto da tela (clientX/Y; padrão: centro do palco). */
+  setZoom(factor: number, anchorClient?: { x: number; y: number }): void {
+    const l = this.stageLayout();
+    const a = anchorClient ? this.clientToStage(anchorClient.x, anchorClient.y) : { x: l.stageW / 2, y: l.stageH / 2 };
+    this.applyView(clampPan(anchoredZoom(this.view, a, factor, l), l));
+  }
+
+  /** Próxima parada da pílula (− / +), ancorada no centro do palco. */
+  zoomBy(dir: 1 | -1): void {
+    this.setZoom(stepFactor(this.view.factor, dir));
+  }
+
+  /** Volta ao encaixe (100%, sem pan): o mesmo elemento e viewport de antes do zoom. */
+  resetZoom(): void {
+    this.applyView({ ...FIT_VIEW });
+  }
+
+  /** Arrasta a página dx/dy px de tela. */
+  panBy(dx: number, dy: number): void {
+    const l = this.stageLayout();
+    this.applyView(clampPan({ ...this.view, panX: this.view.panX + dx, panY: this.view.panY + dy }, l));
+  }
+
+  /**
+   * Pinça e pan com 2 dedos no palco, em captura (antes do Fabric). Ao entrar o 2º dedo, desfaz o que o 1º já começou
+   * no Fabric (arrasto/escala do objeto, retângulo de seleção, traço do pincel, toque longo) e, até todos os dedos
+   * saírem, nenhum toque chega a ele; o `touchend` final passa, para o Fabric soltar os listeners do documento.
+   */
+  private installGestures(): void {
+    const opts: AddEventListenerOptions = { capture: true, passive: false };
+    const two = (e: TouchEvent): [Pt, Pt] => [
+      this.clientToStage(e.touches[0].clientX, e.touches[0].clientY),
+      this.clientToStage(e.touches[1].clientX, e.touches[1].clientY),
+    ];
+    const begin = (e: TouchEvent) => {
+      const g = touchGeometry(...two(e));
+      this.pinch = { view: { ...this.view }, dist: g.dist, mid: g.mid };
+    };
+    this.host.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1 && !this.gesture) {
+        this.tapStart = { t: e.timeStamp, x: e.touches[0].clientX, y: e.touches[0].clientY };
+        return;
+      }
+      if (e.touches.length < 2) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.tapStart = null;
+      if (!this.gesture) {
+        this.gesture = true;
+        this.selectionBeforeGesture = this.canvas.selection;
+        this.abortFabricGesture();
+        this.canvas.selection = false;
+      }
+      begin(e);
+    }, opts);
+    this.host.addEventListener('touchmove', (e) => {
+      if (this.tapStart && e.touches.length === 1) {
+        const t = e.touches[0];
+        if (Math.hypot(t.clientX - this.tapStart.x, t.clientY - this.tapStart.y) > 12) this.tapStart = null;
+      }
+      if (!this.gesture) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.touches.length < 2 || !this.pinch) return;
+      const g = touchGeometry(...two(e));
+      const l = this.stageLayout();
+      this.applyView(clampPan(pinchStep(this.pinch, g.dist, g.mid, l), l));
+    }, opts);
+    const end = (e: TouchEvent) => {
+      if (!this.gesture) {
+        this.lastTouchWasTap = e.type === 'touchend' && e.touches.length === 0 && this.tapStart !== null
+          && e.timeStamp - this.tapStart.t < 300;
+        return;
+      }
+      this.lastTouchWasTap = false;
+      if (e.touches.length >= 2) { begin(e); e.stopPropagation(); return; }
+      this.pinch = null;
+      if (e.touches.length > 0) { e.stopPropagation(); return; }
+      this.gesture = false;
+      this.canvas.selection = this.selectionBeforeGesture;
+      this.canvas.requestRenderAll();
+    };
+    this.host.addEventListener('touchend', end, opts);
+    this.host.addEventListener('touchcancel', end, opts);
+  }
+
+  /** Desfaz, sem `object:modified` (sem passo de undo), o que o 1º dedo começou no Fabric. */
+  private abortFabricGesture(): void {
+    const c = this.canvas;
+    const internals = c as unknown as FabricGestureInternals;
+    const t = c._currentTransform;
+    if (t?.target) {
+      t.target.set(t.original);
+      t.target.isMoving = false;
+      t.target.setCoords();
+    }
+    c._currentTransform = null;
+    internals._groupSelector = null;
+    internals._isCurrentlyDrawing = false;
+    // o `mouse:up` do touchend final chega com isClick = false: não seleciona nem conta como toque
+    internals._isClick = false;
+    c.clearContext(c.contextTop);
+    this.longPress.cancel();
+    this.activeGuides = [];
+    c.requestRenderAll();
+  }
+
+  /** Apaga o que ficou fora da página (o fundo do Fabric pinta o elemento inteiro) e marca a borda da página. */
+  private maskOutsidePage(ctx: CanvasRenderingContext2D, v: number[]): void {
+    const W = this.canvas.width;
+    const H = this.canvas.height;
+    const x = v[4];
+    const y = v[5];
+    const w = this.docWidth * v[0];
+    const h = this.docHeight * v[3];
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H);
+    ctx.rect(x, y, w, h);
+    ctx.fill('evenodd');
+    ctx.restore();
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
+    ctx.restore();
+  }
+
+  /** Alvos extras do snapping: linhas dos terços (com a grade ligada) e guias manuais. */
+  private extraSnapTargets(): ExtraSnapTargets | undefined {
+    const x: number[] = [];
+    const y: number[] = [];
+    if (this.gridOverlay === 'thirds') {
+      for (const l of gridLines('thirds', this.docWidth, this.docHeight)) (l.axis === 'x' ? x : y).push(l.pos);
+    }
+    for (const g of this.customGuides) (g.axis === 'x' ? x : y).push(g.pos);
+    return x.length || y.length ? { x, y } : undefined;
+  }
+
+  /** Adiciona uma guia manual (px do documento); false se fora da página. */
+  addCustomGuide(axis: 'x' | 'y', pos: number): boolean {
+    const g: ManualGuide = { axis, pos };
+    if (!isValidGuide(g, this.docWidth, this.docHeight)) return false;
+    if (!this.customGuides.some((o) => o.axis === axis && Math.abs(o.pos - pos) < 0.5)) this.customGuides = [...this.customGuides, g];
+    this.canvas.requestRenderAll();
+    return true;
+  }
+
+  clearCustomGuides(): void {
+    this.customGuides = [];
+    this.canvas.requestRenderAll();
   }
 
   get width(): number { return this.docWidth; }
@@ -221,6 +467,9 @@ export class Editor {
     await this.withoutHistory(() => this.canvas.loadFromJSON(doc.fabric));
     this.syncLocks();
     this.refitCurves();
+    // documento novo: volta ao encaixe; guia manual fora da página nova sai
+    this.view = { ...FIT_VIEW };
+    this.customGuides = this.customGuides.filter((g) => isValidGuide(g, doc.width, doc.height));
     this.fit();
     this.history.reset(this.snapshot());
     this.canvas.requestRenderAll();
@@ -290,10 +539,21 @@ export class Editor {
     const pad = 16;
     const w = Math.max(50, this.host.clientWidth - pad * 2);
     const h = Math.max(50, this.host.clientHeight - pad * 2);
-    this.zoom = Math.min(w / this.docWidth, h / this.docHeight);
-    this.canvas.setDimensions({ width: Math.round(this.docWidth * this.zoom), height: Math.round(this.docHeight * this.zoom) });
-    this.canvas.setViewportTransform([this.zoom, 0, 0, this.zoom, 0, 0]);
+    this.baseZoom = Math.min(w / this.docWidth, h / this.docHeight);
+    if (isFitView(this.view)) {
+      // encaixe: exatamente o de antes da TASK-13 (elemento = página × zoom, centrado pelo flex do #stage)
+      this.host.classList.remove('zoomed');
+      this.canvas.setDimensions({ width: Math.round(this.docWidth * this.baseZoom), height: Math.round(this.docHeight * this.baseZoom) });
+      this.canvas.setViewportTransform([this.baseZoom, 0, 0, this.baseZoom, 0, 0]);
+    } else {
+      const l = this.stageLayout();
+      this.view = clampPan(this.view, l);
+      this.host.classList.add('zoomed');
+      if (this.canvas.width !== l.stageW || this.canvas.height !== l.stageH) this.canvas.setDimensions({ width: l.stageW, height: l.stageH });
+      this.canvas.setViewportTransform(viewportMatrix(this.view, l));
+    }
     this.canvas.requestRenderAll();
+    this.onZoom();
   }
 
   /** Muda o tamanho da página; scaleContent reescala e recentra os objetos. */
@@ -314,6 +574,8 @@ export class Editor {
     this.docHeight = height;
     const bg = this.backgroundLayer();
     if (bg) { this.coverPage(bg); this.refreshGradient(bg); }
+    this.view = { ...FIT_VIEW };
+    this.customGuides = this.customGuides.filter((g) => isValidGuide(g, width, height));
     this.fit();
     this.commit();
   }
@@ -350,7 +612,7 @@ export class Editor {
   async addImage(url: string, opts: { fit?: number } = {}): Promise<FabricImage> {
     const img = await FabricImage.fromURL(url);
     const fit = opts.fit ?? 0.6;
-    const s = Math.min((this.docWidth * fit) / img.width, (this.docHeight * fit) / img.height, 1 / Math.max(this.zoom, 0.001));
+    const s = Math.min((this.docWidth * fit) / img.width, (this.docHeight * fit) / img.height, 1 / Math.max(this.baseZoom, 0.001));
     img.set({ scaleX: s, scaleY: s });
     this.add(this.center(img));
     return img;
@@ -1604,10 +1866,25 @@ export class Editor {
     return changed;
   }
 
-  /** SVG portátil: imagens e fontes embutidas como dataURL. */
+  /**
+   * SVG portátil: imagens e fontes embutidas como dataURL. Viewport identidade e "elemento" do tamanho da página durante
+   * o `toSVG` (como o `toCanvasElement` do Fabric faz): o fundo-gradiente do canvas usa o vpt invertido e o tamanho do
+   * elemento, que mudam com o zoom/pan do usuário (TASK-13).
+   */
   async exportSvg(): Promise<string> {
     this.canvas.discardActiveObject();
     this.isExporting = true;
+    const vpt = this.canvas.viewportTransform;
+    const elW = this.canvas.width;
+    const elH = this.canvas.height;
+    const restoreView = () => {
+      this.canvas.width = elW;
+      this.canvas.height = elH;
+      this.canvas.setViewportTransform(vpt);
+    };
+    this.canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+    this.canvas.width = this.docWidth;
+    this.canvas.height = this.docHeight;
     try {
       const families = fontsUsed(this.toDocument());
       fabricConfig.clearFonts();
@@ -1623,9 +1900,12 @@ export class Editor {
         viewBox: { x: 0, y: 0, width: this.docWidth, height: this.docHeight },
       });
       fabricConfig.clearFonts();
-      return inlineSvgResources(svg, browserFetcher);
+      // a tela volta antes do await (o resto é só texto)
+      restoreView();
+      return await inlineSvgResources(svg, browserFetcher);
     } finally {
       this.isExporting = false;
+      restoreView();
     }
   }
 
