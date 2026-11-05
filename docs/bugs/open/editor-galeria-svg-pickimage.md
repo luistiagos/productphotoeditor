@@ -105,3 +105,20 @@
 ### Sessões seguintes
 - dev: effort low, ultrathink não — mudança localizada num handler + helper puro com teste; o E2E segue modelo pronto.
 - teste: effort medium, ultrathink não — dirigir o seletor do sistema por uiautomator e pegar um toast de 3,2 s pede cuidado, mas o sinal é direto.
+
+## Correcao (pipeline 20261105-1638, rodada 1)
+
+- `EditorSession.kt::Companion.isSvg(bytes, mime)` (novo) — `true` se o MIME (sem parâmetros, sem caixa) for
+  `image/svg+xml`, ou se o início do arquivo (até 1 KB, depois de BOM UTF-8 e espaços) começa com `<` e contém `<svg`.
+- `EditorSession.kt::pickImage` — só o `decodeBytes` fica num `try`; `java.io.IOException` (a `ImageDecoder.DecodeException`)
+  vira `BridgeException(INVALID, "SVG não abre como foto. Use Adesivos, ou exporte o design em PNG/JPG")` quando
+  `isSvg` (MIME via `contentResolver.getType(uri)`, em `runCatching`), senão `"formato de imagem não suportado"`.
+  Toast esperado: `Não foi possível: SVG não abre como foto…`. Imagens decodificáveis: caminho inalterado.
+- `EditorProtocolTest.kt::isSvg by mime and by content` — positivos (svg simples, `<?xml`+`<svg`, BOM+espaços+DOCTYPE,
+  MIME com caixa/parâmetro) e negativos (PNG, JPEG, texto, vazio).
+- `tools/e2e/bug-editor-galeria-svg-pickimage.mjs` (novo) — receita T2 do plano: push+scan do SVG, inserir e substituir
+  pela galeria, polling do toast (print em `1-toast.png`/`2-toast.png`), nada inserido/trocado, limpeza no `finally`.
+  `E2E_EXPECT=base` inverte o critério (controle positivo); `E2E_SVG_DIR=/sdcard/Download/ProductPhoto` se o
+  MediaStore não indexar em `Pictures/`.
+- Ajuste ao Plano de teste: nenhum.
+- Build do helper: exit 0; `isSvg by mime and by content` passou em `TEST-com.productphoto.editor.EditorProtocolTest.xml`; bundle sem mudança.

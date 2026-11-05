@@ -182,7 +182,18 @@ class EditorSession(
         val h = host ?: throw BridgeException(ErrorCode.UNSUPPORTED, "sem seletor de imagem")
         val uri = h.pickImage() ?: throw BridgeException(ErrorCode.CANCELLED, "nenhuma imagem escolhida")
         val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)!!.use { it.readBytes() } }
-        val bmp = withContext(Dispatchers.Default) { EditorAssets.decodeBytes(bytes, PICK_MAX_SIDE) }
+        // [[editor-galeria-svg-pickimage]] o seletor (image/*) lista SVG, que o ImageDecoder não abre:
+        // a DecodeException (IOException) vira erro `invalid` com mensagem clara, não o texto cru do decoder.
+        val bmp = try {
+            withContext(Dispatchers.Default) { EditorAssets.decodeBytes(bytes, PICK_MAX_SIDE) }
+        } catch (e: java.io.IOException) {
+            val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+            throw BridgeException(
+                ErrorCode.INVALID,
+                if (isSvg(bytes, mime)) "SVG não abre como foto. Use Adesivos, ou exporte o design em PNG/JPG"
+                else "formato de imagem não suportado",
+            )
+        }
         val name = assets.putPng(bmp, "img")
         return buildJsonObject { put("url", assets.blobUrl(name)); put("width", bmp.width); put("height", bmp.height) }
     }
@@ -303,6 +314,15 @@ class EditorSession(
             }
         }
         private val AUDIO_EXTS = setOf("mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "webm", "3gp", "amr", "mp4")
+
+        /** SVG pelo MIME ou pelo início do arquivo (depois de BOM UTF-8; cobre `<?xml …?><svg` e `<!DOCTYPE svg`). */
+        fun isSvg(bytes: ByteArray, mime: String?): Boolean {
+            if (mime?.substringBefore(';')?.trim()?.lowercase() == "image/svg+xml") return true
+            var start = 0
+            if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) start = 3
+            val head = String(bytes, start, minOf(bytes.size - start, 1024).coerceAtLeast(0), Charsets.UTF_8).trimStart().lowercase()
+            return head.startsWith("<") && head.contains("<svg")
+        }
 
         /** Assinatura dos formatos de fonte que o Chromium aceita. */
         fun fontExtension(b: ByteArray): String? {

@@ -145,6 +145,18 @@ class EditorProtocolTest {
     }
 
     @Test
+    fun `isSvg by mime and by content`() {
+        assertTrue(EditorSession.isSvg("<svg xmlns='x'/>".toByteArray(), null))
+        assertTrue(EditorSession.isSvg("<?xml version=\"1.0\"?>\n<svg/>".toByteArray(), null))
+        assertTrue(EditorSession.isSvg(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + "  \n<!DOCTYPE svg><svg/>".toByteArray(), null))
+        assertTrue(EditorSession.isSvg(byteArrayOf(1, 2, 3), "Image/SVG+XML; charset=utf-8"))
+        assertEquals(false, EditorSession.isSvg(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A), null))
+        assertEquals(false, EditorSession.isSvg(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()), "image/jpeg"))
+        assertEquals(false, EditorSession.isSvg("texto qualquer".toByteArray(), null))
+        assertEquals(false, EditorSession.isSvg(ByteArray(0), null))
+    }
+
+    @Test
     fun `export format supports mp4 and video bundle deserialization`() {
         assertEquals(ExportFormat.MP4, ExportFormat.of("mp4"))
         assertEquals("video/mp4", ExportFormat.MP4.mime)
