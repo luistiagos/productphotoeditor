@@ -164,6 +164,9 @@ export class Editor {
       if (!this.snappingEnabled || !target || this.isExporting) return;
       const zoom = this.canvas.getZoom();
       const threshold = 6 / (zoom || 1);
+      // o Fabric dispara object:moving DENTRO do dragHandler, antes do setCoords() (Canvas._performTransformAction):
+      // sem isto a caixa é a do evento anterior e o encaixe oscila sem engatar [[task-13-zoom-pan-pinch-reguas-grade-e-simulador-preview-anuncio]]
+      target.setCoords();
       const targetBBox = target.getBoundingRect();
       const otherBBoxes = this.canvas.getObjects()
         .filter((o) => o !== target && o.visible && o.get('layerName') !== BACKGROUND_LAYER && o.selectable)

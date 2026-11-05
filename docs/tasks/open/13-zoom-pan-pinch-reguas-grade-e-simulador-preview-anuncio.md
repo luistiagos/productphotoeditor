@@ -389,3 +389,12 @@ Evidencia: `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia
   - A grade e a guia aparecem na tela no lugar certo (pixels ambar/violeta conferidos), so o encaixe nao acontece. Verificar se `extraSnapTargets` chega ao `computeSnap` no `object:moving` real (toque) e se o candidato extra e comparado com a borda esquerda da caixa.
 - Resto passou: pinca 3x ancorada sem mover o objeto nem gerar undo, pan, limites 0,5x/4x, reset pela pilula, exportacao a 200% identica (PNG/SVG, arquivo 1080x1080 pela galeria), Preview (Feed/Stories 9:16/Marketplace 170 px), zona segura em escala (bug lateral), traco a 200% sob o dedo, teclado mantem o fator, sem excecao JS.
 - **Nao testado nesta rodada:** T3 vizinhos (`task03/11/12/14.mjs`) e T4 (logcat do PID) — interrompido por limite de uso apos a reprovacao da T2.
+
+### Rodada 1 — reprovada: encaixe nos terços/guia manual não engatava (F: 373,03; H: 203,26); correção: `setCoords()` no `object:moving`
+
+Causa (aberta na biblioteca): `node_modules/fabric/src/controls/drag.ts::dragHandler` faz `target.set(LEFT, ...)` e dispara
+`object:moving` ali dentro; `canvas/Canvas.ts::_performTransformAction` (l.1376–1384) só chama `target.setCoords()` DEPOIS
+do handler. `ObjectGeometry.ts::getBoundingRect` (l.345) usa o `aCoords` em cache → no handler do `Editor` a caixa era a
+do evento anterior e o delta do snap era aplicado sobre a posição nova: o encaixe oscilava e não engatava (vale também para
+o snapping da TASK-01). Correção: `editor-web/src/editor.ts` construtor, `object:moving` — `target.setCoords()` antes de
+`getBoundingRect()`. Pendente nesta sessão (limite de uso): `build --bug`, commit do bundle e `enqueue-test`.
