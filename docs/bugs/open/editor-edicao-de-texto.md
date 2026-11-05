@@ -176,3 +176,22 @@ Causa original (relato de 2026-10-22, acima): a edição inline do Fabric só ab
   pede cuidado (coordenada do objeto no canvas -> CSS px) é mecânica.
 - teste: effort medium, ultrathink não — rodar o script em dois APKs (pai do fix e main) e conferir sinais objetivos; o
   único desvio é o controle positivo pelo `953eb0e` em vez da base.
+
+## Correcao (pipeline 20261105-1638, rodada 1)
+
+Sem mudança de produto (o fix `6870bce` já está no main, como o Planejamento previu). O que esta rodada acrescenta:
+
+- `tools/e2e/bug-editor-edicao-de-texto.mjs` (novo) — roda a receita T2 do Plano de teste, passos 1–8 e o complemento
+  2b (toque longo por `adb shell input swipe`, em px do aparelho = bounds do `android.webkit.WebView` no uiautomator +
+  CSS px × `devicePixelRatio`; se o WebView não aparecer no dump, imprime `SKIP` e o passo 3 reabre a folha pelo CDP).
+  Cada passo roda num `try` próprio: no APK sem o fix o script termina (com FAIL) em vez de parar no 1º elemento ausente.
+  Sai 1 se algum `check` falhar.
+- Ajustes ao Plano de teste (descobertos ao abrir o código do `953eb0e`):
+  - o pai do fix NÃO expõe `window.editor` (só `window.ppEditor.editor`; o `window.editor` entrou em `68ef4c2`) nem
+    `Editor.docToClient`: o script faz `globalThis.editor ??= ppEditor.editor` e calcula o centro do texto pelo
+    `upperCanvasEl.getBoundingClientRect()` + `viewportTransform`, então roda igual nos dois APKs.
+  - o texto é localizado como o 1º objeto com `text` (documento novo por `editor.newDocument`, como o task14), não por
+    `editor.active`, porque o undo recria os objetos e tira a seleção; o passo 5 reseleciona com um toque real.
+- Provas offline: `node --check tools/e2e/bug-editor-edicao-de-texto.mjs` -> ok; `npx vitest run test/longPress.test.ts`
+  -> 5/5; `npx tsc --noEmit` -> sem erro. `build --bug editor-edicao-de-texto` -> exit 0 (vitest + `:app:assembleDebug
+  testDebugUnitTest`, BUILD SUCCESSFUL); o bundle `editor/src/main/assets/editor/` ficou igual ao commitado (lane limpa).
