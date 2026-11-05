@@ -1,5 +1,32 @@
 # [TASK-05] Gerador de QR Code Vetorial 100% Offline (Link, WhatsApp, PIX) e Tabelas de Preço/Medidas no Canvas
 
+## Status (pipeline 20261105-1638 — aprovado no teste rodada 2, 2026-11-05)
+
+**Feito:** QR Code vetorial 100% offline (codificador próprio ISO/IEC 18004, modos Link / WhatsApp / PIX BR Code com
+CRC16 / Wi-Fi, estilos de ponto e de canto, cor do kit, logo no centro com EC H, legenda), tabelas de medidas, calçados,
+preços e comparativo no canvas (1 toque, folha de edição com grade de inputs, ± linha/coluna, 4 estilos), reedição pelo
+"✏️ Editar…" mantendo posição/tamanho, persistência em `qrConfig`/`tableData`.
+
+**Commits** (sobre `origin/main` @ `1fe6d08`): `8e696de` feat(editor) TASK-05 (código + bundle), `ecd114e` docs teste
+rodada 1 reprovado (o script E2E quebrava na L49), `38e6fa6` feat(e2e) correção do `task05.mjs`, mais este commit de docs.
+
+**Aparelho:** `emulator-5554` (sdk_gphone64_x86_64, API 34) — o Moto g86 estava em uso pelo dono nas duas rodadas.
+APK do fix `20594dcd…a701` = `sha256sum` do `base.apk` instalado.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-1810-task-05-qrcode-vetorial-offline-e-tabelas-no-canvas\`):
+- Offline: `tsc --noEmit` 0 erros; vitest 211/211 (base 161/161); unidade Gradle 199 (1 skip) / 0 falha, igual à base.
+- Controle positivo (`base-1fe6d08.apk`): `task05.mjs` 0/1 — abas e API ausentes (`t2-base/`).
+- **T2** (`fix-38e6fa6.apk`, script commitado): `task05.mjs` **39/39** (`t2-fix/task05-fix.txt`, prints `05-*`, PNGs
+  decodificados pelo OpenCV — link, WhatsApp com pontos/cantos arredondados/legenda, PIX com `[crc ok]`, logo em H,
+  reeditado com versão maior —, e o print da tela também decodifica).
+- **T3:** `task12` 40/40, `task11` 25/25, `task14` 50/50, `task03` 19/19 (`t3/`).
+- **T4:** logcat do PID 15638 (`t2-fix/logcat-pid15638.txt`): sem `FATAL`/`ANR`/erro de console do WebView; só o finalizer
+  de `ai.onnxruntime.telemetry.HttpClient` (Kotlin, fora da task) e o aviso de seed do WebView, iguais na rodada 1.
+
+**Falta para `done/`:** validação do dono no aparelho dele — ler os QR (link, WhatsApp, PIX no app do banco) com a câmera
+real de um celular, inclusive impressos; modo avião de verdade; o modo Wi-Fi pela UI (coberto só por vitest e pela prova
+offline do dev).
+
 ## Metadados e Esforço Mensurado
 
 | Campo | Valor |
