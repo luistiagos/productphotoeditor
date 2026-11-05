@@ -1,5 +1,40 @@
 # [BUG] Editor: não dá para editar o texto adicionado
 
+## Status
+
+**Corrigido e testado no pipeline 20261105-1638 (teste rodada 1, 2026-11-05) -> `retest/`.**
+
+- **O que foi feito:** o fix de produto é o `6870bce` (já no `origin/main`; bundle regerado em `68ef4c2`/`0d616c3`):
+  toque longo (500 ms) no texto abre a folha "Editar texto" com o texto todo selecionado e o teclado; botão
+  "✏️ Editar texto" no painel; edição inline do Fabric desligada (`IText.ownDefaults.editable = false`); pistas (toast ao
+  adicionar texto e texto-modelo "Toque e segure para editar o texto"). Esta rodada acrescentou a prova reproduzível:
+  `tools/e2e/bug-editor-edicao-de-texto.mjs` (commit `2cb3f41`).
+- **Aparelho:** `emulator-5554` (`sdk_gphone64_x86_64`, AVD `pp_api34`). O moto g86 (`ZY32LMNN9B`, adb-tls) estava
+  `device` mas com a tela **bloqueada por PIN** (`isKeyguardShowing=true`, captura preta): o `launchEditor` não acha
+  "Novo design" e não há como desbloquear sem o dono. O APK da base chegou a ser instalado nele (antes de ver o bloqueio)
+  e foi trocado de volta pelo do main (`fix-2cb3f41.apk`); estado anterior em `aparelho-antes.txt`.
+- **Evidência:** `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-1708-editor-edicao-de-texto` (APKs `base-953eb0e.apk` / `fix-2cb3f41.apk`, sha256 do APK no aparelho conferido com o arquivo
+  nos dois casos; `aparelho-*.txt`; logs dos builds).
+  - **Controle positivo** (APK do pai do fix `953eb0e`, `base/saida.txt`, 4/16 ok, exit 1): FAIL no passo 1 (sem toast,
+    sem "✏️ Editar texto"), no 2 (toque longo não abre folha; o teclado sobe pela edição inline escondida do Fabric —
+    o sintoma do relato) e no 8 ("Toque duas vezes para editar o texto"). Os passos 3–7 caem em erro em cascata (sem
+    folha não há o que aplicar; o "↶" da base volta ao documento vazio), não pelo sinal do passo 6 previsto no plano.
+    Na base o formato se chama "Post quadrado · 1080×1080" (rodado com `E2E_FORMAT`; 1ª tentativa sem ele em
+    `base-tentativa1-formato/`).
+  - **T2** (APK do main, `fix/saida.txt` + prints): **23/23 PASS**, exit 0 — toast e botão; toque longo por CDP e
+    por `adb shell input swipe` abrem a folha com "Título" selecionado 0..6, foco no textarea e `mInputShown=true`;
+    Aplicar -> "Promo de Sexta"; "↶" -> "Título"; Cancelar e texto vazio ("Digite um texto", folha fica); dois toques
+    não entram em edição inline (`mInputShown=false`); arrastar move sem abrir folha; texto-modelo novo; sem exceção JS.
+    (1ª tentativa em `fix-tentativa1-uiautomator/`: o `uiautomator` devolveu "null root node" durante a animação da
+    folha de formatos e o `launchEditor` desistiu; falha do driver, repetida sem mudança e passou.)
+  - **T3:** `tools/e2e/task14.mjs` com o APK do main -> 50/50 (`t3-task14/saida.txt`); vitest 18 arquivos / 161
+    testes e `testDebugUnitTest` 198 testes, 0 falhas, 0 erros (`build-fix.log`).
+  - **T4:** logcat por PID (`base/`, `fix/`, `t3-task14/` `logcat.txt`, PIDs 8405 / 9118 / 9489): as linhas `E` do fix
+    são as mesmas da base (finalizer `ai.onnxruntime.telemetry.HttpClient` "Receiver not registered",
+    `variations_seed_loader` do WebView, OpenGLRenderer); nenhum `FATAL`/`AndroidRuntime`/ANR; nada novo atribuível.
+- **Falta para `done/`:** validação do dono no aparelho dele (moto g86): toque longo no título abre a folha com
+  teclado, aplicar/desfazer, e o 2º toque não abre mais a edição inline.
+
 **Relato (2026-10-22):** ao criar/editar um design, "Texto" adiciona a caixa, mas não se sabe como mudar o texto.
 Pedido: editar com **toque longo**.
 
@@ -129,10 +164,10 @@ Causa original (relato de 2026-10-22, acima): a edição inline do Fabric só ab
 
 ### Tarefas
 
-- [ ] `tools/e2e/bug-editor-edicao-de-texto.mjs` (novo; modelo `tools/e2e/task14.mjs`, driver `tools/e2e/cdp.mjs`) — roda
+- [x] `tools/e2e/bug-editor-edicao-de-texto.mjs` (novo; modelo `tools/e2e/task14.mjs`, driver `tools/e2e/cdp.mjs`) — roda
   a receita T2 abaixo e sai 1 se algum `check` falhar — prova: o script verde com o APK do main e com FAIL nos checks do
   toque longo/sheet com o APK do pai `953eb0e`.
-- [ ] Este doc — seção `## Resultado (pipeline)` com o commit do script e o que a T2 mostrou.
+- [x] Este doc — seção `## Resultado (pipeline)` com o commit do script e o que a T2 mostrou.
 
 ### Plano de teste
 
@@ -195,3 +230,9 @@ Sem mudança de produto (o fix `6870bce` já está no main, como o Planejamento 
 - Provas offline: `node --check tools/e2e/bug-editor-edicao-de-texto.mjs` -> ok; `npx vitest run test/longPress.test.ts`
   -> 5/5; `npx tsc --noEmit` -> sem erro. `build --bug editor-edicao-de-texto` -> exit 0 (vitest + `:app:assembleDebug
   testDebugUnitTest`, BUILD SUCCESSFUL); o bundle `editor/src/main/assets/editor/` ficou igual ao commitado (lane limpa).
+
+## Teste rodada 1 — aprovado (pipeline 20261105-1638)
+
+Ver `## Status` no topo. Resumo: controle positivo pelo APK de `953eb0e` com FAIL nos passos 1, 2 e 8; T2 23/23 com o
+APK do main; T3 task14 50/50, vitest 161/161, unit 198/0; T4 sem erro novo. Aparelho: emulador (o moto estava
+bloqueado por PIN).
