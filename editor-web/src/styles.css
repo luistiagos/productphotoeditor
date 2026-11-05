@@ -200,3 +200,14 @@ label.field input.name { margin: 4px 0; }
 .find-hit .grow { font-size: 14px; white-space: nowrap; }
 .pens button { white-space: nowrap; }
 button:disabled { opacity: 0.4; }
+
+/* QR Code e tabelas (TASK-05) */
+.qr-field { display: flex; flex-direction: column; gap: 2px; }
+.qr-field input.name, .qr-field textarea { margin: 2px 0; }
+.qr-preview { display: flex; justify-content: center; padding: 8px 0; }
+.qr-preview svg { width: 100%; max-width: 220px; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+.qr-labels .chip { font-size: 11px; }
+.table-scroll { overflow-x: auto; }
+.table-grid { display: grid; gap: 4px; min-width: min-content; }
+.table-grid input { min-height: 40px; width: 100%; padding: 0 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.table-grid input.head { font-weight: 700; }

@@ -323,3 +323,90 @@ Não há defeito: é funcionalidade ausente. Conferência do plano do autor cont
 - teste: effort medium, ultrathink não — roteiro E2E com sinais objetivos (decodificação por OpenCV, valores por CDP); a
   classificação de falha é direta.
 
+### Notas do dev ao Planejamento (2026-11-05)
+
+- **Desmentido:** "os testes importam `fabric/node` (o pacote `canvas` está em `node_modules`)" — o `fabric/node` daqui
+  **não mede texto** (`getContext` → null; mesmo achado já anotado em `test/textTools.test.ts`), e o pacote `fabric` (não
+  `/node`) em Node falha em `document`. Consequência: `table.ts::buildTable(data, measure, F)` recebe as classes do Fabric
+  (padrão: `fabric`); o vitest monta o Group com `Rect`/`Group` reais e um texto falso. A medida real do texto vai no E2E
+  (passo 6, alinhamento à direita da Lista de Preços).
+- **Desmentido:** o projeto não tem `@types/node` (tsconfig `types: []`, fora da reserva) — o teste lê o fixture por
+  `import()` dinâmico e calcula o SHA-256 com `crypto.subtle`, sem `node:fs`/`node:crypto`.
+- **Achado novo:** "Localizar e substituir" (`editor.ts::textLayers` → `textTools.ts::collectTextLayers`) desce em
+  grupos e alteraria a legenda do QR e as células da tabela sem atualizar `qrConfig`/`tableData` (a reedição desfaria a
+  troca). `textLayers()` passa a ignorar grupos com `qrConfig`/`tableData`; o texto deles se edita pelo "✏️ Editar…".
+
+## Correção (pipeline 20261105-1638, rodada 1)
+
+**O que mudou (`arquivo::simbolo`):**
+- `editor-web/src/qrcode.ts` (novo) — `encodeQr(text, {ecc, mask?, minVersion?})`: modo byte UTF-8, versões 1–40, tabelas
+  de blocos L/M/Q/H, RS em GF(256)/0x11D, colocação (localizadores, separadores, temporização, alinhamento por
+  `alignmentPositions`, módulo escuro, formato BCH 0x537 ⊕ 0x5412, versão ≥ 7 BCH 0x1F25), 8 máscaras e `penalty` (4
+  regras); estouro da v40 → `QrTooLongError`. `qrSvg(matrix, opts)`: `<rect>` de fundo + `<path>` dos módulos (um
+  subcaminho por módulo: quadrado / quadrado arredondado r = 0,3 / círculo r = 0,45) + `<path>` dos 3 localizadores (furo
+  em sentido anti-horário, nonzero) + buraco do logo (`logoHoleRange`, 22% do LADO, mesma paridade do lado) + faixa da
+  legenda; `stroke-width="0"` em tudo (sem ele o Fabric soma 1 px à caixa). `qrLayout`, `QrConfig`, `isQrConfig`,
+  `EYE_ROUND`.
+- `editor-web/src/qrPayloads.ts` (novo) — `linkPayload`, `whatsappPayload`, `pixPayload` (00/26/52/53/54?/58/59/60/62/63,
+  nome ≤ 25 e cidade ≤ 15 sem acento e maiúsculos, chave normalizada por `normalizePixKey`), `parseAmount`, `parseEmv`,
+  `isPixPayload`, `pixCrcOk`, `wifiPayload`, `crc16ccitt`, `buildPayload(kind, fields)` (erro → `PayloadError`).
+- `editor-web/src/table.ts` (novo) — `TableData`, `TABLE_TEMPLATES`/`tableTemplate` (medidas, calçados, preços com o
+  preço à direita, comparativo), `addRow/removeRow/addColumn/removeColumn/setCell/normalizeTable`, `layoutTable(data,
+  measure)` (estilos header/zebra/grid/minimal), `buildTable`.
+- `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `+ 'qrConfig', 'tableData'`.
+- `editor-web/src/editor.ts` — `qrConfigOf`, `tableDataOf`, `upsertQrCode(config, existing?, {logoUrl, font})` (novo:
+  35% do menor lado, centrado; reedição: mesmo centro, mesma LARGURA exibida, ângulo/espelho/opacidade/sombra/animação/
+  nome, mesmo índice, 1 commit), `buildQrGroup` (legenda refeita como `FabricText` centrado e encolhido até 90% da largura;
+  logo `FabricImage.fromURL` com `brandLogo: true` no buraco; falha do logo → aviso, buraco vazio), `upsertTable(data,
+  existing?)` (nova: ≤ 80% da página; reedição: mesmo canto superior esquerdo por `getPointByOrigin('left','top')`, mesma
+  escala), `replaceInPlace`, `measureText` (largura do `FabricText`), `textLayers` (exclui QR/tabela).
+- `editor-web/src/main.ts` — abas `📱 QR Code` e `📊 Tabela`; `showQrSheet(existing?)` (4 modos com pré-preenchimento do
+  kit, estilo de pontos/cantos, cores com "● Cor da marca", logo → correção H, legenda com 3 sugestões + livre, prévia
+  SVG ao vivo, erro → `toast` e nada inserido); `showTableSheet` (1 toque insere); `showTableEditor` (grade de inputs,
+  ± linha/coluna, estilo, cores, "🎨 Cores da marca", Aplicar); `renderProps`: ramos `isQr`/`isTable` antes do genérico e
+  sem "🔓 Desagrupar"; `testHook.setBrandKit`.
+- `editor-web/src/styles.css` — folha do QR (campos, prévia) e grade da tabela.
+- `tools/e2e/qr_decode.py` (novo) — OpenCV `QRCodeDetector` e, se não ler, `QRCodeDetectorAruco`; `--expect`, `--pix`.
+- `tools/e2e/task05.mjs` (novo) — T2 do Plano de teste (passos 1–7 + regressões abaixo).
+- `editor/src/main/assets/editor/` — bundle regerado pelo `build`.
+
+**Por que o raio dos cantos arredondados é pequeno (`qrcode.ts::EYE_ROUND` = 0,5/0,25/0,25 módulo):** com 2/1,5/1 o
+OpenCV não leu NENHUM QR de cantos arredondados (o detector acha o localizador pelos vértices); varredura (`gen4.mjs` na
+evidência; 4 payloads × 3 estilos de ponto × M/H × 5 variações — original, desfoque 5×5, 0,6×, 2×, 3×) lida pelo detector
+clássico: raio 1/0,5/0,5 → 80/120; 0,5/0,25/0,25 → 105/120; cantos quadrados → 114/120 (com o Aruco como 2ª tentativa:
+96, 113 e 117/120).
+
+**Provas desta rodada (comando literal → resultado):**
+- `npx tsc --noEmit` (editor-web) → sem erro. `npx vitest run` → **21 arquivos, 211 testes, 0 falhas** (3 arquivos novos:
+  `qrcode.test.ts` 22, `qrPayloads.test.ts` 13, `table.test.ts` 15).
+- Igualdade bit a bit com a referência independente (Python `qrcode`): 9 matrizes completas (L/M/Q/H, máscaras 0–7,
+  versões 1, 2, 3, 4, 5, 7, 10, 11, 25, texto UTF-8 com acento) **e** o SHA-256 das 160 combinações versão 1–40 × nível,
+  cada uma no limite de capacidade da versão — todas iguais na 1ª execução.
+  Receita do fixture (`editor-web/test/qr-reference.json`; Python **sem** `-I`): `qr_reference.py` (cópia na evidência) —
+  `QRCode(version=None, error_correction=E, border=0, mask_pattern=k)`, `add_data(QRData(s.encode('utf-8'),
+  mode=MODE_8BIT_BYTE))`, `make(fit=True)`, `get_matrix()`; nos casos `hashes`, o texto é `ALPHA[(i*7 + versão) % 36]`
+  para i < `length` (comprimento máximo da versão por busca binária sobre `best_fit()`). Comando:
+  `python qr_reference.py editor-web/test/qr-reference.json` → `9 full, 160 hashes`.
+- CRC: `crc16ccitt('123456789') = 29B1`; um BR Code de exemplo dá `F012`, igual a `binascii.crc_hqx(dados, 0xFFFF)` do
+  Python (o "1D3D" que eu lembrava para esse exemplo estava errado — conferido, não usado).
+- **Leitura sem app (OpenCV como câmera):** `node --experimental-transform-types gen_svgs.mjs <pasta>` (gera, com o próprio
+  `qrcode.ts`/`qrPayloads.ts`, 4 payloads — link, WhatsApp, PIX gerado, Wi-Fi com `;` na senha — × 3 estilos de ponto, +
+  4 com buraco de logo em H, estilo pontos e cantos arredondados) → rasterizado no Edge headless (`msedge --headless=new
+  --screenshot`) → `python tools/e2e/qr_decode.py --expect <payload> [--pix] <png>` → **16/16 leram o payload exato**; os 4
+  PIX com `[crc ok]`. Versões: link v3, WhatsApp v5, PIX v7, Wi-Fi v3; com logo (H): v4, v8, v11, v5.
+  Evidência: `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-dev-task-05-prova-offline\`
+  (PNGs, `list.json`, `gen_svgs.mjs`, `gen4.mjs`, `qr_reference.py`).
+
+**Ajustes ao Plano de teste:**
+- T2 = `node tools/e2e/task05.mjs <pasta>` (cwd = lane; precisa de `python` com OpenCV no PATH, **sem** `-I`). O logo do
+  brand kit de teste é `contentUrl('mockups/box_front.webp')` (imagem empacotada). Além dos passos 1–7 do plano, o script
+  confere: prévia ao vivo na folha; props do QR sem "🔓 Desagrupar"; "Localizar e substituir" não acha a legenda do QR;
+  um `Group` comum ainda mostra "🔓 Desagrupar" e "Preenchimento". Prints: `05-1-link-print.png` (também decodificado:
+  leitura a partir da tela), `05-2…`, `05-4…`, `05-5-editar-qr.png`, `05-5-reeditado-print.png`, `05-6-tabela.png`,
+  `05-6-editar-tabela.png`, `05-6-lista-precos.png`; PNG só do QR (`renderPageCanvas` com filtro) para cada decodificação.
+- Re-edição (passo 5): a mensagem nova é longa de propósito (a versão do QR sobe), para provar que a largura exibida se
+  mantém quando a matriz muda de tamanho.
+- Controle positivo: o 1º check do `task05.mjs` (abas + `editor.upsertQrCode` + `ppEditor.setBrandKit`) falha na base e o
+  script sai com 1 logo ali.
+- O `task05.mjs` NÃO foi rodado nesta sessão (o dev não roda o app); só `node --check` (sintaxe) passou.
+

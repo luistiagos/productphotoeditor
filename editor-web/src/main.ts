@@ -22,6 +22,12 @@ import { isFreehandPath, keepAlpha, PEN_MAX, PEN_MIN, PEN_PRESETS, type PenId, p
 import type { FitMode } from './imageGeometry';
 import { DESIGN_FORMATS, findFormat, formatSvg, GROUP_LABELS } from './formats';
 import type { OverlayGuideMode } from './overlays';
+import { DOT_STYLES, type DotStyle, encodeQr, EYE_STYLES, type EyeStyle, type QrConfig, type QrEcc, qrSvg } from './qrcode';
+import { buildPayload, QR_KINDS, type QrKind, WIFI_AUTH } from './qrPayloads';
+import {
+  addColumn, addRow, columnCount, normalizeTable, removeColumn, removeRow, setCell, type TableData, TABLE_STYLES, TABLE_TEMPLATES,
+  tableTemplate, type TableStyle,
+} from './table';
 import type { AudioRef, BlobResult, ExportPayload, FontRef, SaveDraftPayload, TextBox } from './protocol';
 
 // ---------- estado ----------
@@ -207,9 +213,12 @@ function renderProps(o: FabricObject | undefined): void {
   if (!o) { props.replaceChildren(); props.classList.remove('show'); return; }
   const rows: Node[] = [];
   const isSelection = o instanceof ActiveSelection;
+  // QR Code e tabela são grupos com dados próprios: desagrupar perderia a reedição (TASK-05)
+  const isQr = Boolean(editor.qrConfigOf(o));
+  const isTable = Boolean(editor.tableDataOf(o));
   rows.push(h('div', { class: 'row scroll' },
     isSelection ? button('🔗 Agrupar', () => { editor.groupActive(); renderProps(editor.active); }, 'primary group-btn') : null,
-    o instanceof Group && !isSelection
+    o instanceof Group && !isSelection && !isQr && !isTable
       ? button('🔓 Desagrupar', () => { editor.ungroupActive(); renderProps(editor.active); }, 'ungroup-btn') : null,
     button('Duplicar', () => void editor.duplicate()),
     button('Excluir', () => editor.remove(), 'danger'),
@@ -231,6 +240,8 @@ function renderProps(o: FabricObject | undefined): void {
   if (o instanceof FabricText) rows.push(...textProps(o));
   else if (o instanceof FabricImage) rows.push(...imageProps(o));
   else if (editor.connectorOf(o)) rows.push(...connectorProps());
+  else if (isQr) rows.push(h('div', { class: 'row scroll' }, button('✏️ Editar QR Code', () => showQrSheet(o), 'primary edit-qr')));
+  else if (isTable) rows.push(h('div', { class: 'row scroll' }, button('✏️ Editar Tabela', () => showTableEditor(o), 'primary edit-table')));
   else if (isFreehandPath(o)) rows.push(...freehandProps(o));
   else {
     const grad = editor.gradientOf(o);
@@ -1117,6 +1128,8 @@ const tabs: [string, () => void][] = [
   ['Imagem', showImage],
   ['Formas', showShapes],
   ['🏷️ Selos', showBadges],
+  ['📱 QR Code', () => showQrSheet()],
+  ['📊 Tabela', showTableSheet],
   ['Adesivos', showStickers],
   ['Fundo', showBackgrounds],
   ['Tamanho', showSize],
@@ -1202,6 +1215,195 @@ function showShapes(): void {
     h('h4', {}, '✍️ Desenho à mão'),
     h('div', { class: 'chips' },
       button('✍️ Desenhar à mão', () => { close(); startFreehand(); }, 'draw-btn'))));
+}
+
+// ---------- QR Code e tabelas (TASK-05) ----------
+
+const QR_LABELS = ['ESCANEIE PARA COMPRAR', 'CHAME NO WHATSAPP', 'PAGUE COM PIX'];
+
+function defaultQrFields(): Record<string, string> {
+  return {
+    url: brandKit.profile.website ?? '', phone: brandKit.profile.phone ?? '', message: '', pixMode: 'key', key: '',
+    name: brandKit.profile.company ?? '', city: '', amount: '', pasted: '', ssid: '', password: '', auth: 'WPA',
+  };
+}
+
+/** Criar (sem `existing`) ou reeditar o QR Code: modo, campos, estilo, cores, logo, legenda e prévia ao vivo. */
+function showQrSheet(existing?: FabricObject): void {
+  const current = existing ? editor.qrConfigOf(existing) : undefined;
+  const cfg: QrConfig = current ? structuredClone(current) : {
+    kind: 'link', fields: {}, payload: '', ecc: 'M', dotStyle: 'square', eyeStyle: 'square',
+    fgColor: brandKit.colors.primary ?? '#111111', bgColor: '#ffffff', label: '', withLogo: false,
+  };
+  cfg.fields = { ...defaultQrFields(), ...cfg.fields };
+  // o logo exige a correção alta (H, 30%): o buraco central tira módulos do código
+  const eccOf = (): QrEcc => (cfg.withLogo && brandKit.logoUrl ? 'H' : 'M');
+  const preview = h('div', { class: 'qr-preview' });
+  const status = h('p', { class: 'hint qr-status' });
+  let timer: number | undefined;
+  const refresh = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      try {
+        const payload = buildPayload(cfg.kind, cfg.fields);
+        const m = encodeQr(payload, { ecc: eccOf() });
+        preview.innerHTML = qrSvg(m, { dotStyle: cfg.dotStyle, eyeStyle: cfg.eyeStyle, fg: cfg.fgColor, bg: cfg.bgColor,
+          logoHole: cfg.withLogo && Boolean(brandKit.logoUrl), label: cfg.label, labelFont: brandKit.fonts.heading ?? DEFAULT_FONT });
+        preview.dataset.payload = payload;
+        status.textContent = `Versão ${m.version} · ${m.size}×${m.size} módulos · correção ${m.ecc}`;
+      } catch (e) {
+        preview.replaceChildren();
+        delete preview.dataset.payload;
+        status.textContent = e instanceof Error ? e.message : String(e);
+      }
+    }, 120);
+  };
+  const field = (name: string, label: string, attrs: { type?: string; placeholder?: string; multiline?: boolean; inputmode?: string } = {}) => {
+    const el = attrs.multiline
+      ? h('textarea', { rows: 3, 'data-field': name, placeholder: attrs.placeholder, value: cfg.fields[name] ?? '' })
+      : h('input', { type: attrs.type ?? 'text', class: 'name', 'data-field': name, placeholder: attrs.placeholder, inputmode: attrs.inputmode,
+        value: cfg.fields[name] ?? '' });
+    el.addEventListener('input', () => { cfg.fields[name] = el.value; refresh(); });
+    return h('label', { class: 'qr-field' }, h('span', { class: 'hint' }, label), el);
+  };
+  const fieldsBox = h('div', { class: 'list qr-fields' });
+  const kinds = h('div', { class: 'chips qr-kinds' });
+  const renderFields = () => {
+    kinds.replaceChildren(...QR_KINDS.map(([k, label]) => h('button', {
+      type: 'button', class: 'chip qr-kind' + (k === cfg.kind ? ' primary' : ''), 'data-kind': k,
+      onclick: () => { cfg.kind = k as QrKind; renderFields(); },
+    }, label)));
+    const f: Node[] = [];
+    if (cfg.kind === 'link') {
+      f.push(field('url', 'Link do site, loja ou catálogo', { type: 'url', placeholder: 'https://sualoja.com.br' }));
+    } else if (cfg.kind === 'whatsapp') {
+      f.push(field('phone', 'WhatsApp (DDD + número)', { type: 'tel', placeholder: '(11) 99999-9999' }),
+        field('message', 'Mensagem pronta (opcional)', { multiline: true, placeholder: 'Olá! Vi o anúncio e quero pedir…' }));
+    } else if (cfg.kind === 'pix') {
+      f.push(h('div', { class: 'qr-pix-mode' }, select('PIX', [['key', 'Chave PIX'], ['paste', 'Colar "PIX Copia e Cola"']], cfg.fields.pixMode,
+        (v) => { cfg.fields.pixMode = v; renderFields(); })));
+      if (cfg.fields.pixMode === 'paste') {
+        f.push(field('pasted', 'Código PIX Copia e Cola', { multiline: true, placeholder: '000201…' }));
+      } else {
+        f.push(field('key', 'Chave (CPF/CNPJ, e-mail, telefone +55… ou aleatória)', { placeholder: '+5511999999999' }),
+          field('name', 'Nome do recebedor', { placeholder: 'Loja Exemplo' }),
+          field('city', 'Cidade', { placeholder: 'São Paulo' }),
+          field('amount', 'Valor (opcional)', { inputmode: 'decimal', placeholder: '19,90' }));
+      }
+    } else {
+      f.push(field('ssid', 'Nome da rede (SSID)'),
+        h('div', { class: 'qr-wifi-auth' }, select('Segurança', WIFI_AUTH, cfg.fields.auth, (v) => { cfg.fields.auth = v; renderFields(); })));
+      if (cfg.fields.auth !== 'nopass') f.push(field('password', 'Senha'));
+    }
+    fieldsBox.replaceChildren(...f);
+    refresh();
+  };
+  const fg = colorInput('Cor do QR', cfg.fgColor, (v) => { cfg.fgColor = v; refresh(); });
+  const brandFg = brandKit.colors.primary ? button('● Cor da marca', () => {
+    cfg.fgColor = brandKit.colors.primary!;
+    fg.querySelector('input')!.value = toHex(cfg.fgColor);
+    refresh();
+  }, 'chip qr-brand-color') : null;
+  const logo = h('input', { type: 'checkbox', checked: cfg.withLogo, 'data-field': 'withLogo' });
+  logo.addEventListener('change', () => { cfg.withLogo = logo.checked; refresh(); });
+  const labelInput = h('input', { type: 'text', class: 'name', 'data-field': 'label', maxlength: 40, value: cfg.label ?? '', placeholder: 'Legenda livre' });
+  labelInput.addEventListener('input', () => { cfg.label = labelInput.value; refresh(); });
+  const setLabel = (v: string) => { labelInput.value = v; cfg.label = v; refresh(); };
+  const apply = async () => {
+    let payload: string;
+    const ecc = eccOf();
+    try {
+      payload = buildPayload(cfg.kind, cfg.fields);
+      encodeQr(payload, { ecc });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const config: QrConfig = { ...cfg, fields: { ...cfg.fields }, payload, ecc, label: cfg.label?.trim() || undefined,
+      withLogo: cfg.withLogo && Boolean(brandKit.logoUrl) };
+    close();
+    const g = await run('Gerando QR Code', () => editor.upsertQrCode(config, existing,
+      { logoUrl: brandKit.logoUrl, font: brandKit.fonts.heading ?? DEFAULT_FONT }));
+    if (g) renderProps(editor.active);
+  };
+  const close = openSheet(existing ? 'Editar QR Code' : '📱 QR Code', h('div', { class: 'list qr-sheet' },
+    kinds,
+    fieldsBox,
+    h('h4', {}, 'Estilo'),
+    h('div', { class: 'row' },
+      h('div', { class: 'qr-dot-style' }, select('Pontos', DOT_STYLES, cfg.dotStyle, (v) => { cfg.dotStyle = v as DotStyle; refresh(); })),
+      h('div', { class: 'qr-eye-style' }, select('Cantos', EYE_STYLES, cfg.eyeStyle, (v) => { cfg.eyeStyle = v as EyeStyle; refresh(); }))),
+    h('div', { class: 'row' }, fg, colorInput('Fundo', cfg.bgColor, (v) => { cfg.bgColor = v; refresh(); }), brandFg),
+    brandKit.logoUrl
+      ? h('label', { class: 'check' }, logo, h('span', {}, 'Incluir logo da marca no centro'))
+      : h('p', { class: 'hint' }, 'Cadastre um logo no Brand kit para colocá-lo no centro do QR.'),
+    h('h4', {}, 'Legenda'),
+    h('div', { class: 'chips qr-labels' }, button('Sem legenda', () => setLabel(''), 'chip'),
+      ...QR_LABELS.map((l) => h('button', { type: 'button', class: 'chip qr-label', onclick: () => setLabel(l) }, l))),
+    labelInput,
+    preview,
+    status,
+    button(existing ? 'Aplicar' : 'Inserir', () => void apply(), 'primary qr-apply')), { tall: true });
+  renderFields();
+}
+
+/** Templates de tabela: um toque insere (cores e fonte da marca). */
+function showTableSheet(): void {
+  const kit = { primary: brandKit.colors.primary, text: brandKit.colors.text, font: brandKit.fonts.body ?? DEFAULT_FONT };
+  const close = openSheet('📊 Tabela', h('div', { class: 'list table-sheet' },
+    h('p', { class: 'hint' }, 'Toque para inserir. Depois, "✏️ Editar Tabela" muda as células, linhas, colunas e o estilo.'),
+    ...TABLE_TEMPLATES.map(([id, label]) => h('button', { type: 'button', class: 'big table-template', 'data-template': id,
+      onclick: () => void (async () => {
+        close();
+        const g = await run('Inserindo tabela', () => editor.upsertTable(tableTemplate(id, kit)));
+        if (g) renderProps(editor.active);
+      })() }, label))));
+}
+
+/** Grade de campos, ± linha/coluna, estilo e cores; "Aplicar" refaz a tabela no mesmo canto e escala. */
+function showTableEditor(existing: FabricObject): void {
+  const cur = editor.tableDataOf(existing);
+  if (!cur) return;
+  let data: TableData = normalizeTable(structuredClone(cur));
+  const body = h('div', { class: 'list table-sheet' });
+  const op = (fn: (d: TableData) => TableData | null, refuse: string) => () => {
+    const n = fn(data);
+    if (!n) { toast(refuse); return; }
+    data = n;
+    render();
+  };
+  const render = (): void => {
+    const grid = h('div', { class: 'table-grid', style: `grid-template-columns: repeat(${columnCount(data)}, minmax(84px, 1fr))` },
+      ...data.rows.flatMap((row, r) => row.map((v, c) => {
+        const input = h('input', { type: 'text', class: 'table-cell' + (r === 0 ? ' head' : ''), value: v, 'data-r': r, 'data-c': c });
+        input.addEventListener('input', () => { data = setCell(data, r, c, input.value); });
+        return input;
+      })));
+    const brand = brandKit.colors.primary ? button('🎨 Cores da marca', () => {
+      data = { ...data, headerBg: brandKit.colors.primary!, textColor: brandKit.colors.text ?? data.textColor };
+      render();
+    }, 'chip table-brand') : null;
+    body.replaceChildren(
+      h('div', { class: 'table-scroll' }, grid),
+      h('div', { class: 'row' },
+        button('+ Linha', op((d) => addRow(d), ''), 'table-add-row'),
+        button('− Linha', op((d) => removeRow(d), 'A tabela precisa de pelo menos 1 linha'), 'table-remove-row'),
+        button('+ Coluna', op((d) => addColumn(d), ''), 'table-add-col'),
+        button('− Coluna', op((d) => removeColumn(d), 'A tabela precisa de pelo menos 1 coluna'), 'table-remove-col')),
+      h('div', { class: 'table-style' }, select('Estilo', TABLE_STYLES, data.style, (v) => { data = { ...data, style: v as TableStyle }; })),
+      h('div', { class: 'row' },
+        colorInput('Cabeçalho', data.headerBg, (v) => { data = { ...data, headerBg: v }; }),
+        colorInput('Texto', data.textColor, (v) => { data = { ...data, textColor: v }; }),
+        colorInput('Linhas', data.borderColor, (v) => { data = { ...data, borderColor: v }; }),
+        brand),
+      button('Aplicar', () => void (async () => {
+        close();
+        const g = await run('Aplicando', () => editor.upsertTable(data, existing));
+        if (g) renderProps(editor.active);
+      })(), 'primary table-apply'));
+  };
+  const close = openSheet('✏️ Editar Tabela', body, { tall: true });
+  render();
 }
 
 const SHAPE_LABELS: Record<string, string> = { rect: '▬ Retângulo', rounded: '▢ Arredondado', pill: '💊 Pílula', circle: '● Círculo',
@@ -1867,6 +2069,8 @@ window.addEventListener('pagehide', () => void saveDraft());
 const testHook: Record<string, unknown> = {
   editor,
   last: null,
+  /** Brand kit conhecido para o E2E (o mesmo formato que o Kotlin manda no `hello`/`applyBrandKit`). */
+  setBrandKit: (k: unknown) => { brandKit = parseBrandKit(k); },
   /** Faz um pedido ao Kotlin e guarda o resultado em ppEditor.last ({ok, payload} ou {ok:false, code}). */
   call: (type: string, payload?: unknown) => {
     testHook.last = null;

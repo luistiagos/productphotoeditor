@@ -93,6 +93,9 @@ export const CUSTOM_PROPERTIES = [
   'strokeDashStyle',
   'shapeKind',
   'connectorSpec',
+  // TASK-05: QR Code e tabela reeditáveis (dados do formulário; sem campo `type`, que o fromObject reviveria)
+  'qrConfig',
+  'tableData',
 ] as const;
 
 export const MAX_SIDE = 8000;

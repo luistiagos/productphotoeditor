@@ -50,6 +50,8 @@ import { buildFabricGradient, evenStops, gradientBox, type GradientSpec, isGradi
 import { type ConnectorSpec, connectorGeometry, dashArrayFor, type DashStyle, isConnectorSpec, isDashStyle } from './connectors';
 import { collectTextLayers, countMatches, detectListStyle, findAndReplaceInText, type ListStyle, toggleListStyle } from './textTools';
 import { FREEHAND_DECIMATE, FREEHAND_LAYER, isFreehandPath } from './freehandDraw';
+import { encodeQr, isQrConfig, type QrConfig, qrLayout, qrSvg } from './qrcode';
+import { buildTable, isTableData, type Measure, type TableData } from './table';
 
 FabricObject.customProperties = [...CUSTOM_PROPERTIES];
 installWarpRenderer(Textbox);
@@ -982,6 +984,107 @@ export class Editor {
     return n;
   }
 
+  // ---------- QR Code e tabela (TASK-05) ----------
+
+  qrConfigOf(o: FabricObject | undefined = this.active): QrConfig | undefined {
+    const c = o?.get('qrConfig');
+    return o instanceof Group && isQrConfig(c) ? c : undefined;
+  }
+
+  tableDataOf(o: FabricObject | undefined = this.active): TableData | undefined {
+    const d = o?.get('tableData');
+    return o instanceof Group && isTableData(d) ? d : undefined;
+  }
+
+  /**
+   * Insere o QR Code (sem `existing`: centrado, 35% do menor lado da página) ou o refaz no lugar de `existing`: mesmo
+   * centro, mesma largura exibida (a versão — e portanto a largura em módulos — pode mudar), mesmo ângulo, espelhamento,
+   * opacidade, sombra, animação e índice na pilha, com uma só entrada de undo. Texto que não cabe → `QrTooLongError`.
+   */
+  async upsertQrCode(config: QrConfig, existing?: FabricObject, opts: { logoUrl?: string; font?: string } = {}): Promise<Group> {
+    const g = await this.buildQrGroup(config, opts.logoUrl, opts.font ?? 'Montserrat');
+    if (!existing) {
+      const s = (Math.min(this.docWidth, this.docHeight) * 0.35) / g.width;
+      g.set({ scaleX: s, scaleY: s });
+      this.add(this.center(g));
+      return g;
+    }
+    const sx = (existing.width * existing.scaleX) / g.width;
+    this.replaceInPlace(existing, g, { scaleX: sx, scaleY: sx * (existing.scaleY / existing.scaleX) },
+      () => g.setPositionByOrigin(existing.getCenterPoint(), 'center', 'center'));
+    return g;
+  }
+
+  /** Group do QR: fundo + módulos + localizadores (do SVG), a legenda e o logo da marca (`brandLogo`) no buraco central. */
+  private async buildQrGroup(config: QrConfig, logoUrl: string | undefined, font: string): Promise<Group> {
+    const m = encodeQr(config.payload, { ecc: config.ecc });
+    const label = config.label?.trim() || undefined;
+    const svgOpts = { dotStyle: config.dotStyle, eyeStyle: config.eyeStyle, fg: config.fgColor, bg: config.bgColor, logoHole: config.withLogo, label };
+    const { objects } = await loadSVGFromString(qrSvg(m, { ...svgOpts, labelFont: font }));
+    // a legenda é refeita aqui: o FabricText do parser posiciona pelo text-anchor com a fonte ainda não medida
+    const items = objects.filter((o): o is FabricObject => o !== null && !(o instanceof FabricText));
+    const lay = qrLayout(m.size, svgOpts);
+    if (lay.label && label) {
+      await ensureFonts([font]);
+      const opts = { fontFamily: font, fontWeight: 700, fill: config.bgColor, originX: 'center' as const, originY: 'center' as const,
+        left: lay.width / 2, top: lay.label.y + lay.label.h / 2 };
+      let t = new FabricText(label, { ...opts, fontSize: lay.label.fontSize });
+      const maxW = lay.width * 0.9;
+      if (t.width > maxW) t = new FabricText(label, { ...opts, fontSize: Math.max(4, (lay.label.fontSize * maxW) / t.width) });
+      items.push(t);
+    }
+    if (config.withLogo && lay.hole && logoUrl) {
+      try {
+        const img = await FabricImage.fromURL(logoUrl);
+        const box = lay.hole.w * 0.88;
+        const s = Math.min(box / img.width, box / img.height);
+        img.set({ scaleX: s, scaleY: s, originX: 'center', originY: 'center', left: lay.hole.x + lay.hole.w / 2,
+          top: lay.hole.y + lay.hole.w / 2, brandLogo: true });
+        items.push(img);
+      } catch (e) {
+        console.warn('logo do QR', e); // o buraco fica vazio; com correção H o código continua legível
+      }
+    }
+    const g = new Group(items, { originX: 'center', originY: 'center' });
+    g.set({ layerName: 'QR Code', qrConfig: structuredClone(config) });
+    return g;
+  }
+
+  /**
+   * Insere a tabela (sem `existing`: centrada, no máximo 80% da página) ou a refaz no lugar de `existing` com o mesmo canto
+   * superior esquerdo, escala, ângulo e índice na pilha (as colunas podem mudar de largura), numa só entrada de undo.
+   */
+  async upsertTable(data: TableData, existing?: FabricObject): Promise<Group> {
+    await ensureFonts([data.fontFamily]);
+    const g = buildTable(data, measureText);
+    g.set({ layerName: 'Tabela', tableData: structuredClone(data) });
+    if (!existing) {
+      const s = Math.min(1, (this.docWidth * 0.8) / g.width, (this.docHeight * 0.8) / g.height);
+      g.set({ scaleX: s, scaleY: s });
+      this.add(this.center(g));
+      return g;
+    }
+    const corner = existing.getPointByOrigin('left', 'top');
+    this.replaceInPlace(existing, g, { scaleX: existing.scaleX, scaleY: existing.scaleY },
+      () => g.setPositionByOrigin(corner, 'left', 'top'));
+    return g;
+  }
+
+  /** Troca `old` por `n` no mesmo índice copiando a aparência; `place` posiciona `n` já com a escala e o ângulo finais. */
+  private replaceInPlace(old: FabricObject, n: FabricObject, scale: { scaleX: number; scaleY: number }, place: () => void): void {
+    const copy: Record<string, unknown> = {};
+    for (const k of ['angle', 'flipX', 'flipY', 'opacity', 'shadow', 'layerName', 'animation', 'visible']) copy[k] = old.get(k);
+    n.set({ ...copy, ...scale });
+    place();
+    n.setCoords();
+    const wasActive = this.canvas.getActiveObject() === old;
+    this.silently(() => {
+      this.replaceObject(old, n);
+      if (wasActive) this.canvas.setActiveObject(n);
+    });
+    this.commit();
+  }
+
   /** Executa sem chamar `onSelection` (trocas internas do objeto selecionado). */
   private silently<T>(fn: () => T): T {
     const cb = this.onSelection;
@@ -1133,7 +1236,9 @@ export class Editor {
 
   /** Camadas de texto do anúncio, inclusive dentro de grupos (selos, agrupados), de baixo para cima. */
   textLayers(): FabricText[] {
-    return collectTextLayers(this.canvas.getObjects()).filter((o): o is FabricText => o instanceof FabricText);
+    // QR Code e tabela ficam de fora: o texto deles vem de `qrConfig`/`tableData` e se edita pelo "✏️ Editar…" (TASK-05)
+    const objects = this.canvas.getObjects().filter((o) => !this.qrConfigOf(o) && !this.tableDataOf(o));
+    return collectTextLayers(objects).filter((o): o is FabricText => o instanceof FabricText);
   }
 
   /** Camadas que contêm `find` e quantas vezes. */
@@ -1663,6 +1768,9 @@ export async function renderThumbnail(input: unknown, maxSide: number): Promise<
 }
 
 /** Uma forma de tamanho-base `m` (sem posição). */
+/** Largura do texto como o Fabric o desenha (a tabela mede as células com a mesma fonte que vai usar). */
+const measureText: Measure = (text, f) => (text ? new FabricText(text, { fontFamily: f.family, fontSize: f.size, fontWeight: f.weight }).width : 0);
+
 function makeShape(kind: ShapeKind, fill: string, m: number): FabricObject {
   let o: FabricObject;
   switch (kind) {
