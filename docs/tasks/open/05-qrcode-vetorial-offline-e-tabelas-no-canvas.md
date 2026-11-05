@@ -410,3 +410,59 @@ clássico: raio 1/0,5/0,5 → 80/120; 0,5/0,25/0,25 → 105/120; cantos quadrado
   script sai com 1 logo ali.
 - O `task05.mjs` NÃO foi rodado nesta sessão (o dev não roda o app); só `node --check` (sintaxe) passou.
 
+
+### Teste rodada 1 — reprovado
+
+**Motivo:** a prova T2 commitada, `tools/e2e/task05.mjs`, não roda até o fim: quebra de forma determinística no passo 1. A
+funcionalidade no app está conforme o doc (abaixo), mas o script que a prova é código entregue por esta task e vai para o
+fluxo principal; a prova tem que rodar.
+
+**Falhas a corrigir (só no `tools/e2e/task05.mjs`; o app não precisa de mudança):**
+1. `task05.mjs` L49 `moveActive`: `new o.getCenterPoint().constructor(x, y)` — por precedência do JS isso é
+   `new (o.getCenterPoint)()` e lança `TypeError: o.getCenterPoint is not a constructor` (na L88, logo depois do 9º
+   check). Esperado: o QR movido para (230, 230). Observado: o script aborta com saída 1 (9/9 checks até ali PASS).
+   Correção: `new (o.getCenterPoint().constructor)(x, y)` — com essa troca, e só ela, o resto do script rodou (abaixo).
+2. Check "nenhuma requisição de rede durante a geração" tem corrida: compara a CONTAGEM de
+   `performance.getEntriesByType('resource')`, e uma entrada só entra na lista quando a resposta termina. Na 2ª execução
+   deu `18 → 20`: as 2 entradas novas são as buscas de inicialização do `content.ts` à base
+   (`REMOTE_TEMPLATES_CATALOG_URL`, `REMOTE_ICONS_URL` em huggingface.co), com `startTime` 1019/1022 ms (antes de tocar na
+   aba) e `responseEnd` 2233/2236 ms (dentro da janela do check). Na 1ª execução deu `20 → 20`. O diff do fix não tem
+   `fetch`/XHR novo (`git diff 6d04734..HEAD -- editor-web/src | grep -E "^\+.*(fetch\(|XMLHttpRequest)"` → nada). Correção
+   sugerida: medir as entradas com `startTime >=` o instante do toque em "📱 QR Code" (ou esperar o fim das buscas iniciais
+   antes de `res0`).
+
+**O que foi testado (aparelho: `emulator-5554`, sdk_gphone64_x86_64, API 34):** o Moto g86 (1ª opção do manual) estava
+com a tela bloqueada e, depois de destravado, passou a ser usado pelo dono (foco em `com.instagram.android`); deixado em
+paz e o teste seguiu no emulador já aberto (3ª opção). O APK da base (`6d04734`, = `origin/main`) ficou instalado no Moto
+com `-r` (dados preservados; antes: versionName 0.4.0, lastUpdateTime 2026-11-05 17:38:46).
+- Sync: branch sobre `origin/main` @ `6d04734` (o main recebeu só Kotlin/docs/E2E de outros bugs; nada em `editor-web/`).
+- Offline: `npx tsc --noEmit` 0 erros; `npx vitest run` 21 arquivos / 211 testes, 0 falhas; `build` do helper: vitest
+  211/211, unidade Gradle 199 (1 skip) / 0 falha (base: vitest 161/161, unidade 199 / 0 falha); bundle sem diferença.
+- Binário: base `dcc7a700…a7c7`, fix `20594dcd…a701` — `sha256sum` do `base.apk` no aparelho = APK instalado nos dois.
+- **Controle positivo (APK da base):** `task05.mjs` → `FAIL abas "📱 QR Code" e "📊 Tabela", editor.upsertQrCode e
+  ppEditor.setBrandKit existem`, 0/1, saída 1 — funcionalidade ausente.
+- **T2 com o script commitado (APK do fix):** 9/9 PASS até a L88, depois `TypeError` (falha 1 acima).
+- **T2 com o script corrigido só na L49** (cópia fora da lane, `task05-patched.mjs` na evidência): **38/39** — o único
+  FAIL é a corrida da falha 2. PASS em: link pré-preenchido do kit + prévia; Group só `rect`/`path`; PNG exportado e
+  **print da tela** decodificam no OpenCV; SVG com `<path>` sem `<image>`; sem "🔓 Desagrupar"; WhatsApp (pontos, cantos
+  arredondados, `#c2185b`, legenda) decodifica para `…?text=Ol%C3%A1!%20Vi%20o%20an%C3%BAncio`; localizar/substituir não
+  pega a legenda; PIX decodifica com `[crc ok]` (`…540519.905802BR5910LOJA TESTE6009SAO PAULO…6304 9E21`); PIX colado com
+  CRC adulterado → toast "…(CRC) não confere", nada inserido; logo: 1 `FabricImage` `brandLogo` no centro (dx = dy = 0),
+  EC H, decodifica; reedição: arrasto real, largura 300, a folha reabre com telefone/mensagem, Aplicar mantém centro
+  (679,17; 459,52), largura 300 e índice 1 com a versão maior (escala 0,7317 → 0,5660), decodifica o payload novo, `↶`
+  volta em 1 toque; tabela de medidas em 1 toque (cabeçalho `#c2185b`, 15 textos), editar → +Linha XG, zebrada, mesmo
+  canto/escala/índice; lista de preços alinhada à direita (259,5 = 278,5 − 19); salvar/reabrir mantém 4 QR + 2 tabelas e
+  o logo, botões "✏️ Editar…" voltam; Group comum mantém "🔓 Desagrupar" e "Preenchimento"; sem exceção JS.
+- **T3:** `task12` 40/40, `task11` 25/25, `task03` 19/19; `task14` 40/50 na 1ª execução (10 FAIL encadeados: o texto não
+  mudou depois de "✏️ Editar texto" → Aplicar), **50/50 na 2ª** com o mesmo APK do fix, e 50/50 na base — instabilidade
+  do emulador (systemui a 60% de CPU, `uiautomator` devolvendo "null root node"), não regressão.
+- **T4:** logcat dos PIDs 11813 e 13052: nenhum `FATAL`/`ANR`/erro de console do WebView; só
+  `IllegalArgumentException: Receiver not registered` no finalizer de `ai.onnxruntime.telemetry.HttpClient` (lado Kotlin,
+  fora do que a task toca) e o aviso `variations_seed_loader … Seed missing signature` do WebView.
+
+**Evidência:** `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-1746-task-05-qrcode-vetorial-offline-e-tabelas-no-canvas\`
+(`base-6d04734.apk`, `fix-ee886fb.apk`, `t2-base/`, `t2-fix/` (script commitado), `t2-fix-script-corrigido/` (prints
+`05-*`, PNGs decodificados, saída, logcat), `t3/`, `t3-base/task14/`, `unit-*.txt`, `build-*.log`, `aparelho-*.txt`).
+
+**Para a próxima rodada:** corrigir as 2 falhas do `task05.mjs` (L49 e o check de rede) e rodar `node --check` + o
+script contra o app (o dev não roda o app; o teste roda). Nenhum `build` novo é necessário se só o script mudar.
