@@ -1,5 +1,29 @@
 # Editor: escolher um SVG na galeria falha com erro técnico
 
+## Status (pipeline 20261105-1638, teste rodada 1 — aprovado, 2026-11-05)
+
+- **Corrigido:** escolher um SVG em "Imagem → Escolher da galeria…" ou "🔄 Substituir → Escolher da galeria…" agora
+  mostra `Não foi possível: SVG não abre como foto. Use Adesivos, ou exporte o design em PNG/JPG`, e não mais o erro cru
+  do `ImageDecoder`. Nada é inserido nem trocado. Imagens que decodificam seguem o caminho de antes.
+- **Commit:** `6d54db5` fix(editor) (rebaseado sobre `4461fef`; antes `566b860`).
+- **Aparelho:** `emulator-5554` (AVD `pp_api34`, API 34). O Moto g86 estava travado (keyguard `showing=true`,
+  `Dozing`) e o `launchEditor` não achou "Novo design"; a tentativa está em `t2-base-moto-travado/`. **O APK da base
+  (`4461fef`) ficou instalado no Moto** (antes: 0.4.0 instalado às 17:33:12).
+- **Evidência:** `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-1734-editor-galeria-svg-pickimage` (APKs `base-4461fef.apk` / `fix-6d54db5.apk`, SHA-256 do aparelho = local em `aparelho.txt`).
+  - **Controle positivo (base):** `t2-base/` — 8/8; nos dois caminhos o toast é `Erro: Failed to create image decoder
+    with message 'unimplemented'Input contained an error.` (`1-toast.png`).
+  - **T2 (fix):** `t2-fix/` — 8/8; os dois toasts são `Não foi possível: SVG não abre como foto…`, sem `decoder`; nada
+    inserido; `getSrc()` da foto inalterado; sem exceção JS.
+  - **T3:** `t3-task11/` — `tools/e2e/task11.mjs` 25/25 com um JPEG como 1ª foto do seletor (cópia temporária
+    `e2e_bug_t3.jpg`, removida no fim): a troca pela galeria continua funcionando. `build` do fix: vitest 161/161,
+    39 suítes `testDebugUnitTest` sem falha (inclui `isSvg by mime and by content`). `pickFont`/`pickAudio` fora do diff.
+  - **T4:** logcat do PID de cada execução (`logcat-pid*.txt`): nenhum `FATAL`/`AndroidRuntime`/`ANR`. Os erros
+    `ai.onnxruntime.telemetry.HttpClient` também aparecem na base, então não vêm do fix.
+- **Falta para `done/`:** o dono validar no aparelho dele. O mapeamento da `DecodeException` para outro arquivo que não
+  decodifica e não é SVG ("formato de imagem não suportado") não foi exercitado no E2E: só o ramo SVG foi.
+
+## Sintoma
+
 - **Onde:** editor → "Imagem → Escolher da galeria…" e "🔄 Substituir → Escolher da galeria…" (ponte `pickImage`).
 - **Como reproduzir (emulador `pp_api34`, 2026-11-05):** o seletor de fotos do Android lista os SVG de
   `Download/ProductPhoto/teste_fase4_*.svg` (MIME `image/svg+xml`, exportações do próprio app) como "Photo taken on …";
