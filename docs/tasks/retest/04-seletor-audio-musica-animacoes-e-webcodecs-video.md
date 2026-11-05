@@ -238,7 +238,7 @@ export interface LayerAnimation {
 - Regressão no emulador depois da correção: `task04.mjs` **26/26**; vitest **114/114**.
 
 ### 5.7. Fora do escopo
-- O emulador x86_64 não consegue codificar vídeo (`docs/bugs/open/video-ffmpegkit-sem-x86_64.md`): a prova de MP4/GIF
+- O emulador x86_64 não consegue codificar vídeo (`docs/bugs/done/video-ffmpegkit-sem-x86_64.md`, não corrigir): a prova de MP4/GIF
   exige aparelho arm64.
 - Antes desta task o MP4 saía errado (página inteira espremida na caixa, imagens sem `-loop 1`, Story 1080×1080,
   opacidade aplicada duas vezes, áudio nunca enviado) — corrigido aqui.

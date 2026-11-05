@@ -69,7 +69,7 @@ Pedido do dono: implementar **cada** task de `open/`, cada uma testada **ponta a
 - TASK-11 — substituir foto, agrupar/desagrupar, cadeado real nas Camadas, inspetor numérico: vitest + E2E **25/25**.
 - TASK-04 — Entrada/Ênfase/Saída + easing, música de fundo (4 trilhas sintéticas + `pickAudio`), GIF no export, pacote do
   vídeo refeito: vitest 114/114, Kotlin 15/15, E2E emulador **26/26** + codificação real no moto g86 **14/14**
-  (`task04_encode.mjs`; o ffmpeg-kit não tem x86_64 → `docs/bugs/open/video-ffmpegkit-sem-x86_64.md`).
+  (`task04_encode.mjs`; o ffmpeg-kit não tem x86_64 → `docs/bugs/done/video-ffmpegkit-sem-x86_64.md`, não corrigir).
 - TASK-12 — degradê multi-stop (forma/texto/fundo), borda tracejada/pontilhada, cantos, trocar forma, setas/cotas e blocos
   "Raio-X": vitest **139/139**, E2E emulador **40/40** (`task12.mjs`); regressão task03 19/19 e task11 25/25. Achado: spec
   gravada no objeto não pode ter campo `type` com nome de classe do Fabric (revive vira `Gradient`) → `GradientSpec.kind`.

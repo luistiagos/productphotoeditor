@@ -13,6 +13,16 @@
 - **Opções (decisão do dono):** usar um artefato do ffmpeg-kit com x86_64 no debug; ou testar a codificação só em
   aparelho arm64. Achado durante a TASK-04 (`docs/tasks/retest/04-…md` §5.7). Em arm64 (moto g86) o export funciona: §5.6.
 
+## Status: fechado — não corrigir (decisão do dono, 2026-11-05)
+
+Entre as opções do planning 20261105-1638 (seção "Decisão pedida ao dono"), o dono escolheu a **D — não corrigir**:
+o export de vídeo (MP4/GIF) **só se testa em arm64** (moto g86), e o debug no emulador `pp_api34` x86_64 continua sem
+FFmpeg. Nenhum código mudou. Consequências para quem testa:
+- E2E de vídeo vai no celular (o manual do projeto já o põe como 1º aparelho); no emulador, o toast
+  `FFmpegKit failed to ...` no export de vídeo é **esperado**, não regressão.
+- Se o celular deixar de estar disponível para teste, reabrir com a opção **B** (trocar para `antonkarpenko` 2.2.3:
+  mesma FFmpeg 8.1.2 com x86_64), que era a alternativa recomendada.
+
 ## Planejamento (pipeline 20261105-1638, 2026-11-05)
 
 **Veredito:** bloqueado — não existe artefato drop-in com x86_64 e a MESMA FFmpeg do release; cada saída troca o
