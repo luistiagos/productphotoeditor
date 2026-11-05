@@ -40,6 +40,15 @@ export interface SceneEntry {
   thumb: string;
 }
 
+/** Trilha de fundo empacotada (`content/audio/index.json`, gerado por tools/gen_audio.py). */
+export interface AudioTrackEntry {
+  id: string;
+  name: string;
+  mood: string;
+  file: string;
+  duration: number;
+}
+
 export interface ContentIndex {
   version: number;
   fonts: FontEntry[];
@@ -47,6 +56,7 @@ export interface ContentIndex {
   stickers: StickerEntry[];
   backgrounds: BackgroundEntry[];
   scenes: SceneEntry[];
+  audioTracks: AudioTrackEntry[];
 }
 
 export function contentUrl(file: string): string {
@@ -120,18 +130,33 @@ export async function loadContentIndex(): Promise<ContentIndex> {
   const scenes = await getJson<{ scenes: SceneEntry[] }>('scenes/index.json')
     .then((s) => s.scenes.map((e) => ({ ...e, file: 'scenes/' + e.file, thumb: 'scenes/' + e.thumb })))
     .catch(() => [] as SceneEntry[]);
+  // índice próprio: o index.json principal é reescrito inteiro pelo gen_content.py
+  const audioTracks = await getJson<{ tracks: AudioTrackEntry[] }>('audio/index.json')
+    .then((a) => a.tracks)
+    .catch(() => [] as AudioTrackEntry[]);
 
-  const [remoteTemplates, remoteIcons] = await Promise.all([
+  const index: ContentIndex = {
+    ...main,
+    templates: [...main.templates],
+    stickers: [...main.stickers],
+    scenes,
+    audioTracks,
+  };
+
+  // Carrega remotos em background sem bloquear o arranque offline do editor
+  void Promise.all([
     fetchRemoteTemplates(),
     fetchRemoteIcons(),
-  ]);
+  ]).then(([remoteTemplates, remoteIcons]) => {
+    if (remoteTemplates.length > 0) {
+      index.templates.push(...remoteTemplates);
+    }
+    if (remoteIcons.length > 0) {
+      index.stickers.push(...remoteIcons);
+    }
+  }).catch(() => {});
 
-  return {
-    ...main,
-    templates: [...main.templates, ...remoteTemplates],
-    stickers: [...main.stickers, ...remoteIcons],
-    scenes,
-  };
+  return index;
 }
 
 export async function loadTemplate(entry: TemplateEntry): Promise<unknown> {

@@ -44,12 +44,15 @@ sealed interface EditorStart {
 interface EditorHost {
     suspend fun pickImage(): Uri?
     suspend fun pickFont(): Uri?
+    /** Seletor de arquivo de áudio (qualquer MIME audio); null = cancelado. */
+    suspend fun pickAudio(): Uri? = null
     suspend fun export(format: ExportFormat, action: ExportAction, name: String, bytes: ByteArray): String?
     suspend fun exportVideo(action: ExportAction, name: String, videoFile: File): String? = null
 }
 
 enum class ExportFormat(val ext: String, val mime: String) {
-    PNG("png", "image/png"), JPG("jpg", "image/jpeg"), SVG("svg", "image/svg+xml"), MP4("mp4", "video/mp4");
+    PNG("png", "image/png"), JPG("jpg", "image/jpeg"), SVG("svg", "image/svg+xml"), MP4("mp4", "video/mp4"),
+    GIF("gif", "image/gif");
 
     companion object {
         fun of(s: String) = entries.firstOrNull { it.ext == s } ?: throw BridgeException(ErrorCode.INVALID, "format $s")
@@ -89,6 +92,7 @@ class EditorSession(
         handle("saveDraft") { p, _ -> saveDraft(p.obj()) }
         handle("pickImage") { _, _ -> pickImage() }
         handle("pickFont") { _, _ -> pickFont() }
+        handle("pickAudio") { _, _ -> pickAudio() }
         handle("export") { p, progress -> export(p.obj(), progress) }
     }
 
@@ -202,6 +206,35 @@ class EditorSession(
         buildJsonObject { put("family", it.nameWithoutExtension.replace('_', ' ')); put("url", assets.fontUrl(it.name)) }
     }
 
+    /** Copia o áudio escolhido para o BlobStore (`audio-<uuid>.<ext>`); o editor toca e o export lê pela URL do blob. */
+    private suspend fun pickAudio(): JsonElement {
+        val h = host ?: throw BridgeException(ErrorCode.UNSUPPORTED, "sem seletor de arquivo")
+        val uri = h.pickAudio() ?: throw BridgeException(ErrorCode.CANCELLED, "nenhum áudio escolhido")
+        return withContext(Dispatchers.IO) {
+            val resolver = context.contentResolver
+            val display = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    if (!c.isNull(1) && c.getLong(1) > MAX_AUDIO_BYTES) throw BridgeException(ErrorCode.INVALID, "áudio maior que 40 MB")
+                    c.getString(0)
+                } else null
+            } ?: "Áudio"
+            val bytes = resolver.openInputStream(uri)!!.use { input ->
+                val buf = java.io.ByteArrayOutputStream()
+                val chunk = ByteArray(64 * 1024)
+                while (true) {
+                    val n = input.read(chunk)
+                    if (n < 0) break
+                    buf.write(chunk, 0, n)
+                    if (buf.size() > MAX_AUDIO_BYTES) throw BridgeException(ErrorCode.INVALID, "áudio maior que 40 MB")
+                }
+                buf.toByteArray()
+            }
+            val ext = audioExtension(display, resolver.getType(uri))
+            val name = assets.putBytes(bytes, ext, "audio")
+            buildJsonObject { put("url", assets.blobUrl(name)); put("name", display.substringBeforeLast('.')) }
+        }
+    }
+
     private suspend fun export(p: JsonObject, progress: ProgressFn): JsonElement {
         val h = host ?: throw BridgeException(ErrorCode.UNSUPPORTED, "sem exportação")
         val format = ExportFormat.of(p.str("format"))
@@ -211,12 +244,12 @@ class EditorSession(
             else -> throw BridgeException(ErrorCode.INVALID, "action")
         }
 
-        if (format == ExportFormat.MP4) {
+        if (format == ExportFormat.MP4 || format == ExportFormat.GIF) {
             if (action == ExportAction.PRINT) throw BridgeException(ErrorCode.UNSUPPORTED, "não é possível imprimir vídeo")
             if (action == ExportAction.MOCKUP) throw BridgeException(ErrorCode.UNSUPPORTED, "mockup não suporta vídeo")
             val rawData = p.str("data")
-            Log.i(TAG, "Iniciando export de MP4, tamanho data=${rawData.length}")
-            val videoRenderer = VideoRenderer(context)
+            Log.i(TAG, "Iniciando export de ${format.ext}, tamanho data=${rawData.length}")
+            val videoRenderer = VideoRenderer(context, assets)
             val videoFile = try {
                 videoRenderer.render(rawData, progress)
             } catch (e: Throwable) {
@@ -225,7 +258,8 @@ class EditorSession(
             }
             try {
                 val name = exportName(p.strOrNull("name"))
-                val location = h.exportVideo(action, name, videoFile) ?: run {
+                // GIF é imagem: vai para Pictures pelo caminho dos bytes (galeria e compartilhar)
+                val location = (if (format == ExportFormat.MP4) h.exportVideo(action, name, videoFile) else null) ?: run {
                     val bytes = withContext(Dispatchers.IO) { videoFile.readBytes() }
                     h.export(format, action, name, bytes)
                 }
@@ -249,6 +283,26 @@ class EditorSession(
         const val TAG = "EditorSession"
         const val JS_OBJECT = "AppBridge"
         const val PICK_MAX_SIDE = 2048
+        const val MAX_AUDIO_BYTES = 40L * 1024 * 1024
+
+        /** Extensão do áudio pelo nome do arquivo ou, sem ela, pelo MIME (o FFmpeg e o Chromium detectam pelo conteúdo). */
+        fun audioExtension(displayName: String?, mime: String?): String {
+            val byName = displayName?.substringAfterLast('.', "")?.lowercase()
+            if (byName != null && byName in AUDIO_EXTS) return byName
+            return when (mime?.lowercase()) {
+                "audio/mpeg", "audio/mp3" -> "mp3"
+                "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/aac", "audio/mp4a-latm" -> "m4a"
+                "audio/ogg", "application/ogg" -> "ogg"
+                "audio/opus" -> "opus"
+                "audio/wav", "audio/x-wav", "audio/wave" -> "wav"
+                "audio/flac", "audio/x-flac" -> "flac"
+                "audio/webm" -> "webm"
+                "audio/3gpp" -> "3gp"
+                "audio/amr" -> "amr"
+                else -> "mp3"
+            }
+        }
+        private val AUDIO_EXTS = setOf("mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "webm", "3gp", "amr", "mp4")
 
         /** Assinatura dos formatos de fonte que o Chromium aceita. */
         fun fontExtension(b: ByteArray): String? {

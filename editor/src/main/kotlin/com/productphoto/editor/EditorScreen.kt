@@ -39,11 +39,15 @@ fun EditorScreen(session: EditorSession, onMockup: (ByteArray) -> Unit = {}, onC
     val scope = rememberCoroutineScope()
     val imageWaiter = remember { Waiter() }
     val fontWaiter = remember { Waiter() }
+    val audioWaiter = remember { Waiter() }
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         imageWaiter.deferred?.complete(uri)
     }
     val pickFont = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         fontWaiter.deferred?.complete(uri)
+    }
+    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        audioWaiter.deferred?.complete(uri)
     }
 
     DisposableEffect(session, activity) {
@@ -58,6 +62,12 @@ fun EditorScreen(session: EditorSession, onMockup: (ByteArray) -> Unit = {}, onC
                 val d = CompletableDeferred<Uri?>().also { fontWaiter.deferred = it }
                 pickFont.launch(arrayOf("font/ttf", "font/otf", "font/woff", "font/woff2", "application/x-font-ttf",
                     "application/x-font-otf", "application/font-sfnt", "application/octet-stream"))
+                return d.await()
+            }
+
+            override suspend fun pickAudio(): Uri? {
+                val d = CompletableDeferred<Uri?>().also { audioWaiter.deferred = it }
+                pickAudio.launch(arrayOf("audio/*"))
                 return d.await()
             }
 

@@ -160,3 +160,43 @@ input[type=number] { width: 90px; min-height: 40px; border: 1px solid var(--line
   padding: 4px 8px; border-radius: 6px; text-transform: uppercase;
 }
 
+
+/* ---------- cores: paleta rápida, conta-gotas e contraste (TASK-03) ---------- */
+label.color .palette-btn { min-width: 36px; min-height: 36px; padding: 0 4px; font-size: 16px; }
+#palette { position: fixed; inset: 0; z-index: 15; }
+#palette .scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.25); }
+#palette .panel {
+  position: absolute; left: 0; right: 0; bottom: 0; max-height: 70vh; overflow-y: auto;
+  background: var(--surface); border-radius: 16px 16px 0 0; box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+  padding: 0 12px calc(16px + env(safe-area-inset-bottom));
+}
+#palette h4 { margin: 12px 0 4px; color: var(--muted); font-weight: 600; }
+button.swatch-chip { width: 36px; height: 36px; min-height: 36px; min-width: 36px; padding: 0; border-radius: 50%; border: 2px solid var(--line); }
+body.eyedropping #sheet, body.eyedropping #palette { display: none !important; }
+.eyedropper-layer { position: fixed; inset: 0; z-index: 30; touch-action: none; }
+.eyedropper-banner {
+  position: absolute; top: 8px; left: 8px; right: 8px; display: flex; gap: 8px; align-items: center; justify-content: space-between;
+  background: rgba(20,24,32,0.88); color: #fff; border-radius: 12px; padding: 6px 8px 6px 12px; font-size: 14px;
+}
+.eyedropper-banner button { background: transparent; color: #fff; border-color: rgba(255,255,255,0.7); }
+.eyedropper-holder { position: fixed; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.eyedropper-loupe { width: 96px; height: 96px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.45); }
+.eyedropper-hex { display: flex; gap: 6px; align-items: center; background: rgba(20,24,32,0.88); color: #fff; padding: 2px 8px; border-radius: 10px; font: 12px monospace; }
+.eyedropper-hex .dot { width: 14px; height: 14px; }
+.contrast-warn { color: #7a4f00; background: #fff3cd; border: 1px solid #f0c36d; border-radius: 12px; padding: 4px 10px; font-size: 13px; }
+
+/* ---------- camadas, inspetor (TASK-11) ---------- */
+.layer.locked .grow { opacity: 0.55; }
+.layer button.icon { min-width: 36px; }
+.geometry label.select input { width: 96px; }
+label.check { display: inline-flex; align-items: center; gap: 8px; }
+label.check input { width: 20px; height: 20px; }
+/* TASK-14: localizar/substituir e desenho à mão */
+label.field { display: block; }
+label.field > span { display: block; font-size: 13px; color: var(--muted); margin-top: 6px; }
+label.field input.name { margin: 4px 0; }
+.find-count { margin: 8px 0 4px; font-weight: 600; }
+.find-hit { align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; }
+.find-hit .grow { font-size: 14px; white-space: nowrap; }
+.pens button { white-space: nowrap; }
+button:disabled { opacity: 0.4; }

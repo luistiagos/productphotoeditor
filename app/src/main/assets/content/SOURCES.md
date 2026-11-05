@@ -15,3 +15,6 @@ Lobster, Pacifico, Dancing Script. Lobster, Dancing Script e Raleway declaram Re
 proíbe usar o nome reservado em versão **modificada**; aqui os arquivos vão sem modificação.
 Os nomes de arquivo foram simplificados (`Montserrat[wght].ttf` → `Montserrat/Montserrat.ttf`), o que
 a OFL permite (o nome do arquivo não é o nome da fonte).
+
+`audio/` — trilhas de fundo do vídeo, **sintetizadas** por `tools/gen_audio.py` (osciladores e ruído em numpy, sem
+amostra de terceiros; WAV mono 22 kHz). Do projeto.

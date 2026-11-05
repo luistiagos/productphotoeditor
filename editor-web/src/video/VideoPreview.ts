@@ -1,5 +1,7 @@
 import type { Canvas, FabricObject } from 'fabric';
 import type { LayerAnimation, VideoSettings } from '../document';
+import { layerTimeline, stateAt } from './animation';
+import { AudioTrack } from './audioTrack';
 
 export interface ObjectOriginalState {
   left: number;
@@ -21,7 +23,10 @@ export class VideoPreview {
   private startTimeMs = 0;
   private animFrameId: number | null = null;
   private originalStates = new Map<FabricObject, ObjectOriginalState>();
-  private audioEl: HTMLAudioElement | null = null;
+  private audioEl: AudioTrack | null = null;
+  /** URL do editor que está carregada em `audioEl`. */
+  private audioKey: string | null = null;
+  private audioLoading: Promise<void> | null = null;
 
   onTick?: (time: number, progress: number) => void;
   onEnded?: () => void;
@@ -29,6 +34,8 @@ export class VideoPreview {
   constructor(
     private readonly canvas: Canvas,
     private readonly getSettings: () => VideoSettings,
+    /** Tamanho da página em px do documento (distâncias de deslize). */
+    private readonly getPageSize: () => { width: number; height: number } = () => getSettings(),
   ) {}
 
   get playing(): boolean {
@@ -87,16 +94,19 @@ export class VideoPreview {
     this.isPlaying = true;
     this.startTimeMs = performance.now() - this.currentTime * 1000;
 
-    // Configura áudio se houver
+    // Música: decodificada em memória (audioTrack.ts); começa quando estiver pronta, já na posição do instante atual
     if (settings.audioUrl) {
-      if (!this.audioEl) {
-        this.audioEl = new Audio(settings.audioUrl);
-      } else if (this.audioEl.src !== settings.audioUrl) {
-        this.audioEl.src = settings.audioUrl;
-      }
-      this.audioEl.volume = settings.audioVolume ?? 1.0;
-      this.audioEl.currentTime = (settings.audioStartTime ?? 0) + this.currentTime;
-      this.audioEl.play().catch(() => {});
+      const url = settings.audioUrl;
+      void this.prepareAudio(url).then(() => {
+        const el = this.audioEl;
+        if (!this.isPlaying || !el || this.audioKey !== url) return;
+        const now = this.getSettings();
+        el.volume = VideoPreview.audioVolumeAt(now, this.currentTime);
+        el.currentTime = this.audioPosition(now, this.currentTime);
+        return el.play();
+      }).catch((e) => console.warn('audio', e));
+    } else {
+      this.resetAudio();
     }
 
     this.loop();
@@ -118,9 +128,11 @@ export class VideoPreview {
     this.pause();
     this.currentTime = 0;
     this.restoreOriginalStates();
+    // o próximo play recaptura: a camada pode ter sido movida/editada entre um preview e outro
+    this.originalStates.clear();
     if (this.audioEl) {
       this.audioEl.pause();
-      this.audioEl.currentTime = 0;
+      this.audioEl.currentTime = this.audioPosition(this.getSettings(), 0);
     }
     this.onTick?.(0, 0);
   }
@@ -137,7 +149,7 @@ export class VideoPreview {
     this.renderFrame(this.currentTime, duration);
 
     if (this.audioEl) {
-      this.audioEl.currentTime = (settings.audioStartTime ?? 0) + this.currentTime;
+      this.audioEl.currentTime = this.audioPosition(settings, this.currentTime);
     }
 
     this.onTick?.(this.currentTime, this.currentTime / duration);
@@ -166,13 +178,13 @@ export class VideoPreview {
     this.animFrameId = requestAnimationFrame(this.loop);
   };
 
-  /** Calcula e aplica os efeitos de cada objeto para o instante 't'. */
+  /** Calcula e aplica os efeitos de cada objeto para o instante 't' (mesma conta do export, `animation.ts`). */
   renderFrame(t: number, totalDuration: number): void {
+    const page = this.getPageSize();
     for (const [obj, original] of this.originalStates.entries()) {
       const anim = (obj as unknown as { animation?: LayerAnimation }).animation;
-      const fx = anim?.fx ?? 'none';
-
-      if (fx === 'none') {
+      const tl = layerTimeline(anim, { videoDuration: totalDuration, pageWidth: page.width, pageHeight: page.height, unit: 1 });
+      if (!tl) {
         obj.set({
           left: original.left,
           top: original.top,
@@ -183,102 +195,73 @@ export class VideoPreview {
         });
         continue;
       }
-
-      const st = Math.max(0, anim?.startTime ?? 0);
-      const animDur = Math.max(0.2, anim?.duration ?? totalDuration);
-      const speed = Math.max(0.1, anim?.speed ?? 1.0);
-      const effectiveDur = animDur / speed;
-
-      // Antes do startTime
-      if (t < st) {
-        if (fx === 'fade' || fx.startsWith('slide_') || fx === 'zoom_in') {
-          obj.set({ opacity: 0 });
-          continue;
-        }
-      }
-
-      // Progresso da animação (0 a 1)
-      const progress = Math.min(1.0, Math.max(0, (t - st) / effectiveDur));
-
-      let left = original.left;
-      let top = original.top;
-      let scaleX = original.scaleX;
-      let scaleY = original.scaleY;
-      let opacity = original.opacity;
-      let angle = original.angle;
-
-      switch (fx) {
-        case 'fade': {
-          opacity = original.opacity * progress;
-          break;
-        }
-        case 'slide_left': {
-          const slideDist = 400;
-          left = original.left + slideDist * (1 - progress);
-          opacity = original.opacity * Math.min(1, progress * 2);
-          break;
-        }
-        case 'slide_right': {
-          const slideDist = 400;
-          left = original.left - slideDist * (1 - progress);
-          opacity = original.opacity * Math.min(1, progress * 2);
-          break;
-        }
-        case 'slide_up': {
-          const slideDist = 300;
-          top = original.top + slideDist * (1 - progress);
-          opacity = original.opacity * Math.min(1, progress * 2);
-          break;
-        }
-        case 'slide_down': {
-          const slideDist = 300;
-          top = original.top - slideDist * (1 - progress);
-          opacity = original.opacity * Math.min(1, progress * 2);
-          break;
-        }
-        case 'zoom_in': {
-          const scaleFactor = 0.2 + 0.8 * progress;
-          scaleX = original.scaleX * scaleFactor;
-          scaleY = original.scaleY * scaleFactor;
-          opacity = original.opacity * progress;
-          break;
-        }
-        case 'zoom_out': {
-          const scaleFactor = 1.5 - 0.5 * progress;
-          scaleX = original.scaleX * scaleFactor;
-          scaleY = original.scaleY * scaleFactor;
-          opacity = original.opacity * Math.min(1, progress * 3);
-          break;
-        }
-        case 'shake': {
-          if (t <= st + 1.2) {
-            left = original.left + 10 * Math.sin(20 * (t - st));
-          }
-          break;
-        }
-        case 'float': {
-          top = original.top + 8 * Math.sin((2 * Math.PI * (t - st)) / 2.5);
-          break;
-        }
-        case 'rotate': {
-          if (progress < 1.0) {
-            angle = original.angle + 360 * progress;
-          }
-          break;
-        }
-        case 'ken_burns': {
-          // Zoom contínuo suave durante o vídeo inteiro (1.0 a 1.15)
-          const zoomRate = 0.15 * (t / totalDuration);
-          const zoomFactor = 1.0 + zoomRate;
-          scaleX = original.scaleX * zoomFactor;
-          scaleY = original.scaleY * zoomFactor;
-          break;
-        }
-      }
-
-      obj.set({ left, top, scaleX, scaleY, opacity, angle });
+      const s = stateAt(tl, t);
+      obj.set({
+        left: original.left + s.dx,
+        top: original.top + s.dy,
+        scaleX: original.scaleX * s.scale,
+        scaleY: original.scaleY * s.scale,
+        opacity: s.visible ? original.opacity * s.alpha : 0,
+        angle: original.angle + s.angle,
+      });
     }
-
+    this.syncAudioVolume(t, totalDuration);
     this.canvas.requestRenderAll();
+  }
+
+  /** Volume da música em t (com o fade-out de 1 s no fim, igual ao `afade` do export). */
+  static audioVolumeAt(settings: VideoSettings, t: number): number {
+    const v = Math.min(1, Math.max(0, settings.audioVolume ?? 0.8));
+    if (!settings.audioFadeOut) return v;
+    const d = Math.max(0.5, settings.duration);
+    const fadeStart = Math.max(0, d - 1);
+    return t <= fadeStart ? v : v * Math.max(0, (d - t) / (d - fadeStart));
+  }
+
+  private syncAudioVolume(t: number, duration: number): void {
+    if (!this.audioEl) return;
+    this.audioEl.volume = VideoPreview.audioVolumeAt({ ...this.getSettings(), duration }, t);
+  }
+
+  /** Posição da música para o instante t do vídeo (a trilha repete em loop, como o `-stream_loop` do export). */
+  private audioPosition(settings: VideoSettings, t: number): number {
+    const pos = (settings.audioStartTime ?? 0) + t;
+    const d = this.audioEl?.duration;
+    return d && Number.isFinite(d) && d > 0 ? pos % d : pos;
+  }
+
+  /** Baixa a trilha para um Blob em memória e prepara o elemento (idempotente por URL). */
+  prepareAudio(url: string): Promise<void> {
+    if (this.audioKey === url && this.audioEl) return Promise.resolve();
+    if (this.audioLoading && this.loadingKey === url) return this.audioLoading;
+    this.loadingKey = url;
+    const job = (async () => {
+      const track = new AudioTrack(url);
+      await track.load();
+      if (this.loadingKey !== url) { track.dispose(); return; } // trocaram de trilha no meio
+      this.resetAudio();
+      this.audioEl = track;
+      this.audioKey = url;
+    })();
+    this.audioLoading = job;
+    return job.finally(() => { if (this.audioLoading === job) this.audioLoading = null; });
+  }
+  private loadingKey: string | null = null;
+
+  /** Para o áudio e esquece a trilha (trocar/remover a música). */
+  resetAudio(): void {
+    this.audioEl?.dispose();
+    this.audioEl = null;
+    this.audioKey = null;
+  }
+
+  /** URL do editor da trilha carregada (E2E / diagnóstico). */
+  get audioSource(): string | null {
+    return this.audioKey;
+  }
+
+  /** Elemento de áudio atual (E2E / diagnóstico). */
+  get audio(): AudioTrack | null {
+    return this.audioEl;
   }
 }

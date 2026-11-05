@@ -19,11 +19,11 @@ import java.io.File
 object EditorExports {
     private const val ALBUM = "ProductPhoto"
 
-    /** PNG/JPG em Pictures/ProductPhoto; MP4 em Movies/ProductPhoto; SVG em Download/ProductPhoto. */
+    /** PNG/JPG/GIF em Pictures/ProductPhoto; MP4 em Movies/ProductPhoto; SVG em Download/ProductPhoto. */
     suspend fun save(context: Context, format: ExportFormat, name: String, bytes: ByteArray): String = withContext(Dispatchers.IO) {
         val file = "$name.${format.ext}"
         val isVideo = format == ExportFormat.MP4
-        val isImage = format == ExportFormat.PNG || format == ExportFormat.JPG
+        val isImage = format == ExportFormat.PNG || format == ExportFormat.JPG || format == ExportFormat.GIF
         val dir = when {
             isVideo -> Environment.DIRECTORY_MOVIES
             isImage -> Environment.DIRECTORY_PICTURES

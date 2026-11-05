@@ -145,22 +145,35 @@ export interface BlobResult {
   servedBy?: string;
 }
 export interface ExportPayload {
-  format: 'png' | 'jpg' | 'svg' | 'mp4';
+  format: 'png' | 'jpg' | 'svg' | 'mp4' | 'gif';
   action: 'save' | 'share' | 'print' | 'mockup';
   name: string;
   /** dataURL (png/jpg), texto SVG ou JSON serializado de ExportVideoBundle. */
   data: string;
 }
 
+/** `data` do export de 'mp4'/'gif': o Kotlin grava `files`, resolve `audioUrl` (blob/asset do editor) em `audioFile`
+ * e roda `command` no FFmpegKit, gerando `output`. */
 export interface ExportVideoBundle {
   name: string;
   width: number;
   height: number;
   duration: number;
   fps: number;
+  command: string;
   ffmpegCommand: string;
   files: Record<string, string>;
+  /** 'output.mp4' | 'output.gif' */
+  output: string;
+  /** URL do editor (`/blob/…` ou `/assets/…`), nunca dataURL. */
   audioUrl?: string;
+  /** Nome que o comando usa para o áudio (ex.: 'audio.m4a'). */
+  audioFile?: string;
+}
+/** Retorno de `pickAudio`: arquivo de áudio do aparelho copiado para o BlobStore. */
+export interface AudioRef {
+  url: string;
+  name: string;
 }
 export interface SaveDraftPayload {
   id?: string;

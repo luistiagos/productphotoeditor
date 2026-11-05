@@ -1,0 +1,31 @@
+{
+  "_leia": "Config do PROJETO para o motor generico (scripts/pipeline.py). Nunca sobrescrita pela sincronizacao (a fonte da skill e C:\\projects\\retrobatnew\\source\\skills\\pipeline-correcao-bugs). Caminhos relativos a `raiz`; `{root}` e `{wt}` sao trocados nos cmd. Racional: .claude/skills/pipeline-tasks/DESIGN.md. Itens: bugs (docs/bugs/open) e tasks (docs/tasks/open), todos com `tipo` bug no ledger (ciclo de PASTA open -> retest); `tarefas` fica AUSENTE de proposito (e o modelo de campo Status do ARMSX2). O build regera o bundle versionado do editor-web; quem o altera reserva editor/src/main/assets/editor/index.html (serializa essas tasks em ondas distintas; decisao do dono 2026-11-05).",
+  "nome": "Product Photo Offline",
+  "remoto": "origin",
+  "base": "origin/main",
+  "rodizio_contas": true,
+  "commit_docs": "docs(bugs)",
+  "commit_docs_outros": "docs(tasks)",
+  "build": {
+    "cmd": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+            "Set-Location -LiteralPath '{wt}'; if (-not (Test-Path local.properties)) { Copy-Item -LiteralPath '{root}\\local.properties' -Destination local.properties }; Set-Location editor-web; npm run build; if ($LASTEXITCODE) { exit $LASTEXITCODE }; npm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; Set-Location ..; git diff -w --quiet -- editor/src/main/assets/editor; if (-not $LASTEXITCODE -and -not (git ls-files --others --exclude-standard -- editor/src/main/assets/editor)) { git checkout -q -- editor/src/main/assets/editor }; $env:JAVA_HOME='D:\\DevCaches\\jdk-17'; & .\\gradlew.bat :app:assembleDebug testDebugUnitTest --console=plain; exit $LASTEXITCODE"],
+    "lock": "ppo-build",
+    "timeout_h": 1
+  },
+  "gerados": [],
+  "entradas_ignoradas": ["editor-web/node_modules"],
+  "e2e": {"teto_slot_min": 60},
+  "preflight": [
+    {"cmd": ["cmd", "/c", "D:\\DevCaches\\jdk-17\\bin\\java.exe", "-version"], "msg": "JDK 17 em D:\\DevCaches\\jdk-17 (o build fixa o JAVA_HOME nele)"},
+    {"cmd": ["node", "-e", "process.exit(Number(process.versions.node.split('.')[0]) >= 22 ? 0 : 1)"], "msg": "node >= 22 no PATH (vite/vitest e o tools/e2e/cdp.mjs, que usa WebSocket global)"},
+    {"existe": "editor-web/node_modules/vite", "msg": "editor-web/node_modules na arvore principal (as lanes copiam daqui, sem rede)", "fix": "npm ci em editor-web/ na arvore principal"},
+    {"existe": "local.properties", "msg": "local.properties na arvore principal (sdk.dir; o build o copia para a lane)"},
+    {"cmd": ["python", "-I", "-c", "import subprocess,sys; o=subprocess.run(['adb','devices'],capture_output=True,text=True).stdout; sys.exit(0 if any(l.endswith('\\tdevice') for l in o.splitlines()) else 1)"],
+     "msg": "algum aparelho 'device' no adb (celular por cabo/wireless; sem ele, o emulador pp_api34 aberto)",
+     "fix": "conectar o Moto g86 (cabo ou `adb connect`) ou abrir o emulador: D:\\DevCaches\\Android\\Sdk\\emulator\\emulator.exe -avd pp_api34"},
+    {"cmd": ["python", "-I", "{root}\\.claude\\skills\\pipeline-tasks\\scripts\\outro_pipeline.py"],
+     "msg": "nenhum outro pipeline com rodizio de contas rodando (retrobatnew): os dois vigias disputariam o arquivo de credenciais da maquina",
+     "fix": "esperar a execucao do retrobatnew terminar (`/pipeline-correcao-bugs status` la)"}
+  ],
+  "proibido_na_sessao": "`gradlew` de assemble/build/test nem `npm run build` fora do helper (`npm test`/`npx vitest`, `npx tsc --noEmit`, `node tools/e2e/*.mjs` e o `adb install` do APK que o `build` deixou na lane sao permitidos: manual, secoes Dev e Teste (E2E))"
+}

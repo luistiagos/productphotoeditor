@@ -1,10 +1,12 @@
 import {
+  ActiveSelection,
   Canvas,
   Circle,
   FabricImage,
   FabricObject,
   FabricText,
   Gradient,
+  Group,
   InteractiveFabricObject,
   IText,
   Line,
@@ -26,15 +28,31 @@ import {
 import { createImageCroppingControls } from 'fabric/extensions';
 import { createDocument, CUSTOM_PROPERTIES, type EditorDocument, type LayerAnimation, type VideoSettings, fontsUsed, parseDocument } from './document';
 import { History } from './history';
-import { rescaledGeometry } from './imageGeometry';
-import { curveArc } from './curve';
+import { fitSlot, type FitMode, rescaledGeometry } from './imageGeometry';
+export interface ShadowOptions {
+  color?: string;
+  blur?: number;
+  offsetX?: number;
+  offsetY?: number;
+}
+
+import { curvePath, cycleTextCase as cycleTextCaseHelper, installWarpRenderer, isEnvelopeWarp, isPathWarp, type WarpStyle } from './curve';
 import { LongPress } from './longPress';
 import { ensureFonts, fontUrl } from './content';
 import { browserFetcher, inlineSvgResources } from './svgExport';
 import { FfmpegCommandBuilder, type LayerRenderItem } from './video/FfmpegCommandBuilder';
 import { VideoPreview } from './video/VideoPreview';
+import { audioChannels } from './video/audioTrack';
+import type { ExportVideoBundle } from './protocol';
+import { computeSnap, renderGuideLines, type GuideLine } from './snapping';
+import { renderOverlayGuide, type OverlayGuideMode } from './overlays';
+import { buildFabricGradient, evenStops, gradientBox, type GradientSpec, isGradientSpec } from './gradients';
+import { type ConnectorSpec, connectorGeometry, dashArrayFor, type DashStyle, isConnectorSpec, isDashStyle } from './connectors';
+import { collectTextLayers, countMatches, detectListStyle, findAndReplaceInText, type ListStyle, toggleListStyle } from './textTools';
+import { FREEHAND_DECIMATE, FREEHAND_LAYER, isFreehandPath } from './freehandDraw';
 
 FabricObject.customProperties = [...CUSTOM_PROPERTIES];
+installWarpRenderer(Textbox);
 // alvos maiores para toque
 InteractiveFabricObject.ownDefaults = {
   ...InteractiveFabricObject.ownDefaults,
@@ -51,7 +69,10 @@ InteractiveFabricObject.ownDefaults = {
 // toque longo ou pelo botão "Editar texto", num campo da UI
 IText.ownDefaults = { ...IText.ownDefaults, editable: false };
 
-export type ShapeKind = 'rect' | 'rounded' | 'circle' | 'triangle' | 'line' | 'star' | 'arrow';
+export type ShapeKind = 'rect' | 'rounded' | 'circle' | 'triangle' | 'line' | 'star' | 'arrow' | 'badge-hex' | 'pill';
+/** Formas que o "🔄 Trocar forma" aceita (origem e destino). */
+export const SWAP_KINDS: ShapeKind[] = ['rect', 'rounded', 'pill', 'circle', 'triangle', 'star', 'badge-hex'];
+export type CalloutKind = 'pin' | 'dimension' | 'zoom' | 'curved-arrow';
 export type FilterPreset = 'none' | 'grayscale' | 'sepia' | 'vintage' | 'polaroid' | 'kodachrome' | 'invert';
 export interface Adjustments { brightness: number; contrast: number; saturation: number; blur: number }
 
@@ -70,36 +91,89 @@ export class Editor {
   private suspendHistory = 0;
   private historyTimer: number | undefined;
   private maskPaths: FabricObject[] | null = null;
+  /**
+   * "✍️ Desenhar à mão": quantos objetos havia ao começar (null fora do modo). Os traços da sessão são os Paths "Traço à
+   * mão" acima desse índice — por posição, não por referência: o ↶/↷ da barra recria os objetos pelo JSON.
+   */
+  private freehandBase: number | null = null;
   private cropState: { img: FabricImage; controls: FabricObject['controls'] } | null = null;
   onChange: () => void = () => {};
   onSelection: (obj: FabricObject | undefined) => void = () => {};
   /** Toque longo num texto: a UI abre a edição. Chega com o dedo ainda no vidro (o foco do campo vai no soltar). */
   onEditText: (t: FabricText) => void = () => {};
 
-  videoSettings: VideoSettings = {
-    duration: 5,
-    fps: 30,
-    width: 1080,
-    height: 1080,
-  };
+  videoSettings: VideoSettings = defaultVideoSettings();
   readonly videoPreview: VideoPreview;
+
+  guideOverlay: OverlayGuideMode = 'none';
+  snappingEnabled = true;
+  isExporting = false;
+  private activeGuides: GuideLine[] = [];
 
   constructor(el: HTMLCanvasElement, private readonly host: HTMLElement) {
     this.canvas = new Canvas(el, { preserveObjectStacking: true, enableRetinaScaling: true, backgroundColor: '#ffffff' });
-    this.videoPreview = new VideoPreview(this.canvas, () => this.videoSettings);
+    this.videoPreview = new VideoPreview(this.canvas, () => this.videoSettings, () => ({ width: this.docWidth, height: this.docHeight }));
     const changed = () => this.scheduleSnapshot();
     this.canvas.on('object:added', changed);
     this.canvas.on('object:removed', changed);
     // texto curvo: a largura da caixa (alças laterais) e a digitação refazem as dimensões do texto reto (§29)
-    this.canvas.on('object:modified', ({ target }) => { this.refitCurve(target); changed(); });
-    this.canvas.on('text:changed', ({ target }) => { this.refitCurve(target); changed(); });
+    this.canvas.on('object:modified', ({ target }) => { this.refitCurve(target); this.refreshGradient(target); changed(); });
+    this.canvas.on('text:changed', ({ target }) => { this.refitCurve(target); this.refreshGradient(target); changed(); });
     this.canvas.on('selection:created', () => this.onSelection(this.canvas.getActiveObject()));
     this.canvas.on('selection:updated', () => { this.leaveCrop(); this.onSelection(this.canvas.getActiveObject()); });
     this.canvas.on('selection:cleared', () => { this.leaveCrop(); this.onSelection(undefined); });
+
+    this.canvas.on('object:moving', ({ target }) => {
+      if (!this.snappingEnabled || !target || this.isExporting) return;
+      const zoom = this.canvas.getZoom();
+      const threshold = 6 / (zoom || 1);
+      const targetBBox = target.getBoundingRect();
+      const otherBBoxes = this.canvas.getObjects()
+        .filter((o) => o !== target && o.visible && o.get('layerName') !== BACKGROUND_LAYER && o.selectable)
+        .map((o) => o.getBoundingRect());
+
+      const snap = computeSnap(targetBBox, this.docWidth, this.docHeight, otherBBoxes, threshold);
+      if (snap.deltaX !== 0 || snap.deltaY !== 0) {
+        target.set({
+          left: target.left + snap.deltaX,
+          top: target.top + snap.deltaY,
+        });
+        target.setCoords();
+      }
+      this.activeGuides = snap.guides;
+      this.canvas.requestRenderAll();
+    });
+
+    const clearGuides = () => {
+      if (this.activeGuides.length > 0) {
+        this.activeGuides = [];
+        this.canvas.requestRenderAll();
+      }
+    };
+    this.canvas.on('mouse:up', clearGuides);
+    this.canvas.on('selection:cleared', clearGuides);
+
+    this.canvas.on('after:render', (opt) => {
+      if (this.isExporting) return;
+      const ctx = opt.ctx;
+      if (!ctx) return;
+      if (this.guideOverlay !== 'none') {
+        renderOverlayGuide(ctx, this.guideOverlay, this.docWidth, this.docHeight, this.zoom);
+      }
+      if (this.activeGuides.length > 0) {
+        renderGuideLines(ctx, this.activeGuides, this.zoom);
+      }
+    });
     this.canvas.on('path:created', ({ path }) => {
       if (this.maskPaths) {
         path.set({ selectable: false, evented: false });
         this.maskPaths.push(path);
+      } else if (this.freehandBase !== null) {
+        // traço permanente: camada normal (move, redimensiona, entra no undo); o `object:added` já agendou o instantâneo,
+        // que só é tirado depois do debounce, com o nome da camada
+        path.set({ layerName: FREEHAND_LAYER, selectable: true, evented: true });
+        path.setCoords();
+        this.scheduleSnapshot();
       }
     });
     // toque longo num texto abre a edição (a inline do Fabric está desligada, ver IText.ownDefaults)
@@ -138,10 +212,12 @@ export class Editor {
     this.docHeight = doc.height;
     this.name = doc.name;
     this.brandBackground = typeof doc.fabric.brandBackground === 'string' ? doc.fabric.brandBackground : undefined;
-    if (doc.videoSettings) {
-      this.videoSettings = { ...this.videoSettings, ...doc.videoSettings };
-    }
+    // cada documento com as suas (a música de um não vaza para o próximo)
+    this.videoPreview.stop();
+    this.videoPreview.resetAudio();
+    this.videoSettings = { ...defaultVideoSettings(), ...(doc.videoSettings ?? {}), width: doc.width, height: doc.height };
     await this.withoutHistory(() => this.canvas.loadFromJSON(doc.fabric));
+    this.syncLocks();
     this.refitCurves();
     this.fit();
     this.history.reset(this.snapshot());
@@ -151,7 +227,7 @@ export class Editor {
   }
 
   newDocument(name: string, width: number, height: number): Promise<EditorDocument> {
-    return this.load(createDocument(name, width, height, { objects: [], background: '#ffffff' }, { ...this.videoSettings }));
+    return this.load(createDocument(name, width, height, { objects: [], background: '#ffffff' }, defaultVideoSettings()));
   }
 
   toDocument(): EditorDocument {
@@ -188,6 +264,7 @@ export class Editor {
     if (!state) return;
     const doc = parseDocument(state);
     await this.withoutHistory(() => this.canvas.loadFromJSON(doc.fabric));
+    this.syncLocks();
     this.refitCurves();
     this.brandBackground = typeof doc.fabric.brandBackground === 'string' ? doc.fabric.brandBackground : undefined;
     if (doc.width !== this.docWidth || doc.height !== this.docHeight) {
@@ -234,7 +311,7 @@ export class Editor {
     this.docWidth = width;
     this.docHeight = height;
     const bg = this.backgroundLayer();
-    if (bg) this.coverPage(bg);
+    if (bg) { this.coverPage(bg); this.refreshGradient(bg); }
     this.fit();
     this.commit();
   }
@@ -278,18 +355,7 @@ export class Editor {
   }
 
   addShape(kind: ShapeKind, fill: string): FabricObject {
-    const m = Math.min(this.docWidth, this.docHeight) * 0.3;
-    let o: FabricObject;
-    switch (kind) {
-      case 'rect': o = new Rect({ width: m, height: m * 0.7, fill }); break;
-      case 'rounded': o = new Rect({ width: m, height: m * 0.7, rx: m * 0.12, ry: m * 0.12, fill }); break;
-      case 'circle': o = new Circle({ radius: m / 2, fill }); break;
-      case 'triangle': o = new Triangle({ width: m, height: m * 0.87, fill }); break;
-      case 'line': o = new Line([0, 0, m * 1.5, 0], { stroke: fill, strokeWidth: Math.max(4, m * 0.03), strokeLineCap: 'round' }); break;
-      case 'star': o = new Polygon(starPoints(5, m / 2, m / 4.4), { fill }); break;
-      case 'arrow': o = new Path(arrowPath(m * 1.4, m * 0.5), { fill }); break;
-    }
-    return this.add(this.center(o));
+    return this.add(this.center(makeShape(kind, fill, Math.min(this.docWidth, this.docHeight) * 0.3)));
   }
 
   async addSvgFromUrl(url: string, name: string): Promise<FabricObject> {
@@ -354,22 +420,23 @@ export class Editor {
   }
 
   setBackgroundGradient(colors: string[], kind: 'linear' | 'radial', angleDeg = 90): void {
+    this.setBackgroundGradientSpec({ kind, angle: angleDeg, stops: evenStops(colors) });
+  }
+
+  /** Degradê do usuário na página (Rect de fundo com `customGradient`). */
+  setBackgroundGradientSpec(spec: GradientSpec): void {
     const w = this.docWidth, h = this.docHeight;
-    const a = (angleDeg * Math.PI) / 180;
-    const coords = kind === 'linear'
-      ? { x1: w / 2 - (Math.cos(a) * w) / 2, y1: h / 2 - (Math.sin(a) * h) / 2, x2: w / 2 + (Math.cos(a) * w) / 2, y2: h / 2 + (Math.sin(a) * h) / 2 }
-      : { x1: w / 2, y1: h / 2, x2: w / 2, y2: h / 2, r1: 0, r2: Math.max(w, h) * 0.75 };
-    const grad = new Gradient({
-      type: kind,
-      gradientUnits: 'pixels',
-      coords,
-      colorStops: colors.map((color, i) => ({ offset: colors.length === 1 ? 0 : i / (colors.length - 1), color })),
-    });
     // coordenadas relativas ao canto superior esquerdo do objeto (Object._applyPatternGradientTransform)
-    const rect = new Rect({ width: w, height: h, fill: grad as Gradient<'linear'> });
+    const rect = new Rect({ width: w, height: h, fill: buildFabricGradient(spec, w, h) as Gradient<'linear'>, customGradient: spec });
     this.replaceBackgroundLayer(rect);
     this.brandBackground = undefined;
     this.commit();
+  }
+
+  /** O degradê da camada de fundo (se o fundo atual for um). */
+  backgroundGradient(): GradientSpec | undefined {
+    const spec = this.backgroundLayer()?.get('customGradient');
+    return isGradientSpec(spec) ? spec : undefined;
   }
 
   async setBackgroundImage(url: string): Promise<void> {
@@ -410,13 +477,114 @@ export class Editor {
     this.commit();
   }
 
-  toggleLock(): boolean {
-    const o = this.active;
-    if (!o) return false;
-    const locked = !o.lockMovementX;
-    o.set({ lockMovementX: locked, lockMovementY: locked, lockScalingX: locked, lockScalingY: locked, lockRotation: locked, hasControls: !locked });
+  /** Sobe/desce uma camada uma posição (painel Camadas); o fundo continua embaixo de tudo. */
+  moveLayer(o: FabricObject, dir: 'up' | 'down'): void {
+    if (dir === 'up') this.canvas.bringObjectForward(o); else this.canvas.sendObjectBackwards(o);
+    const bg = this.backgroundLayer();
+    if (bg) this.canvas.sendObjectToBack(bg);
+    this.commit();
+  }
+
+  /**
+   * Trava/destrava uma camada (padrão: a selecionada). Travada = `locked` no JSON + não selecionável nem tocável: o toque
+   * atravessa até o que está embaixo; destrava-se pelo painel Camadas.
+   */
+  toggleLock(target: FabricObject | undefined = this.active): boolean {
+    if (!target || target.get('layerName') === BACKGROUND_LAYER) return false;
+    const locked = !this.isLocked(target);
+    if (locked && this.canvas.getActiveObject() === target) this.canvas.discardActiveObject();
+    target.set('locked', locked);
+    this.applyLock(target, locked);
     this.commit();
     return locked;
+  }
+
+  isLocked(o: FabricObject): boolean {
+    return o.get('locked') === true;
+  }
+
+  private applyLock(o: FabricObject, locked: boolean): void {
+    o.set({
+      lockMovementX: locked, lockMovementY: locked, lockScalingX: locked, lockScalingY: locked, lockRotation: locked,
+      hasControls: !locked, selectable: !locked, evented: !locked,
+    });
+  }
+
+  /**
+   * O Fabric não serializa selectable/evented/lock*: depois de todo loadFromJSON (abrir, undo/redo) reaplica a trava das
+   * camadas `locked` e o não-selecionável da camada de fundo.
+   */
+  private syncLocks(): void {
+    for (const o of this.canvas.getObjects()) {
+      if (o.get('layerName') === BACKGROUND_LAYER) o.set({ selectable: false, evented: false, hoverCursor: 'default' });
+      else if (this.isLocked(o)) this.applyLock(o, true);
+    }
+  }
+
+  // ---------- agrupar ----------
+
+  /** Junta a seleção múltipla (≥ 2) num Group no lugar do objeto mais alto da pilha. */
+  groupActive(): Group | undefined {
+    const sel = this.canvas.getActiveObject();
+    if (!(sel instanceof ActiveSelection)) return undefined;
+    const all = this.canvas.getObjects();
+    const objs = sel.getObjects().slice().sort((a, b) => all.indexOf(a) - all.indexOf(b));
+    if (objs.length < 2) return undefined;
+    const top = all.indexOf(objs[objs.length - 1]);
+    this.canvas.discardActiveObject(); // devolve as coordenadas de cena aos objetos
+    // sem withoutHistory (async: o commit síncrono abaixo cairia com o contador ainda alto); o debounce de 250 ms do
+    // instantâneo junta remover + inserir numa só entrada de undo
+    for (const o of objs) this.canvas.remove(o);
+    const group = new Group(objs, { originX: 'center', originY: 'center' });
+    group.set({ layerName: 'Grupo' });
+    this.canvas.insertAt(top - (objs.length - 1), group);
+    this.canvas.setActiveObject(group);
+    this.commit();
+    return group;
+  }
+
+  /** Desfaz o Group selecionado (inclusive selos SVG): os filhos voltam no mesmo lugar e ficam selecionados. */
+  ungroupActive(): FabricObject[] {
+    const group = this.canvas.getActiveObject();
+    if (!(group instanceof Group) || group instanceof ActiveSelection) return [];
+    const index = this.canvas.getObjects().indexOf(group);
+    this.canvas.discardActiveObject();
+    const items = group.removeAll(); // _exitGroup aplica a matriz do grupo em cada filho (coordenadas de cena)
+    this.canvas.remove(group);
+    this.canvas.insertAt(index, ...items);
+    for (const o of items) o.setCoords();
+    if (items.length > 1) this.canvas.setActiveObject(new ActiveSelection(items, { canvas: this.canvas }));
+    else if (items.length === 1) this.canvas.setActiveObject(items[0]);
+    this.commit();
+    return items;
+  }
+
+  // ---------- inspetor numérico ----------
+
+  /** Caixa da camada na página: X/Y = canto superior esquerdo da caixa envolvente; L/A sem rotação nem contorno. */
+  geometryOf(o: FabricObject | undefined = this.active): { x: number; y: number; width: number; height: number; angle: number } | undefined {
+    if (!o) return undefined;
+    o.setCoords();
+    const r = o.getBoundingRect();
+    return { x: r.left, y: r.top, width: o.width * o.scaleX, height: o.height * o.scaleY, angle: o.angle ?? 0 };
+  }
+
+  /** Valores exatos (px do documento, graus). Tamanho e ângulo mantêm o centro; X/Y movem a caixa envolvente. */
+  setExactGeometry(g: { x?: number; y?: number; width?: number; height?: number; angle?: number },
+    o: FabricObject | undefined = this.active): void {
+    if (!o) return;
+    const center = o.getCenterPoint();
+    if (g.width !== undefined && o.width > 0) o.set('scaleX', Math.max(0.001, g.width / o.width));
+    if (g.height !== undefined && o.height > 0) o.set('scaleY', Math.max(0.001, g.height / o.height));
+    if (g.angle !== undefined) o.set('angle', ((((g.angle + 180) % 360) + 360) % 360) - 180);
+    o.setPositionByOrigin(center, 'center', 'center');
+    o.setCoords();
+    if (g.x !== undefined || g.y !== undefined) {
+      const r = o.getBoundingRect();
+      o.set({ left: o.left + (g.x !== undefined ? g.x - r.left : 0), top: o.top + (g.y !== undefined ? g.y - r.top : 0) });
+      o.setCoords();
+    }
+    this.commit();
   }
 
   flip(axis: 'x' | 'y'): void {
@@ -434,10 +602,182 @@ export class Editor {
     this.commit();
   }
 
+  align(mode: 'left' | 'center-x' | 'right' | 'top' | 'center-y' | 'bottom'): void {
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    if (active.type === 'activeSelection') {
+      const selection = active as ActiveSelection;
+      const objs = selection.getObjects();
+      if (objs.length === 0) return;
+
+      const groupBBox = selection.getBoundingRect();
+      this.canvas.discardActiveObject();
+
+      for (const obj of objs) {
+        const b = obj.getBoundingRect();
+        let deltaX = 0;
+        let deltaY = 0;
+        switch (mode) {
+          case 'left':
+            deltaX = groupBBox.left - b.left;
+            break;
+          case 'center-x':
+            deltaX = (groupBBox.left + groupBBox.width / 2) - (b.left + b.width / 2);
+            break;
+          case 'right':
+            deltaX = (groupBBox.left + groupBBox.width) - (b.left + b.width);
+            break;
+          case 'top':
+            deltaY = groupBBox.top - b.top;
+            break;
+          case 'center-y':
+            deltaY = (groupBBox.top + groupBBox.height / 2) - (b.top + b.height / 2);
+            break;
+          case 'bottom':
+            deltaY = (groupBBox.top + groupBBox.height) - (b.top + b.height);
+            break;
+        }
+        if (deltaX !== 0 || deltaY !== 0) {
+          obj.set({
+            left: obj.left + deltaX,
+            top: obj.top + deltaY,
+          });
+          obj.setCoords();
+        }
+      }
+
+      const newSelection = new ActiveSelection(objs, { canvas: this.canvas });
+      this.canvas.setActiveObject(newSelection);
+    } else {
+      const b = active.getBoundingRect();
+      let deltaX = 0;
+      let deltaY = 0;
+      switch (mode) {
+        case 'left':
+          deltaX = 0 - b.left;
+          break;
+        case 'center-x':
+          deltaX = this.docWidth / 2 - (b.left + b.width / 2);
+          break;
+        case 'right':
+          deltaX = this.docWidth - (b.left + b.width);
+          break;
+        case 'top':
+          deltaY = 0 - b.top;
+          break;
+        case 'center-y':
+          deltaY = this.docHeight / 2 - (b.top + b.height / 2);
+          break;
+        case 'bottom':
+          deltaY = this.docHeight - (b.top + b.height);
+          break;
+      }
+      if (deltaX !== 0 || deltaY !== 0) {
+        active.set({
+          left: active.left + deltaX,
+          top: active.top + deltaY,
+        });
+        active.setCoords();
+      }
+    }
+
+    this.canvas.requestRenderAll();
+    this.commit();
+  }
+
+  distribute(axis: 'horizontal' | 'vertical'): void {
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    let isSelection = false;
+    let objs: FabricObject[] = [];
+    if (active.type === 'activeSelection') {
+      objs = [...(active as ActiveSelection).getObjects()];
+      isSelection = true;
+    } else {
+      objs = this.canvas.getObjects().filter((o) => o.visible && o.get('layerName') !== BACKGROUND_LAYER && o.selectable);
+    }
+
+    if (objs.length < 2) return;
+
+    if (isSelection) {
+      this.canvas.discardActiveObject();
+    }
+
+    if (axis === 'horizontal') {
+      objs.sort((a, b) => (a.getBoundingRect().left + a.getBoundingRect().width / 2) - (b.getBoundingRect().left + b.getBoundingRect().width / 2));
+      const firstBBox = objs[0].getBoundingRect();
+      const lastBBox = objs[objs.length - 1].getBoundingRect();
+      const minX = firstBBox.left;
+      const maxX = lastBBox.left + lastBBox.width;
+      const totalObjWidth = objs.reduce((sum, o) => sum + o.getBoundingRect().width, 0);
+      const totalGap = (maxX - minX) - totalObjWidth;
+      const gap = totalGap / (objs.length - 1);
+
+      let currentLeft = minX;
+      for (const obj of objs) {
+        const b = obj.getBoundingRect();
+        const deltaX = currentLeft - b.left;
+        obj.set('left', obj.left + deltaX);
+        obj.setCoords();
+        currentLeft += b.width + gap;
+      }
+    } else {
+      objs.sort((a, b) => (a.getBoundingRect().top + a.getBoundingRect().height / 2) - (b.getBoundingRect().top + b.getBoundingRect().height / 2));
+      const firstBBox = objs[0].getBoundingRect();
+      const lastBBox = objs[objs.length - 1].getBoundingRect();
+      const minY = firstBBox.top;
+      const maxY = lastBBox.top + lastBBox.height;
+      const totalObjHeight = objs.reduce((sum, o) => sum + o.getBoundingRect().height, 0);
+      const totalGap = (maxY - minY) - totalObjHeight;
+      const gap = totalGap / (objs.length - 1);
+
+      let currentTop = minY;
+      for (const obj of objs) {
+        const b = obj.getBoundingRect();
+        const deltaY = currentTop - b.top;
+        obj.set('top', obj.top + deltaY);
+        obj.setCoords();
+        currentTop += b.height + gap;
+      }
+    }
+
+    if (isSelection) {
+      const newSelection = new ActiveSelection(objs, { canvas: this.canvas });
+      this.canvas.setActiveObject(newSelection);
+    }
+    this.canvas.requestRenderAll();
+    this.commit();
+  }
+
+  selectMultiple(objects: FabricObject[]): void {
+    if (objects.length === 0) {
+      this.canvas.discardActiveObject();
+      this.canvas.requestRenderAll();
+      return;
+    }
+    if (objects.length === 1) {
+      this.canvas.setActiveObject(objects[0]);
+      this.canvas.requestRenderAll();
+      return;
+    }
+    const sel = new ActiveSelection(objects, { canvas: this.canvas });
+    this.canvas.setActiveObject(sel);
+    this.canvas.requestRenderAll();
+  }
+
   set(props: Record<string, unknown>): void {
     const o = this.active;
     if (!o) return;
+    // cor sólida escolhida: o degradê do usuário deixa de valer (senão o refresh o traria de volta)
+    if (typeof props.fill === 'string' && !('customGradient' in props)) props = { ...props, customGradient: undefined };
     o.set(props);
+    // tracejado acompanha a espessura (TASK-12)
+    const dash = o.get('strokeDashStyle');
+    if (typeof props.strokeWidth === 'number' && isDashStyle(dash) && dash !== 'solid') {
+      o.set({ strokeDashArray: dashArrayFor(dash, props.strokeWidth) });
+    }
     if ('getObjects' in o && typeof (o as { getObjects?: () => FabricObject[] }).getObjects === 'function') {
       const items = (o as { getObjects: () => FabricObject[] }).getObjects();
       if (props.fill !== undefined) {
@@ -462,17 +802,266 @@ export class Editor {
       }
     }
     if (o instanceof Textbox && Object.keys(props).some((k) => Textbox.textLayoutProperties.includes(k))) this.refitCurve(o);
+    this.refreshGradient(o);
     o.setCoords();
     this.commit();
   }
 
+  // ---------- degradê, contorno, cantos, troca de forma (TASK-12) ----------
+
+  /** O degradê do usuário no objeto (`customGradient`), se o preenchimento ainda for ele. */
+  gradientOf(o: FabricObject | undefined = this.active): GradientSpec | undefined {
+    const spec = o?.get('customGradient');
+    return o && isGradientSpec(spec) && o.fill instanceof Gradient ? spec : undefined;
+  }
+
+  /**
+   * Preenche o objeto com o degradê (`null` volta à cor sólida `fallback`, padrão: 1ª parada). Grava `customGradient` e
+   * zera `brandColor` (o brand kit não pode trocar o degradê por uma cor sólida).
+   */
+  setObjectGradient(spec: GradientSpec | null, target: FabricObject | undefined = this.active, fallback?: string): void {
+    if (!target || !canHoldGradient(target)) return;
+    if (spec) {
+      const box = gradientBox(target);
+      target.set({ fill: buildFabricGradient(spec, box.width, box.height), customGradient: spec, brandColor: undefined });
+    } else {
+      const current = target.get('customGradient');
+      const color = fallback ?? (isGradientSpec(current) ? current.stops[0]?.color : undefined) ?? '#000000';
+      target.set({ fill: color, customGradient: undefined });
+    }
+    target.setCoords();
+    this.commit();
+  }
+
+  /** Refaz as coordenadas do degradê do usuário quando a caixa local do objeto muda (texto, fundo, formato). */
+  refreshGradient(o: FabricObject | undefined): void {
+    if (!o || !(o.fill instanceof Gradient)) return;
+    const spec = o.get('customGradient');
+    if (!isGradientSpec(spec)) return;
+    const box = gradientBox(o);
+    o.set('fill', buildFabricGradient(spec, box.width, box.height));
+  }
+
+  /** Borda sólida/tracejada/pontilhada; sem contorno, liga um de espessura visível. Conector: muda a linha. */
+  setStrokeDash(style: DashStyle, target: FabricObject | undefined = this.active): void {
+    if (!target) return;
+    if (this.connectorOf(target)) { this.setConnector({ dash: style }, target); return; }
+    if (target instanceof Group) return;
+    const props: Record<string, unknown> = { strokeDashStyle: style === 'solid' ? undefined : style };
+    let sw = target.strokeWidth ?? 0;
+    if (style !== 'solid' && (!target.stroke || sw <= 0)) {
+      sw = Math.max(2, Math.round(Math.min(this.docWidth, this.docHeight) * 0.004));
+      props.strokeWidth = sw;
+      if (!target.stroke || target.stroke === 'transparent') props.stroke = '#222222';
+    }
+    props.strokeDashArray = dashArrayFor(style, sw);
+    props.strokeLineCap = style === 'solid' ? 'butt' : 'round';
+    target.set(props);
+    target.setCoords();
+    this.commit();
+  }
+
+  dashStyleOf(o: FabricObject | undefined = this.active): DashStyle {
+    if (!o) return 'solid';
+    const c = this.connectorOf(o);
+    if (c) return c.dash;
+    const d = o.get('strokeDashStyle');
+    return isDashStyle(d) ? d : 'solid';
+  }
+
+  /** Maior raio de canto de um Rect (pílula). */
+  maxCornerRadius(o: FabricObject | undefined = this.active): number {
+    return o instanceof Rect ? Math.min(o.width, o.height) / 2 : 0;
+  }
+
+  /** Raio de canto (`rx` = `ry`) do retângulo selecionado, preso em 0..min(w, h)/2. */
+  setCornerRadius(r: number, target: FabricObject | undefined = this.active): void {
+    if (!(target instanceof Rect) || target.get('layerName') === BACKGROUND_LAYER) return;
+    const v = Math.max(0, Math.min(r, this.maxCornerRadius(target)));
+    target.set({ rx: v, ry: v });
+    this.commit();
+  }
+
+  /** O tipo de forma do objeto (para o "🔄 Trocar forma"), ou undefined se não for forma trocável. */
+  shapeKindOf(o: FabricObject | undefined = this.active): ShapeKind | undefined {
+    if (!o || o instanceof Group || o instanceof FabricText || o instanceof FabricImage || o instanceof Line) return undefined;
+    if (o.get('layerName') === BACKGROUND_LAYER) return undefined;
+    const k = o.get('shapeKind');
+    if (typeof k === 'string' && (SWAP_KINDS as string[]).includes(k)) return k as ShapeKind;
+    if (o instanceof Rect) return (o.rx ?? 0) > 0 ? 'rounded' : 'rect';
+    if (o instanceof Circle) return 'circle';
+    if (o instanceof Triangle) return 'triangle';
+    if (o instanceof Polygon) return 'star';
+    return undefined;
+  }
+
+  /**
+   * Troca a forma selecionada por outra do mesmo tamanho na página, no mesmo lugar da pilha, preservando centro, ângulo,
+   * espelhamento, preenchimento (sólido ou degradê), contorno (inclusive tracejado), sombra, opacidade e metadados.
+   */
+  swapShape(newKind: ShapeKind, target: FabricObject | undefined = this.active): FabricObject | undefined {
+    if (!target || !this.shapeKindOf(target) || !SWAP_KINDS.includes(newKind)) return undefined;
+    const W = target.width * target.scaleX, H = target.height * target.scaleY;
+    const center = target.getCenterPoint();
+    const spec = this.gradientOf(target);
+    let n: FabricObject;
+    if (newKind === 'rect' || newKind === 'rounded' || newKind === 'pill') {
+      // retângulos no tamanho exato (escala 1): o raio do canto não se deforma
+      const r = newKind === 'rect' ? 0 : newKind === 'pill' ? Math.min(W, H) / 2 : Math.min(W, H) * 0.17;
+      n = new Rect({ width: W, height: H, rx: r, ry: r, fill: '#000000' });
+    } else {
+      n = makeShape(newKind, '#000000', Math.max(W, H));
+      n.set({ scaleX: W / n.width, scaleY: H / n.height });
+    }
+    const copy: Record<string, unknown> = {};
+    for (const k of ['angle', 'flipX', 'flipY', 'opacity', 'shadow', 'stroke', 'strokeWidth', 'strokeDashArray', 'strokeLineCap',
+      'strokeDashStyle', 'brandColor', 'brandStroke', 'layerName', 'animation', 'visible']) copy[k] = target.get(k);
+    n.set({ ...copy, shapeKind: newKind, originX: 'center', originY: 'center' });
+    if (spec) {
+      const box = gradientBox(n);
+      n.set({ fill: buildFabricGradient(spec, box.width, box.height), customGradient: spec });
+    } else n.set({ fill: target.fill });
+    n.setPositionByOrigin(center, 'center', 'center');
+    n.setCoords();
+    this.replaceObject(target, n);
+    this.canvas.setActiveObject(n);
+    this.commit();
+    return n;
+  }
+
+  /** Põe `n` no lugar de `old` na pilha (sem passar a seleção). */
+  private replaceObject(old: FabricObject, n: FabricObject): void {
+    const index = this.canvas.getObjects().indexOf(old);
+    if (this.canvas.getActiveObject() === old) this.canvas.discardActiveObject();
+    this.canvas.remove(old);
+    this.canvas.insertAt(Math.max(0, index), n);
+  }
+
+  // ---------- conectores e infográfico "Raio-X" (TASK-12) ----------
+
+  connectorOf(o: FabricObject | undefined = this.active): ConnectorSpec | undefined {
+    const spec = o?.get('connectorSpec');
+    return o instanceof Group && isConnectorSpec(spec) ? spec : undefined;
+  }
+
+  /** Linha/seta/cota paramétrica no centro da página (ou com os pontos deslocados por `at`, coordenadas da página). */
+  addConnector(spec: ConnectorSpec, at?: { x: number; y: number }, name = 'Seta'): Group {
+    const g = buildConnector(spec, at ?? { x: 0, y: 0 });
+    g.set({ layerName: name });
+    if (!at) this.center(g);
+    g.setCoords();
+    this.add(g);
+    return g;
+  }
+
+  /**
+   * Muda a linha (pontas, formato, cor, espessura, tracejado): refaz o Group no mesmo lugar (os pontos da linha não se
+   * mexem na página), sem avisar a interface (os controles do painel continuam vivos durante o arrasto).
+   */
+  setConnector(patch: Partial<ConnectorSpec>, target: FabricObject | undefined = this.active): Group | undefined {
+    const old = this.connectorOf(target);
+    if (!old || !(target instanceof Group)) return undefined;
+    const spec: ConnectorSpec = { ...old, ...patch };
+    // centro dos dois grupos no espaço local (sem transformação) → onde o novo centro cai na página
+    const ref = buildConnector(old, { x: 0, y: 0 }).getCenterPoint();
+    const n = buildConnector(spec, { x: 0, y: 0 });
+    const delta = n.getCenterPoint().subtract(ref);
+    const m = util.composeMatrix({ angle: target.angle, scaleX: target.scaleX, scaleY: target.scaleY, flipX: target.flipX, flipY: target.flipY });
+    const center = target.getCenterPoint().add(util.transformPoint(delta, m));
+    const copy: Record<string, unknown> = {};
+    for (const k of ['angle', 'scaleX', 'scaleY', 'flipX', 'flipY', 'opacity', 'shadow', 'layerName', 'animation', 'visible']) copy[k] = target.get(k);
+    n.set(copy);
+    n.setPositionByOrigin(center, 'center', 'center');
+    n.setCoords();
+    const wasActive = this.canvas.getActiveObject() === target;
+    this.silently(() => {
+      this.replaceObject(target, n);
+      if (wasActive) this.canvas.setActiveObject(n);
+    });
+    this.commit();
+    return n;
+  }
+
+  /** Executa sem chamar `onSelection` (trocas internas do objeto selecionado). */
+  private silently<T>(fn: () => T): T {
+    const cb = this.onSelection;
+    this.onSelection = () => {};
+    try { return fn(); } finally { this.onSelection = cb; }
+  }
+
+  /**
+   * Blocos prontos de infográfico. As peças entram soltas (o texto continua editável por toque longo) e ficam selecionadas
+   * juntas; "🔗 Agrupar" junta de vez.
+   */
+  addCallout(kind: CalloutKind, color: string, fontFamily: string): FabricObject[] {
+    const m = Math.min(this.docWidth, this.docHeight);
+    const cx = this.docWidth / 2, cy = this.docHeight / 2;
+    const w = Math.max(3, Math.round(m * 0.005));
+    const base = { color, width: w, dash: 'solid' as DashStyle };
+    const label = (text: string, left: number, top: number, originX: 'left' | 'center', name: string) => new Textbox(text, {
+      fontFamily, fontSize: Math.round(m * 0.045), fontWeight: 700, fill: '#222222', textAlign: originX, width: m * 0.4,
+      left, top, originX, originY: 'center', layerName: name, brandFont: 'heading',
+    });
+    const items: FabricObject[] = [];
+    switch (kind) {
+      case 'pin': {
+        // texto à direita do início; a linha vai para a esquerda e desce até o pino (anel + ponto) no produto
+        const spec: ConnectorSpec = { ...base, x1: m * 0.3, y1: 0, x2: 0, y2: m * 0.2, shape: 'elbow', startCap: 'none', endCap: 'ring' };
+        const at = { x: cx - m * 0.25, y: cy - m * 0.1 };
+        items.push(buildConnector(spec, at).set({ layerName: 'Raio-X: pino' }));
+        items.push(label('Aço Inox 304', at.x + m * 0.32, at.y, 'left', 'Raio-X: texto'));
+        break;
+      }
+      case 'dimension': {
+        const spec: ConnectorSpec = { ...base, x1: 0, y1: 0, x2: m * 0.6, y2: 0, shape: 'straight', startCap: 'bar', endCap: 'bar' };
+        items.push(buildConnector(spec, { x: cx - m * 0.3, y: cy }).set({ layerName: 'Cota: linha' }));
+        items.push(label('25 cm', cx, cy - m * 0.05, 'center', 'Cota: medida'));
+        break;
+      }
+      case 'zoom': {
+        const r = m * 0.13;
+        const ring = new Circle({ radius: r, fill: '', stroke: color, strokeWidth: Math.max(4, Math.round(m * 0.009)),
+          left: cx + m * 0.12, top: cy - m * 0.1, originX: 'center', originY: 'center', layerName: 'Lupa: círculo' });
+        // a linha sai da borda do círculo (embaixo, à esquerda) e termina num ponto no detalhe
+        const a = (135 * Math.PI) / 180;
+        const start = { x: ring.left + Math.cos(a) * r, y: ring.top + Math.sin(a) * r };
+        const spec: ConnectorSpec = { ...base, x1: 0, y1: 0, x2: -m * 0.18, y2: m * 0.18, shape: 'straight', startCap: 'none', endCap: 'dot' };
+        items.push(ring, buildConnector(spec, start).set({ layerName: 'Lupa: linha' }));
+        break;
+      }
+      case 'curved-arrow': {
+        const spec: ConnectorSpec = { ...base, width: Math.max(4, Math.round(m * 0.009)), x1: 0, y1: 0, x2: m * 0.45, y2: m * 0.2,
+          shape: 'curve', startCap: 'none', endCap: 'arrow', bend: 0.3 };
+        items.push(buildConnector(spec, { x: cx - m * 0.22, y: cy - m * 0.1 }).set({ layerName: 'Seta curva' }));
+        break;
+      }
+    }
+    for (const o of items) { o.setCoords(); this.canvas.add(o); }
+    this.selectMultiple(items);
+    this.commit();
+    return items;
+  }
+
   // ---------- texto ----------
 
-  setShadow(on: boolean, color = 'rgba(0,0,0,0.45)'): void {
+  setShadow(options: boolean | ShadowOptions | null, colorFallback = 'rgba(0,0,0,0.45)'): void {
     const o = this.active;
     if (!o) return;
-    const m = Math.min(this.docWidth, this.docHeight);
-    o.set('shadow', on ? new Shadow({ color, blur: m * 0.012, offsetX: m * 0.006, offsetY: m * 0.006 }) : null);
+    if (options === false || options === null) {
+      o.set('shadow', null);
+    } else if (options === true) {
+      const m = Math.min(this.docWidth, this.docHeight);
+      o.set('shadow', new Shadow({ color: colorFallback, blur: m * 0.012, offsetX: m * 0.006, offsetY: m * 0.006 }));
+    } else {
+      o.set('shadow', new Shadow({
+        color: options.color ?? colorFallback,
+        blur: options.blur ?? 0,
+        offsetX: options.offsetX ?? 0,
+        offsetY: options.offsetY ?? 0,
+      }));
+    }
+    o.setCoords();
+    this.canvas.requestRenderAll();
     this.commit();
   }
 
@@ -480,39 +1069,151 @@ export class Editor {
   setCurve(amount: number): void {
     const t = this.active;
     if (!(t instanceof Textbox)) return;
-    this.curveText(t, amount);
+    this.setWarp('arc', amount, Number(t.get('warpDistortH') ?? 0), Number(t.get('warpDistortV') ?? 0));
+  }
+
+  /** Aplica um dos 14 estilos de deformação (Text Warp) ao texto selecionado. */
+  setWarp(style: WarpStyle, bend = 50, distortH = 0, distortV = 0): void {
+    const t = this.active;
+    if (!(t instanceof Textbox)) return;
+    t.set({
+      warpStyle: style,
+      warpBend: bend,
+      warpDistortH: distortH,
+      warpDistortV: distortV,
+      curve: style === 'arc' ? bend : (style === 'none' ? 0 : Number(t.get('curve') ?? 0)),
+    });
+    this.refitCurve(t);
+    this.canvas.requestRenderAll();
     this.commit();
   }
 
+  /** Alterna ciclicamente a caixa do texto (MAIÚSCULAS -> minúsculas -> Título). */
+  cycleTextCase(target?: FabricText): void {
+    const t = (target ?? this.active) as FabricText;
+    if (!(t instanceof FabricText)) return;
+    const current = t.text ?? '';
+    const next = cycleTextCaseHelper(current);
+    if (next !== current) {
+      t.set({ text: next });
+      if (t instanceof Textbox) this.refitCurve(t);
+      t.setCoords();
+      this.canvas.requestRenderAll();
+      this.commit();
+    }
+  }
+
+  // ---------- listas e localizar/substituir (TASK-14) ----------
+
+  /** Estilo de lista do texto (`'mixed'` se as linhas divergem), ou undefined se não for texto. */
+  listStyleOf(target: FabricObject | undefined = this.active): ListStyle | 'mixed' | undefined {
+    return target instanceof FabricText ? detectListStyle(target.text ?? '') : undefined;
+  }
+
+  /** "☰ Lista": aplica o estilo em cada linha (ou o remove, se todas já o têm); devolve o estilo resultante. */
+  applyListStyle(style: ListStyle, target: FabricObject | undefined = this.active): ListStyle | 'mixed' | undefined {
+    if (!(target instanceof FabricText)) return undefined;
+    const next = toggleListStyle(target.text ?? '', style);
+    if (next !== target.text) {
+      this.setTextContent(target, next);
+      this.commit();
+    }
+    return detectListStyle(next);
+  }
+
+  /** Troca o texto como a edição faz (curva, degradê, caixa) e refaz a caixa dos grupos que o contêm. Sem commit. */
+  private setTextContent(t: FabricText, text: string): void {
+    t.set({ text });
+    this.refitCurve(t);
+    this.refreshGradient(t);
+    t.setCoords();
+    // `parent` é o Group real mesmo com o texto numa ActiveSelection; o Fabric não refaz a caixa do grupo sozinho
+    for (let g = t.parent; g; g = g.parent) { g.triggerLayout(); g.setCoords(); }
+  }
+
+  /** Camadas de texto do anúncio, inclusive dentro de grupos (selos, agrupados), de baixo para cima. */
+  textLayers(): FabricText[] {
+    return collectTextLayers(this.canvas.getObjects()).filter((o): o is FabricText => o instanceof FabricText);
+  }
+
+  /** Camadas que contêm `find` e quantas vezes. */
+  findTextMatches(find: string, matchCase = false): { layer: FabricText; count: number }[] {
+    return this.textLayers()
+      .map((layer) => ({ layer, count: countMatches(layer.text ?? '', find, matchCase) }))
+      .filter((m) => m.count > 0);
+  }
+
   /**
-   * Refaz o arco de um texto curvo com a largura atual do texto. O Fabric roda `initDimensions` a cada mudança de
-   * layout (fonte, tamanho, texto, largura) e no `loadFromJSON`, o que devolve a altura do texto reto e deixa o arco com
-   * o comprimento antigo (§29). Sem commit: quem chama já registra a mudança.
+   * Substitui em todas as camadas de texto (ou só em `only`) com **um** instantâneo de undo. Camada que ficaria sem texto
+   * (sem caixa para tocar) não é alterada e conta em `skipped`.
+   */
+  findAndReplaceAll(find: string, replace: string, matchCase = false, only?: FabricText[]): { matches: number; layers: number; skipped: number } {
+    const result = { matches: 0, layers: 0, skipped: 0 };
+    if (!find) return result;
+    // a caixa de uma seleção múltipla ficaria velha com textos de outro tamanho
+    if (this.canvas.getActiveObject() instanceof ActiveSelection) this.canvas.discardActiveObject();
+    for (const t of only ?? this.textLayers()) {
+      const r = findAndReplaceInText(t.text ?? '', find, replace, matchCase);
+      if (!r.count) continue;
+      if (!r.text.trim()) { result.skipped++; continue; }
+      this.setTextContent(t, r.text);
+      result.matches += r.count;
+      result.layers++;
+    }
+    if (result.layers) this.commit();
+    return result;
+  }
+
+  /**
+   * Refaz o arco ou deformação de um texto curvo com a largura atual do texto. O Fabric roda `initDimensions` a cada mudança de
+   * layout (fonte, tamanho, texto, largura) e no `loadFromJSON`. Sem commit: quem chama já registra a mudança.
    */
   refitCurve(t: FabricObject): void {
-    const amount = Number(t.get('curve') ?? 0);
-    if (t instanceof Textbox && Math.abs(amount) >= 1) this.curveText(t, amount);
+    if (!(t instanceof Textbox)) return;
+    let style = (t.get('warpStyle') as WarpStyle | undefined) ?? 'none';
+    let bend = Number(t.get('warpBend') ?? 0);
+    const legacyCurve = Number(t.get('curve') ?? 0);
+
+    // Retrocompatibilidade total (§2.3 / §85): se curve !== 0 e !warpStyle, tratar como arc
+    if ((!t.get('warpStyle') || style === 'none') && Math.abs(legacyCurve) >= 1) {
+      style = 'arc';
+      bend = legacyCurve;
+      t.set('warpStyle', 'arc');
+      t.set('warpBend', bend);
+    }
+
+    // no plano do pai (o mesmo do setPositionByOrigin abaixo): o getCenterPoint é de cena e, com o texto num Group,
+    // o deslocava pelo centro do grupo (TASK-14, localizar/substituir em selos/agrupados)
+    const center = t.getRelativeCenterPoint();
+
+    if (isPathWarp(style) && Math.abs(bend) >= 1) {
+      const pathResult = curvePath(style, t.calcTextWidth(), bend);
+      if (!pathResult) {
+        t.set({ path: undefined });
+      } else {
+        t.set({
+          path: new Path(pathResult.d, { visible: false, fill: '', stroke: '' }),
+          pathAlign: 'center',
+          pathSide: 'left',
+        });
+      }
+      t.initDimensions();
+      if (pathResult) t.set('height', pathResult.sagitta + t.getHeightOfLine(0));
+    } else if (isEnvelopeWarp(style) && Math.abs(bend) >= 1) {
+      t.set({ path: undefined });
+      t.initDimensions();
+      const factor = 1 + (Math.abs(bend) / 100) * 0.6;
+      t.set('height', t.height * factor);
+    } else {
+      t.set({ path: undefined });
+      t.initDimensions();
+    }
+    t.setPositionByOrigin(center, 'center', 'center');
+    t.setCoords();
   }
 
   private refitCurves(): void {
     for (const o of this.canvas.getObjects()) this.refitCurve(o);
-  }
-
-  private curveText(t: Textbox, amount: number): void {
-    // arco medido pelo texto, não pela caixa (§28 D)
-    const arc = curveArc(t.calcTextWidth(), amount);
-    const center = t.getCenterPoint();
-    if (!arc) {
-      t.set({ path: undefined });
-    } else {
-      t.set({ path: new Path(arc.d, { visible: false, fill: '', stroke: '' }), pathAlign: 'center', pathSide: 'left' });
-    }
-    t.set('curve', amount);
-    t.initDimensions();
-    // o Textbox mantém a altura do texto reto: a caixa passa a cobrir a flecha do arco, com o mesmo centro
-    if (arc) t.set('height', arc.sagitta + t.getHeightOfLine(0));
-    t.setPositionByOrigin(center, 'center', 'center');
-    t.setCoords();
   }
 
   // ---------- imagem ----------
@@ -561,6 +1262,27 @@ export class Editor {
     if (before.width > 0 && before.height > 0) {
       img.set(rescaledGeometry(geometry, after.width / before.width, after.height / before.height));
     }
+    img.filters = keepFilters;
+    if (keepFilters.length) img.applyFilters();
+    img.setCoords();
+    this.commit();
+  }
+
+  /**
+   * Troca a foto mantendo o espaço na página (caixa, centro), rotação, espelho, opacidade, sombra e filtros. `contain`
+   * mostra a foto inteira (produto recortado); `cover` preenche o espaço recortando o excesso (cenário).
+   */
+  async swapImage(img: FabricImage, url: string, fitMode: FitMode = 'contain', opts: { brandLogo?: boolean } = {}): Promise<void> {
+    const slotW = img.width * img.scaleX;
+    const slotH = img.height * img.scaleY;
+    const center = img.getCenterPoint();
+    const keep = { angle: img.angle, flipX: img.flipX, flipY: img.flipY, opacity: img.opacity, shadow: img.shadow, clipPath: img.clipPath };
+    const keepFilters = img.filters;
+    await img.setSrc(url);
+    const { width: nw, height: nh } = img.getOriginalSize();
+    if (nw > 0 && nh > 0) img.set(fitSlot(slotW, slotH, nw, nh, fitMode));
+    img.set({ ...keep, brandLogo: opts.brandLogo ? true : undefined, filterPreset: img.get('filterPreset') });
+    img.setPositionByOrigin(center, 'center', 'center');
     img.filters = keepFilters;
     if (keepFilters.length) img.applyFilters();
     img.setCoords();
@@ -642,6 +1364,64 @@ export class Editor {
     return out;
   }
 
+  // ---------- desenho à mão livre (TASK-14) ----------
+
+  get isFreehandDrawing(): boolean { return this.freehandBase !== null; }
+
+  /** Liga o pincel permanente: cada traço vira um Path "Traço à mão" (camada normal, com undo). */
+  startFreehandDraw(color: string, width: number): void {
+    if (this.maskPaths) return; // a máscara do "Remover objeto" usa o mesmo pincel do canvas
+    this.canvas.discardActiveObject();
+    this.freehandBase = this.canvas.getObjects().length;
+    const brush = new PencilBrush(this.canvas);
+    brush.decimate = FREEHAND_DECIMATE;
+    brush.strokeLineCap = 'round';
+    brush.strokeLineJoin = 'round';
+    this.canvas.freeDrawingBrush = brush;
+    this.updateFreehandBrush({ color, width });
+    this.canvas.isDrawingMode = true;
+    this.canvas.requestRenderAll();
+  }
+
+  /** Cor (aceita rgba, para o marca-texto) e espessura (px do documento) dos próximos traços. */
+  updateFreehandBrush(opts: { color?: string; width?: number }): void {
+    const b = this.canvas.freeDrawingBrush;
+    if (!b || this.freehandBase === null) return;
+    if (opts.color !== undefined) b.color = opts.color;
+    if (opts.width !== undefined) b.width = Math.max(1, opts.width);
+  }
+
+  freehandBrush(): { color: string; width: number } | undefined {
+    const b = this.canvas.freeDrawingBrush;
+    return b && this.freehandBase !== null ? { color: b.color, width: b.width } : undefined;
+  }
+
+  /** Traços desta sessão: Paths "Traço à mão" acima da pilha que existia ao começar. */
+  freehandStrokes(): FabricObject[] {
+    if (this.freehandBase === null) return [];
+    return this.canvas.getObjects().slice(this.freehandBase).filter((o) => isFreehandPath(o));
+  }
+
+  /** "Desfazer traço": remove o último traço da sessão (o `object:removed` registra o undo). */
+  undoFreehandStroke(): boolean {
+    const last = this.freehandStrokes().pop();
+    if (!last) return false;
+    this.canvas.remove(last);
+    this.canvas.requestRenderAll();
+    return true;
+  }
+
+  /** "Concluir": desliga o pincel e (se `select`) deixa os traços da sessão selecionados juntos. */
+  endFreehandDraw(select = true): FabricObject[] {
+    if (this.freehandBase === null) return [];
+    const live = this.freehandStrokes();
+    this.freehandBase = null;
+    this.canvas.isDrawingMode = false;
+    if (select && live.length) this.selectMultiple(live);
+    this.canvas.requestRenderAll();
+    return live;
+  }
+
   // ---------- exportação ----------
 
   /**
@@ -653,11 +1433,49 @@ export class Editor {
     // recorte) a cada miniatura do rascunho automático (§29, defeito 5)
     const vpt = this.canvas.viewportTransform;
     this.canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+    this.isExporting = true;
     try {
       return this.canvas.toDataURL({ format, quality, multiplier: scale, left: 0, top: 0, width: this.docWidth, height: this.docHeight });
     } finally {
+      this.isExporting = false;
       this.canvas.setViewportTransform(vpt);
     }
+  }
+
+  /**
+   * A página como `<canvas>` (sem alças, guias nem overlays), lado maior ≤ `maxSide`, para ler pixels (conta-gotas,
+   * contraste). `filter` deixa objetos de fora (o próprio texto, na amostragem do fundo sob ele).
+   */
+  renderPageCanvas(maxSide = 2048, filter?: (o: FabricObject) => boolean): { canvas: HTMLCanvasElement; scale: number } {
+    const scale = Math.min(1, maxSide / Math.max(this.docWidth, this.docHeight));
+    const vpt = this.canvas.viewportTransform;
+    this.canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+    this.isExporting = true;
+    try {
+      const canvas = this.canvas.toCanvasElement(scale, {
+        left: 0, top: 0, width: this.docWidth, height: this.docHeight,
+        filter: filter as ((o: unknown) => boolean) | undefined,
+      });
+      return { canvas, scale };
+    } finally {
+      this.isExporting = false;
+      this.canvas.setViewportTransform(vpt);
+    }
+  }
+
+  /** Ponto da tela (clientX/Y) → coordenadas do documento, pelo viewport atual. */
+  clientToDoc(clientX: number, clientY: number): { x: number; y: number } {
+    const r = this.canvas.lowerCanvasEl.getBoundingClientRect();
+    const css = new Point(clientX - r.left, clientY - r.top);
+    const p = util.transformPoint(css, util.invertTransform(this.canvas.viewportTransform));
+    return { x: p.x, y: p.y };
+  }
+
+  /** Documento → ponto da tela (clientX/Y). */
+  docToClient(x: number, y: number): { x: number; y: number } {
+    const r = this.canvas.lowerCanvasEl.getBoundingClientRect();
+    const p = util.transformPoint(new Point(x, y), this.canvas.viewportTransform);
+    return { x: p.x + r.left, y: p.y + r.top };
   }
 
   /** Raster da página em `scale` × o tamanho do documento (lado maior até 8192 px). */
@@ -684,132 +1502,149 @@ export class Editor {
   /** SVG portátil: imagens e fontes embutidas como dataURL. */
   async exportSvg(): Promise<string> {
     this.canvas.discardActiveObject();
-    const families = fontsUsed(this.toDocument());
-    fabricConfig.clearFonts();
-    const paths: Record<string, string> = {};
-    for (const f of families) {
-      const u = fontUrl(f);
-      if (u) paths[f] = u;
+    this.isExporting = true;
+    try {
+      const families = fontsUsed(this.toDocument());
+      fabricConfig.clearFonts();
+      const paths: Record<string, string> = {};
+      for (const f of families) {
+        const u = fontUrl(f);
+        if (u) paths[f] = u;
+      }
+      fabricConfig.addFonts(paths);
+      const svg = this.canvas.toSVG({
+        width: String(this.docWidth),
+        height: String(this.docHeight),
+        viewBox: { x: 0, y: 0, width: this.docWidth, height: this.docHeight },
+      });
+      fabricConfig.clearFonts();
+      return inlineSvgResources(svg, browserFetcher);
+    } finally {
+      this.isExporting = false;
     }
-    fabricConfig.addFonts(paths);
-    const svg = this.canvas.toSVG({
-      width: String(this.docWidth),
-      height: String(this.docHeight),
-      viewBox: { x: 0, y: 0, width: this.docWidth, height: this.docHeight },
-    });
-    fabricConfig.clearFonts();
-    return inlineSvgResources(svg, browserFetcher);
   }
 
   /**
-   * Exporta as camadas do projeto rasterizadas individualmente e monta o comando FFmpeg
-   * para codificação de vídeo offline.
+   * Exporta as camadas rasterizadas uma a uma (PNG recortado na caixa de cada camada, com rotação, opacidade e sombra
+   * já desenhadas) e monta o comando FFmpeg do MP4 ou do GIF. O tamanho da saída segue a página (lado maior ≤ 1920 no
+   * MP4, largura ≤ 540 e 15 fps no GIF), sempre par (yuv420p).
    */
-  async exportVideoBundle(targetWidth?: number, targetHeight?: number): Promise<{
-    command: string;
-    ffmpegCommand: string;
-    files: Record<string, string>;
-    width: number;
-    height: number;
-    duration: number;
-    fps: number;
-  }> {
+  async exportVideoBundle(format: 'mp4' | 'gif' = 'mp4'): Promise<ExportVideoBundle> {
+    this.videoPreview.stop();
     this.canvas.discardActiveObject();
-    const width = targetWidth ?? this.videoSettings.width ?? this.docWidth;
-    const height = targetHeight ?? this.videoSettings.height ?? this.docHeight;
-    const scale = width / this.docWidth;
+    const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+    const maxScale = format === 'gif' ? 540 / this.docWidth : 1920 / Math.max(this.docWidth, this.docHeight);
+    const scale = Math.min(1, maxScale);
+    const width = even(this.docWidth * scale);
+    const height = even(this.docHeight * scale);
     const duration = this.videoSettings.duration ?? 5;
-    const fps = this.videoSettings.fps ?? 30;
+    const fps = format === 'gif' ? Math.min(15, this.videoSettings.fps ?? 30) : this.videoSettings.fps ?? 30;
 
     const files: Record<string, string> = {};
     const layers: LayerRenderItem[] = [];
-
     const objects = this.canvas.getObjects();
     const originalVisibilities = objects.map((o) => o.visible);
-
-    // 1. Renderiza o fundo isoladamente
-    for (const o of objects) o.visible = false;
-    const bgDataUrl = this.renderPage(scale, 'png', 1.0);
-    files['bg.png'] = bgDataUrl;
-    layers.push({
-      id: 'bg',
-      filename: 'bg.png',
-      x: 0,
-      y: 0,
-      width,
-      height,
-      opacity: 1,
-      isBackground: true,
-    });
-
-    // 2. Renderiza cada objeto individualmente com transparência
     const originalBg = this.canvas.backgroundColor;
     const originalBgImg = this.canvas.backgroundImage;
-    this.canvas.backgroundColor = 'transparent';
-    this.canvas.backgroundImage = undefined;
+    try {
+      // 1. fundo da página (cor/imagem de fundo do canvas), página inteira
+      for (const o of objects) o.visible = false;
+      files['bg.png'] = this.renderPage(width / this.docWidth, 'png', 1.0);
+      layers.push({ id: 'bg', filename: 'bg.png', x: 0, y: 0, width, height, opacity: 1, isBackground: true });
 
-    for (let i = 0; i < objects.length; i++) {
-      const obj = objects[i];
-      if (!originalVisibilities[i]) continue;
-
-      for (let j = 0; j < objects.length; j++) {
-        objects[j].visible = j === i;
+      // 2. cada objeto sozinho, sem fundo, recortado na própria caixa (+ margem da sombra)
+      this.canvas.backgroundColor = 'transparent';
+      this.canvas.backgroundImage = undefined;
+      for (let i = 0; i < objects.length; i++) {
+        const obj = objects[i];
+        if (!originalVisibilities[i]) continue;
+        for (let j = 0; j < objects.length; j++) objects[j].visible = j === i;
+        obj.setCoords();
+        const b = obj.getBoundingRect();
+        const sh = obj.shadow;
+        const m = 2 + (sh ? sh.blur + Math.max(Math.abs(sh.offsetX), Math.abs(sh.offsetY)) : 0);
+        const rect = { left: b.left - m, top: b.top - m, width: b.width + 2 * m, height: b.height + 2 * m };
+        const filename = `layer_${i}.png`;
+        files[filename] = this.renderRegion(width / this.docWidth, rect);
+        layers.push({
+          id: `layer_${i}`,
+          filename,
+          x: rect.left * (width / this.docWidth),
+          y: rect.top * (height / this.docHeight),
+          width: Math.round(rect.width * (width / this.docWidth)),
+          height: Math.round(rect.height * (width / this.docWidth)),
+          // a opacidade já está no PNG
+          opacity: 1,
+          rotation: obj.angle ?? 0,
+          animation: (obj as unknown as { animation?: LayerAnimation }).animation,
+        });
       }
-
-      const filename = `layer_${i}.png`;
-      const dataUrl = this.renderPage(scale, 'png', 1.0);
-      files[filename] = dataUrl;
-
-      const anim = (obj as unknown as { animation?: LayerAnimation }).animation;
-
-      layers.push({
-        id: `layer_${i}`,
-        filename,
-        x: (obj.left ?? 0) * scale,
-        y: (obj.top ?? 0) * scale,
-        width: (obj.width ?? 100) * (obj.scaleX ?? 1) * scale,
-        height: (obj.height ?? 100) * (obj.scaleY ?? 1) * scale,
-        opacity: obj.opacity ?? 1,
-        rotation: obj.angle ?? 0,
-        animation: anim,
-      });
+    } finally {
+      this.canvas.backgroundColor = originalBg;
+      this.canvas.backgroundImage = originalBgImg;
+      for (let i = 0; i < objects.length; i++) objects[i].visible = originalVisibilities[i];
+      this.canvas.requestRenderAll();
     }
 
-    // Restaura o estado visual do canvas
-    this.canvas.backgroundColor = originalBg;
-    this.canvas.backgroundImage = originalBgImg;
-    for (let i = 0; i < objects.length; i++) {
-      objects[i].visible = originalVisibilities[i];
-    }
-    this.canvas.requestRenderAll();
-
-    // 3. Monta o comando FFmpeg
+    const audioUrl = format === 'mp4' ? this.videoSettings.audioUrl : undefined;
+    const audioFile = audioUrl ? `audio.${audioExtension(audioUrl)}` : undefined;
+    const output = format === 'gif' ? 'output.gif' : 'output.mp4';
+    const channels = audioUrl ? await audioChannels(audioUrl) : undefined;
     const builder = new FfmpegCommandBuilder({
       width,
       height,
       fps,
       duration,
-      audio: this.videoSettings.audioUrl
+      unit: width / this.docWidth,
+      outputFilename: output,
+      audio: audioFile
         ? {
-            filename: 'audio.mp3',
-            volume: this.videoSettings.audioVolume,
+            filename: audioFile,
+            volume: this.videoSettings.audioVolume ?? 0.8,
             startTime: this.videoSettings.audioStartTime,
+            fadeOut: this.videoSettings.audioFadeOut,
+            channels,
           }
         : undefined,
     });
-
-    const buildRes = builder.build(layers);
-
+    const built = format === 'gif' ? builder.buildGif(layers) : builder.build(layers);
     return {
-      command: buildRes.command,
-      ffmpegCommand: buildRes.command,
+      name: this.name || 'video',
+      command: built.command,
+      ffmpegCommand: built.command,
       files,
       width,
       height,
       duration,
       fps,
+      output,
+      ...(audioUrl && audioFile ? { audioUrl, audioFile } : {}),
     };
   }
+
+  /** Um retângulo da página (coordenadas do documento) como PNG, com viewport identidade (como `renderPage`). */
+  private renderRegion(scale: number, r: { left: number; top: number; width: number; height: number }): string {
+    const vpt = this.canvas.viewportTransform;
+    this.canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+    this.isExporting = true;
+    try {
+      return this.canvas.toDataURL({ format: 'png', multiplier: scale, left: r.left, top: r.top, width: r.width, height: r.height });
+    } finally {
+      this.isExporting = false;
+      this.canvas.setViewportTransform(vpt);
+    }
+  }
+}
+
+export function defaultVideoSettings(): VideoSettings {
+  return { duration: 5, fps: 30, width: 1080, height: 1080 };
+}
+
+/** Extensão do arquivo de áudio pela URL (o FFmpeg detecta pelo conteúdo; a extensão só ajuda). */
+export function audioExtension(url: string): string {
+  const m = /\.([a-z0-9]{2,5})(?:[?#].*)?$/i.exec(url);
+  const ext = m?.[1]?.toLowerCase();
+  return ext && ['mp3', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wav', 'flac', 'webm', 'mp4', '3gp', 'amr'].includes(ext) ? ext : 'mp3';
 }
 
 /** Renderiza um documento numa miniatura, fora do editor (galeria de templates). */
@@ -825,6 +1660,46 @@ export async function renderThumbnail(input: unknown, maxSide: number): Promise<
   const url = sc.toDataURL({ format: 'jpeg', quality: 0.8, multiplier: 1 });
   await sc.dispose();
   return url;
+}
+
+/** Uma forma de tamanho-base `m` (sem posição). */
+function makeShape(kind: ShapeKind, fill: string, m: number): FabricObject {
+  let o: FabricObject;
+  switch (kind) {
+    case 'rect': o = new Rect({ width: m, height: m * 0.7, fill }); break;
+    case 'rounded': o = new Rect({ width: m, height: m * 0.7, rx: m * 0.12, ry: m * 0.12, fill }); break;
+    case 'pill': o = new Rect({ width: m, height: m * 0.4, rx: m * 0.2, ry: m * 0.2, fill }); break;
+    case 'circle': o = new Circle({ radius: m / 2, fill }); break;
+    case 'triangle': o = new Triangle({ width: m, height: m * 0.87, fill }); break;
+    case 'line': o = new Line([0, 0, m * 1.5, 0], { stroke: fill, strokeWidth: Math.max(4, m * 0.03), strokeLineCap: 'round' }); break;
+    case 'star': o = new Polygon(starPoints(5, m / 2, m / 4.4), { fill }); break;
+    case 'badge-hex': o = new Polygon(hexPoints(m / 2), { fill }); break;
+    case 'arrow': o = new Path(arrowPath(m * 1.4, m * 0.5), { fill }); break;
+  }
+  if (SWAP_KINDS.includes(kind)) o.set({ shapeKind: kind });
+  return o;
+}
+
+/** Hexágono com lados de cima e de baixo retos (selo). */
+function hexPoints(r: number): { x: number; y: number }[] {
+  return Array.from({ length: 6 }, (_, i) => ({ x: r * Math.cos((Math.PI / 3) * i), y: r * Math.sin((Math.PI / 3) * i) }));
+}
+
+/** Objetos cujo `fill` aceita degradê (formas e textos; não imagem, grupo, linha). */
+function canHoldGradient(o: FabricObject): boolean {
+  return !(o instanceof FabricImage || o instanceof Group || o instanceof Line);
+}
+
+/** Group de Paths de um conector, com os pontos deslocados por `at` (coordenadas da página). */
+export function buildConnector(spec: ConnectorSpec, at: { x: number; y: number }): Group {
+  const shifted: ConnectorSpec = { ...spec, x1: spec.x1 + at.x, y1: spec.y1 + at.y, x2: spec.x2 + at.x, y2: spec.y2 + at.y };
+  const geo = connectorGeometry(shifted);
+  const stroke = { stroke: spec.color, strokeWidth: spec.width, strokeLineCap: 'round' as const, strokeLineJoin: 'round' as const, fill: '' };
+  const line = new Path(geo.line, { ...stroke, strokeDashArray: dashArrayFor(spec.dash, spec.width) });
+  const caps = geo.caps.map((c) => new Path(c.d, c.filled ? { fill: spec.color, strokeWidth: 0 } : stroke));
+  const g = new Group([line, ...caps], { originX: 'center', originY: 'center' });
+  g.set({ connectorSpec: spec });
+  return g;
 }
 
 function starPoints(n: number, outer: number, inner: number): { x: number; y: number }[] {

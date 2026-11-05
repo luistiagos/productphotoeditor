@@ -34,10 +34,26 @@ function fmt(v: number): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
+/** Paleta rápida (conta-gotas, marca, cores do anúncio, recentes) que o `main` registra para todos os `colorInput`. */
+export interface ColorPaletteProvider {
+  open(current: string, apply: (hex: string) => void): void;
+  /** Uma cor escolhida no seletor nativo (vai para as recentes). */
+  used(hex: string): void;
+}
+let paletteProvider: ColorPaletteProvider | null = null;
+export function setColorPaletteProvider(p: ColorPaletteProvider | null): void { paletteProvider = p; }
+
 export function colorInput(label: string, value: string, onInput: (v: string) => void): HTMLElement {
   const input = h('input', { type: 'color', value: toHex(value) });
   input.addEventListener('input', () => onInput(input.value));
-  return h('label', { class: 'color' }, input, h('span', {}, label));
+  input.addEventListener('change', () => paletteProvider?.used(input.value));
+  const apply = (hex: string) => { input.value = hex; onInput(hex); };
+  // botão dentro do <label>: conteúdo interativo não repassa o toque ao <input> (não abre o seletor nativo)
+  const more = paletteProvider
+    ? h('button', { type: 'button', class: 'icon palette-btn', title: 'Conta-gotas e cores do anúncio',
+      onclick: (e: Event) => { e.preventDefault(); paletteProvider?.open(input.value, apply); } }, '🎨')
+    : null;
+  return h('label', { class: 'color' }, input, more, h('span', {}, label));
 }
 
 export function select(label: string, options: [string, string][], value: string, onChange: (v: string) => void): HTMLElement {

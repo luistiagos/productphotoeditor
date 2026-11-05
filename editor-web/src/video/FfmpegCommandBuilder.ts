@@ -1,5 +1,7 @@
 import type { LayerAnimation } from '../document';
+import { isConst, layerTimeline, toFfmpeg, type Expr } from './animation';
 
+/** Uma camada já rasterizada: PNG do tamanho da caixa (`width`×`height`), canto superior esquerdo em (x, y), px da saída. */
 export interface LayerRenderItem {
   id: string;
   filename: string;
@@ -8,6 +10,7 @@ export interface LayerRenderItem {
   width: number;
   height: number;
   opacity: number;
+  /** Ângulo da camada (já desenhado no PNG; só informativo). */
   rotation?: number;
   animation?: LayerAnimation;
   isBackground?: boolean;
@@ -17,6 +20,10 @@ export interface VideoAudioConfig {
   filename: string;
   volume?: number;
   startTime?: number;
+  /** Fade-out de 1 s no fim. */
+  fadeOut?: boolean;
+  /** Canais da trilha, se conhecidos (1 = mono). */
+  channels?: number;
 }
 
 export interface FfmpegVideoConfig {
@@ -26,6 +33,8 @@ export interface FfmpegVideoConfig {
   duration: number;
   audio?: VideoAudioConfig;
   outputFilename?: string;
+  /** px da saída por px do documento (amplitudes fixas de tremer/flutuar). Padrão 1. */
+  unit?: number;
 }
 
 export interface BuildResult {
@@ -35,157 +44,128 @@ export interface BuildResult {
   outputFilename: string;
 }
 
+const f2 = (n: number) => n.toFixed(2);
+
 /**
- * Construtor determinístico de comandos FFmpeg para animação e composição de vídeo.
- * Gera filtros matemáticos de translação, escala e rotação no tempo 't' para cada camada.
+ * Construtor determinístico de comandos FFmpeg para animação e composição de vídeo. A linha do tempo de cada camada
+ * (entrada, ênfase, saída) vem de `animation.ts`, a mesma do preview; aqui ela vira filtros:
+ * alfa → `fade` in/out (linear), giro → `pad` + `rotate`, escala → `scale` com `eval=frame`, posição → `overlay`
+ * centrado na caixa da camada.
  */
 export class FfmpegCommandBuilder {
   constructor(private readonly config: FfmpegVideoConfig) {}
 
+  /** MP4 (H.264 + AAC; sem música, faixa de silêncio para os players de redes sociais). */
   build(layers: LayerRenderItem[]): BuildResult {
-    const { width, height, fps, duration, audio } = this.config;
+    const { fps, duration, audio } = this.config;
     const outputFilename = this.config.outputFilename ?? 'output.mp4';
+    const { inputs, filterParts, last } = this.videoGraph(layers);
 
-    const inputs: string[] = [];
-    const filterParts: string[] = [];
-
-    // Input 0: Canvas base de cor preta com resolução e taxa de quadros definidas
-    inputs.push(`-f lavfi -i color=c=black:s=${width}x${height}:d=${duration}:r=${fps}`);
-
-    // Inputs das imagens das camadas (1..N)
-    layers.forEach((layer) => {
-      inputs.push(`-i ${layer.filename}`);
-    });
-
-    let currentStream = '0:v';
-
-    layers.forEach((layer, index) => {
-      const inputIndex = index + 1;
-      const rawStream = `${inputIndex}:v`;
-      const processedStream = `p${inputIndex}`;
-      const nextStream = `comp${inputIndex}`;
-
-      const anim = layer.animation?.fx ?? 'none';
-      const st = Math.max(0, layer.animation?.startTime ?? 0);
-      const animDur = Math.max(0.2, layer.animation?.duration ?? duration);
-      const speed = Math.max(0.1, layer.animation?.speed ?? 1.0);
-      const effectiveDur = animDur / speed;
-      const et = Math.min(duration, st + animDur);
-
-      const w = Math.round(layer.width);
-      const h = Math.round(layer.height);
-      const x = Math.round(layer.x);
-      const y = Math.round(layer.y);
-      const centerX = Math.round(x + w / 2);
-      const centerY = Math.round(y + h / 2);
-
-      const preFilters: string[] = [];
-
-      // 1. Escala base da camada
-      preFilters.push(`scale=${w}:${h}`);
-
-      // 2. Opacidade se não for 1.0
-      if (layer.opacity < 1.0) {
-        preFilters.push(`colorchannelmixer=aa=${layer.opacity.toFixed(2)}`);
-      }
-
-      // 3. Efeitos de pré-processamento (Fade, Zoom no input, Rotate)
-      if (anim === 'fade') {
-        const fadeDur = Math.min(1.0, effectiveDur / 2);
-        preFilters.push(`fade=t=in:st=${st.toFixed(2)}:d=${fadeDur.toFixed(2)}:alpha=1`);
-      } else if (anim === 'rotate') {
-        preFilters.push(`rotate='if(lte(t,${(st + effectiveDur).toFixed(2)}), 2*PI*(t-${st.toFixed(2)})/${effectiveDur.toFixed(2)}, 0)':c=none`);
-      }
-
-      filterParts.push(`[${rawStream}] ${preFilters.join(',')} [${processedStream}]`);
-
-      // 4. Expressões de posição X, Y e ativação no overlay
-      let exprX = `${x}`;
-      let exprY = `${y}`;
-
-      switch (anim) {
-        case 'slide_left': {
-          const slideDist = Math.min(width, Math.max(200, width - x));
-          exprX = `'if(lte(t, ${(st + effectiveDur).toFixed(2)}), ${x} + ${slideDist}*(1 - (t-${st.toFixed(2)})/${effectiveDur.toFixed(2)}), ${x})'`;
-          break;
-        }
-        case 'slide_right': {
-          const slideDist = Math.min(width, Math.max(200, x + w));
-          exprX = `'if(lte(t, ${(st + effectiveDur).toFixed(2)}), ${x} - ${slideDist}*(1 - (t-${st.toFixed(2)})/${effectiveDur.toFixed(2)}), ${x})'`;
-          break;
-        }
-        case 'slide_up': {
-          const slideDist = Math.min(height, Math.max(200, height - y));
-          exprY = `'if(lte(t, ${(st + effectiveDur).toFixed(2)}), ${y} + ${slideDist}*(1 - (t-${st.toFixed(2)})/${effectiveDur.toFixed(2)}), ${y})'`;
-          break;
-        }
-        case 'slide_down': {
-          const slideDist = Math.min(height, Math.max(200, y + h));
-          exprY = `'if(lte(t, ${(st + effectiveDur).toFixed(2)}), ${y} - ${slideDist}*(1 - (t-${st.toFixed(2)})/${effectiveDur.toFixed(2)}), ${y})'`;
-          break;
-        }
-        case 'shake': {
-          exprX = `'${x} + 12*sin(20*(t-${st.toFixed(2)}))*if(lte(t,${(st + 1.2).toFixed(2)}),1,0)'`;
-          break;
-        }
-        case 'float': {
-          exprY = `'${y} + 10*sin(2*PI*(t-${st.toFixed(2)})/2.5)'`;
-          break;
-        }
-        case 'ken_burns': {
-          // Zoom suave de 1.0 para 1.15 centrado na camada
-          const zoomRate = 0.15 / duration;
-          exprX = `'${centerX} - (w * (1 + ${zoomRate.toFixed(4)} * t)) / 2'`;
-          exprY = `'${centerY} - (h * (1 + ${zoomRate.toFixed(4)} * t)) / 2'`;
-          break;
-        }
-        default:
-          exprX = `${x}`;
-          exprY = `${y}`;
-          break;
-      }
-
-      const enableExpr = `:enable='between(t,${st.toFixed(2)},${et.toFixed(2)})'`;
-      filterParts.push(
-        `[${currentStream}][${processedStream}] overlay=x=${exprX}:y=${exprY}${enableExpr} [${nextStream}]`,
-      );
-
-      currentStream = nextStream;
-    });
-
-    // Mixagem de áudio
-    let audioStream = '';
+    let audioStream: string;
+    const audioIndex = layers.length + 1;
     if (audio?.filename) {
-      const audioIndex = layers.length + 1;
-      const audioStart = audio.startTime ?? 0;
-      inputs.push(`-stream_loop -1 -ss ${audioStart.toFixed(2)} -t ${duration} -i "${audio.filename}"`);
-      const vol = (audio.volume ?? 1.0).toFixed(2);
-      filterParts.push(`[${audioIndex}:a] volume=${vol} [a_out]`);
+      const audioStart = Math.max(0, audio.startTime ?? 0);
+      inputs.push(`-stream_loop -1 -ss ${f2(audioStart)} -t ${duration} -i "${audio.filename}"`);
+      const vol = Math.min(1, Math.max(0, audio.volume ?? 1.0));
+      const chain = [`volume=${f2(vol)}`];
+      if (audio.fadeOut) {
+        const fadeStart = Math.max(0, duration - 1);
+        chain.push(`afade=t=out:st=${f2(fadeStart)}:d=${f2(duration - fadeStart)}`);
+      }
+      // mono → estéreo a pleno nos dois lados, como o preview (o aformat sozinho põe −3 dB: √½ fixo do swresample)
+      if (audio.channels === 1) chain.push('pan=stereo|c0=c0|c1=c0');
+      chain.push('aformat=sample_rates=44100:channel_layouts=stereo');
+      filterParts.push(`[${audioIndex}:a] ${chain.join(',')} [a_out]`);
       audioStream = '-map "[a_out]" -c:a aac -b:a 192k';
     } else {
-      // Gera áudio silencioso compatível com MP4 para players e redes sociais
-      const silenceIndex = layers.length + 1;
       inputs.push(`-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100`);
-      filterParts.push(`[${silenceIndex}:a] atrim=0:${duration} [a_out]`);
+      filterParts.push(`[${audioIndex}:a] atrim=0:${duration} [a_out]`);
       audioStream = '-map "[a_out]" -c:a aac -b:a 128k';
     }
 
     const filterComplex = filterParts.join('; ');
-    const fullCommand = [
+    const command = [
       'ffmpeg -y',
       ...inputs,
       `-filter_complex "${filterComplex}"`,
-      `-map "[${currentStream}]"`,
+      `-map "[${last}]"`,
       audioStream,
       `-c:v libx264 -pix_fmt yuv420p -r ${fps} -t ${duration}`,
       `"${outputFilename}"`,
     ].join(' ');
+    return { command, inputs, filterComplex, outputFilename };
+  }
 
-    return {
-      command: fullCommand,
-      inputs,
-      filterComplex,
-      outputFilename,
-    };
+  /** GIF animado em loop (sem áudio), paleta própria do vídeo (`palettegen` + `paletteuse` com dither bayer). */
+  buildGif(layers: LayerRenderItem[]): BuildResult {
+    const { fps, duration } = this.config;
+    const outputFilename = this.config.outputFilename ?? 'output.gif';
+    const { inputs, filterParts, last } = this.videoGraph(layers);
+    filterParts.push(`[${last}] fps=${fps},split [g0][g1]`);
+    filterParts.push(`[g0] palettegen=max_colors=256:stats_mode=diff [pal]`);
+    filterParts.push(`[g1][pal] paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle [gif]`);
+    const filterComplex = filterParts.join('; ');
+    const command = [
+      'ffmpeg -y',
+      ...inputs,
+      `-filter_complex "${filterComplex}"`,
+      `-map "[gif]"`,
+      `-loop 0 -t ${duration}`,
+      `"${outputFilename}"`,
+    ].join(' ');
+    return { command, inputs, filterComplex, outputFilename };
+  }
+
+  private videoGraph(layers: LayerRenderItem[]): { inputs: string[]; filterParts: string[]; last: string } {
+    const { width, height, fps, duration } = this.config;
+    const unit = this.config.unit ?? 1;
+    const inputs: string[] = [`-f lavfi -i color=c=black:s=${width}x${height}:d=${duration}:r=${fps}`];
+    const filterParts: string[] = [];
+    let current = '0:v';
+
+    layers.forEach((layer, index) => {
+      const i = index + 1;
+      const tl = layerTimeline(layer.animation, { videoDuration: duration, pageWidth: width, pageHeight: height, unit });
+      const animated = Boolean(tl && (tl.alpha.length > 0 || !isConst(tl.scale) || !isConst(tl.angle)));
+      // imagem parada entra como 1 quadro (o overlay repete o último); animada precisa de um quadro por instante
+      inputs.push(animated ? `-loop 1 -framerate ${fps} -t ${duration} -i ${layer.filename}` : `-i ${layer.filename}`);
+
+      const w = Math.round(layer.width);
+      const h = Math.round(layer.height);
+      const pre: string[] = ['format=rgba'];
+      if (layer.opacity < 1) pre.push(`colorchannelmixer=aa=${f2(layer.opacity)}`);
+      if (tl) {
+        for (const r of tl.alpha) {
+          if (r.dur > 0) pre.push(`fade=t=${r.kind}:st=${f2(Math.max(0, r.start))}:d=${f2(r.dur)}:alpha=1`);
+        }
+        if (!isConst(tl.angle)) {
+          // a caixa cresce até a diagonal para o giro não cortar os cantos; o centro continua o mesmo
+          pre.push(`pad=w='ceil(hypot(iw,ih)/2)*2':h='ceil(hypot(iw,ih)/2)*2':x='(ow-iw)/2':y='(oh-ih)/2':color=black@0`);
+          pre.push(`rotate=a='${toFfmpeg(tl.angle)}*PI/180':c=none`);
+        }
+        if (!isConst(tl.scale)) {
+          const s = toFfmpeg(tl.scale);
+          pre.push(`scale=w='max(2,iw*${s})':h='max(2,ih*${s})':eval=frame`);
+        }
+      }
+      const p = `p${i}`;
+      filterParts.push(`[${i}:v] ${pre.join(',')} [${p}]`);
+
+      const next = `comp${i}`;
+      if (!tl) {
+        filterParts.push(`[${current}][${p}] overlay=x=${Math.round(layer.x)}:y=${Math.round(layer.y)} [${next}]`);
+      } else {
+        const cx = layer.x + w / 2;
+        const cy = layer.y + h / 2;
+        const pos = (c: number, d: Expr, size: string) => `'${toFfmpeg(d === 0 ? c : { op: '+', a: c, b: d })}-${size}/2'`;
+        const enable = `between(t,${f2(tl.visibleFrom)},${f2(tl.visibleTo)})`;
+        filterParts.push(
+          `[${current}][${p}] overlay=x=${pos(cx, tl.dx, 'overlay_w')}:y=${pos(cy, tl.dy, 'overlay_h')}:eval=frame:enable='${enable}' [${next}]`,
+        );
+      }
+      current = next;
+    });
+
+    return { inputs, filterParts, last: current };
   }
 }

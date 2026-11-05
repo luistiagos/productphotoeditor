@@ -1,0 +1,32 @@
+{
+ "tracks": [
+  {
+   "id": "upbeat",
+   "name": "Batida Comercial Upbeat",
+   "mood": "Varejo / Moda",
+   "file": "audio/upbeat.wav",
+   "duration": 8.0
+  },
+  {
+   "id": "eletronico",
+   "name": "Eletrônico Dinâmico",
+   "mood": "Tech / Oferta relâmpago",
+   "file": "audio/eletronico.wav",
+   "duration": 7.5
+  },
+  {
+   "id": "lofi",
+   "name": "Lo-Fi Elegante",
+   "mood": "Cosméticos / Joias / Decoração",
+   "file": "audio/lofi.wav",
+   "duration": 6.0
+  },
+  {
+   "id": "impacto",
+   "name": "Impacto Promocional",
+   "mood": "Varejo / Supermercado",
+   "file": "audio/impacto.wav",
+   "duration": 9.6
+  }
+ ]
+}

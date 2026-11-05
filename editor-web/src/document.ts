@@ -18,14 +18,32 @@ export type AnimationFx =
   | 'shake'
   | 'rotate'
   | 'float'
-  | 'ken_burns';
+  | 'ken_burns'
+  | 'pulse';
 
+export type EntranceFx = 'none' | 'fade' | 'zoom_in' | 'zoom_out' | 'slide_left' | 'slide_right' | 'slide_up' | 'slide_down';
+export type EmphasisFx = 'none' | 'pulse' | 'shake' | 'float' | 'rotate' | 'ken_burns';
+export type ExitFx = 'none' | 'fade_out' | 'zoom_out' | 'slide_out';
+export type EasingCurve = 'linear' | 'ease_out' | 'ease_in_out' | 'bounce';
+
+/**
+ * Animação da camada no vídeo. Formato antigo: só `fx` (entrada que dura `duration`, ou ênfase), camada até o fim do
+ * vídeo. Formato novo (TASK-04): qualquer um de `inFx`/`emphasisFx`/`outFx` presente → a camada fica na tela de
+ * `startTime` a `startTime + duration`, entra em `inDuration`, enfatiza no meio e sai nos últimos `outDuration`.
+ * `fx` continua preenchido (resumo) para leitores antigos. A conta está em `video/animation.ts`.
+ */
 export interface LayerAnimation {
   fx: AnimationFx;
   startTime: number;
   duration: number;
   speed?: number;
   fxOut?: 'none' | 'fade';
+  inFx?: EntranceFx;
+  inDuration?: number;
+  emphasisFx?: EmphasisFx;
+  outFx?: ExitFx;
+  outDuration?: number;
+  easing?: EasingCurve;
 }
 
 export interface VideoSettings {
@@ -34,8 +52,12 @@ export interface VideoSettings {
   width: number;
   height: number;
   audioUrl?: string;
+  /** Nome mostrado na UI (trilha empacotada ou arquivo do celular). */
+  audioName?: string;
   audioVolume?: number;
   audioStartTime?: number;
+  /** Fade-out de 1 s no fim do vídeo. */
+  audioFadeOut?: boolean;
 }
 
 export interface EditorDocument {
@@ -59,8 +81,18 @@ export const CUSTOM_PROPERTIES = [
   'brandSample',
   'layerName',
   'curve',
+  'warpStyle',
+  'warpBend',
+  'warpDistortH',
+  'warpDistortV',
   'filterPreset',
   'animation',
+  'locked',
+  // TASK-12: degradê do usuário, estilo do tracejado, tipo de forma (troca) e linha/seta paramétrica
+  'customGradient',
+  'strokeDashStyle',
+  'shapeKind',
+  'connectorSpec',
 ] as const;
 
 export const MAX_SIDE = 8000;

@@ -1,5 +1,6 @@
 import './styles.css';
-import { FabricImage, FabricObject, FabricText, Textbox } from 'fabric';
+import { ActiveSelection, FabricImage, FabricObject, FabricText, Group, Shadow, Textbox } from 'fabric';
+import type { WarpStyle } from './curve';
 import { type CopyResult, parseCopy, parseVariants, REWRITE_STYLES, type RewriteStyle, rewritePayload } from './aiText';
 import { Bridge, BridgeRequestError, injectedTransport, offlineTransport } from './bridge';
 import { applyBrandKit, type BrandKit, type ColorRole, parseBrandKit } from './brandkit';
@@ -7,11 +8,21 @@ import {
   contentUrl, type ContentIndex, knownFamilies, loadContentIndex, loadTemplate, registerBundledFonts, registerFont,
   type TemplateEntry,
 } from './content';
-import { parseDocument, type AnimationFx } from './document';
-import { button, colorInput, confirmSheet, h, openSheet, select, setBusy, slider, toast, toHex } from './dom';
-import { type Adjustments, Editor, type FilterPreset, renderThumbnail, type ShapeKind } from './editor';
+import { parseDocument, type EasingCurve, type EmphasisFx, type EntranceFx, type ExitFx, type LayerAnimation } from './document';
+import { EASING_OPTIONS, EMPHASIS_OPTIONS, ENTRANCE_OPTIONS, EXIT_OPTIONS, legacyFx } from './video/animation';
+import { button, colorInput, confirmSheet, h, openSheet, select, setBusy, setColorPaletteProvider, slider, toast, toHex } from './dom';
+import { averageColor, composite, contrastRatio, formatRatio, LOW_CONTRAST, parseColor, type Rgba, suggestReadableColor } from './contrast';
+import { pickColorFromCanvas } from './eyedropper';
+import { collectColors, type ColorSource, dominantColors, RecentColors } from './palette';
+import { type Adjustments, type CalloutKind, Editor, type FilterPreset, renderThumbnail, type ShapeKind, SWAP_KINDS } from './editor';
+import { addStop, brandGradient, evenStops, GRADIENT_PRESETS, gradientCss, type GradientSpec, MAX_STOPS, removeStop, reverseStops } from './gradients';
+import { CAP_OPTIONS, type CapStyle, type ConnectorShape, type ConnectorSpec, DASH_OPTIONS, type DashStyle, SHAPE_OPTIONS, swapEnds } from './connectors';
+import { LIST_OPTIONS, matchSnippet } from './textTools';
+import { isFreehandPath, keepAlpha, PEN_MAX, PEN_MIN, PEN_PRESETS, type PenId, penWidth, withAlpha } from './freehandDraw';
+import type { FitMode } from './imageGeometry';
 import { DESIGN_FORMATS, findFormat, formatSvg, GROUP_LABELS } from './formats';
-import type { BlobResult, ExportPayload, FontRef, SaveDraftPayload, TextBox } from './protocol';
+import type { OverlayGuideMode } from './overlays';
+import type { AudioRef, BlobResult, ExportPayload, FontRef, SaveDraftPayload, TextBox } from './protocol';
 
 // ---------- estado ----------
 
@@ -19,7 +30,7 @@ const transport = injectedTransport();
 const bridge = new Bridge(transport ?? offlineTransport(), 'js');
 const stage = document.getElementById('stage')!;
 const editor = new Editor(document.getElementById('c') as HTMLCanvasElement, stage);
-let content: ContentIndex = { version: 1, fonts: [], templates: [], stickers: [], backgrounds: [], scenes: [] };
+let content: ContentIndex = { version: 1, fonts: [], templates: [], stickers: [], backgrounds: [], scenes: [], audioTracks: [] };
 let brandKit: BrandKit = { profile: {}, colors: {}, fonts: {} };
 let draftId: string | undefined;
 let dirty = false;
@@ -111,6 +122,8 @@ async function run<T>(label: string, fn: (progress: (f: number | null, s: string
 editor.onChange = () => {
   dirty = true;
   updateTopbar();
+  refreshContrast();
+  refreshFreehandBar();
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => void saveDraft(), 4000);
 };
@@ -189,28 +202,43 @@ editor.onEditText = (t) => showEditText(t, true);
 
 function renderProps(o: FabricObject | undefined): void {
   if (maskImage) return renderMaskProps();
+  // o toque no canvas em modo desenho descarta a seleção: a barra do desenho fica até o "Concluir"
+  if (editor.isFreehandDrawing) return renderFreehandProps();
   if (!o) { props.replaceChildren(); props.classList.remove('show'); return; }
   const rows: Node[] = [];
+  const isSelection = o instanceof ActiveSelection;
   rows.push(h('div', { class: 'row scroll' },
+    isSelection ? button('🔗 Agrupar', () => { editor.groupActive(); renderProps(editor.active); }, 'primary group-btn') : null,
+    o instanceof Group && !isSelection
+      ? button('🔓 Desagrupar', () => { editor.ungroupActive(); renderProps(editor.active); }, 'ungroup-btn') : null,
     button('Duplicar', () => void editor.duplicate()),
     button('Excluir', () => editor.remove(), 'danger'),
     button('🎬 Animar', () => showAnimationSheet(o)),
+    button('✨ Sombra', () => showShadowSheet(o)),
     button('Frente', () => editor.order('front')),
     button('Avançar', () => editor.order('forward')),
     button('Recuar', () => editor.order('backward')),
     button('Fundo', () => editor.order('back')),
-    button(o.lockMovementX ? 'Destravar' : 'Travar', () => { editor.toggleLock(); renderProps(editor.active); }),
+    isSelection ? null : button('🔒 Travar', () => {
+      if (editor.toggleLock(o)) toast('Camada travada — destrave pelo painel Camadas');
+    }, 'lock-btn'),
     button('Espelhar ↔', () => editor.flip('x')),
     button('Espelhar ↕', () => editor.flip('y')),
     button('Centralizar', () => editor.centerActive()),
+    button('📐 Alinhar', () => showAlignSheet()),
+    button('📏 Posição / Tamanho', () => showPositionSheet(o), 'geometry-btn'),
   ));
   if (o instanceof FabricText) rows.push(...textProps(o));
   else if (o instanceof FabricImage) rows.push(...imageProps(o));
+  else if (editor.connectorOf(o)) rows.push(...connectorProps());
+  else if (isFreehandPath(o)) rows.push(...freehandProps(o));
   else {
+    const grad = editor.gradientOf(o);
     rows.push(h('div', { class: 'row scroll' },
-      colorInput('Preenchimento', String(o.fill ?? '#000000'), (v) => editor.set({ fill: v, brandColor: undefined })),
+      colorInput('Preenchimento', grad ? grad.stops[0].color : String(o.fill ?? '#000000'), (v) => editor.set({ fill: v, brandColor: undefined })),
       colorInput('Contorno', String(o.stroke ?? '#000000'), (v) => editor.set({ stroke: v, brandStroke: undefined })),
       slider('Espessura', 0, 40, 1, o.strokeWidth ?? 0, (v) => editor.set({ strokeWidth: v }))));
+    if (!(o instanceof Group)) rows.push(shapeStyleRow(o));
     const chips = brandColorChips((c, role) => {
       editor.set({ fill: c, brandColor: role });
       renderProps(editor.active);
@@ -220,6 +248,86 @@ function renderProps(o: FabricObject | undefined): void {
   rows.push(h('div', { class: 'row' }, slider('Opacidade', 0, 1, 0.05, o.opacity ?? 1, (v) => editor.set({ opacity: v }))));
   props.replaceChildren(...rows);
   props.classList.add('show');
+}
+
+/** Inspetor numérico: X/Y da caixa, largura/altura (com proporção) e ângulo; cada mudança vira uma entrada de undo. */
+function showPositionSheet(o: FabricObject): void {
+  const g0 = editor.geometryOf(o)!;
+  let keepRatio = true;
+  const field = (label: string, name: string, value: number) => {
+    const input = h('input', { type: 'number', step: '1', value: String(Math.round(value)), 'data-field': name, inputmode: 'decimal' });
+    return { input, el: h('label', { class: 'select' }, h('span', {}, label), input) };
+  };
+  const x = field('X (px)', 'x', g0.x);
+  const y = field('Y (px)', 'y', g0.y);
+  const w = field('Largura (px)', 'width', g0.width);
+  const ht = field('Altura (px)', 'height', g0.height);
+  const a = field('Ângulo (°)', 'angle', g0.angle);
+  const refresh = () => {
+    const g = editor.geometryOf(o)!;
+    x.input.value = String(Math.round(g.x));
+    y.input.value = String(Math.round(g.y));
+    w.input.value = String(Math.round(g.width));
+    ht.input.value = String(Math.round(g.height));
+    a.input.value = String(Math.round(g.angle));
+    const r = angleSlider.querySelector('input')!;
+    r.value = String(Math.round(g.angle));
+    angleSlider.querySelector('.val')!.textContent = r.value;
+  };
+  const apply = (patch: Parameters<Editor['setExactGeometry']>[0]) => { editor.setExactGeometry(patch, o); refresh(); };
+  const angleSlider = slider('Rotação', -180, 180, 1, Math.round(g0.angle), (v) => apply({ angle: v }));
+  const num = (el: HTMLInputElement) => (el.value.trim() === '' ? NaN : Number(el.value.replace(',', '.')));
+  const onNum = (el: HTMLInputElement, fn: (v: number) => void, positive = false) => el.addEventListener('change', () => {
+    const v = num(el);
+    if (!Number.isFinite(v) || (positive && v <= 0)) { refresh(); return; }
+    fn(v);
+  });
+  onNum(x.input, (v) => apply({ x: v }));
+  onNum(y.input, (v) => apply({ y: v }));
+  onNum(w.input, (v) => {
+    const g = editor.geometryOf(o)!;
+    apply(keepRatio && g.width > 0 ? { width: v, height: (v * g.height) / g.width } : { width: v });
+  }, true);
+  onNum(ht.input, (v) => {
+    const g = editor.geometryOf(o)!;
+    apply(keepRatio && g.height > 0 ? { height: v, width: (v * g.width) / g.height } : { height: v });
+  }, true);
+  onNum(a.input, (v) => apply({ angle: v }));
+  const ratio = h('input', { type: 'checkbox', checked: true, 'data-field': 'keepRatio' });
+  ratio.addEventListener('change', () => { keepRatio = ratio.checked; });
+  const chip = (d: number) => button((d > 0 ? '+' : '') + d + '°', () => apply({ angle: d }), 'chip angle-chip');
+  openSheet('Posição e tamanho', h('div', { class: 'list geometry' },
+    h('div', { class: 'row' }, x.el, y.el),
+    h('div', { class: 'row' }, w.el, ht.el),
+    h('label', { class: 'check' }, ratio, h('span', {}, '🔒 Manter proporção')),
+    h('div', { class: 'row' }, a.el),
+    angleSlider,
+    h('div', { class: 'chips' }, ...[0, -45, -15, 15, 45, 90].map(chip))));
+}
+
+function showAlignSheet(): void {
+  const isMultiple = editor.canvas.getActiveObject()?.type === 'activeSelection';
+  const targetDesc = isMultiple ? 'entre os objetos selecionados' : 'em relação à página';
+
+  const close = openSheet('Alinhamento e Distribuição', h('div', { class: 'list' },
+    h('p', { class: 'hint' }, `Alinhar ${targetDesc}:`),
+    h('div', { class: 'row' },
+      button('⬅ Esquerda', () => { editor.align('left'); }),
+      button('↔ Centro H', () => { editor.align('center-x'); }),
+      button('➡ Direita', () => { editor.align('right'); }),
+    ),
+    h('div', { class: 'row' },
+      button('⬆ Topo', () => { editor.align('top'); }),
+      button('↕ Centro V', () => { editor.align('center-y'); }),
+      button('⬇ Base', () => { editor.align('bottom'); }),
+    ),
+    h('h4', {}, 'Distribuir espaçamento:'),
+    h('div', { class: 'row' },
+      button('📏 Distribuir Horizontal', () => { editor.distribute('horizontal'); }),
+      button('📐 Distribuir Vertical', () => { editor.distribute('vertical'); }),
+    ),
+    button('Fechar', () => close(), 'primary')
+  ));
 }
 
 function brandColorChips(onPick: (color: string, role: ColorRole) => void): HTMLElement | null {
@@ -242,47 +350,192 @@ function brandColorChips(onPick: (color: string, role: ColorRole) => void): HTML
   );
 }
 
+// ---------- cores: paleta rápida, conta-gotas e contraste WCAG (TASK-03) ----------
+
+const recentColors = new RecentColors((() => { try { return window.localStorage; } catch { return null; } })());
+
+/** A maior imagem visível que não é o fundo: a foto do produto. */
+function mainProductImage(): FabricImage | undefined {
+  let best: FabricImage | undefined;
+  let area = 0;
+  for (const o of editor.canvas.getObjects()) {
+    if (!(o instanceof FabricImage) || !o.visible || o.get('layerName') === 'background') continue;
+    const r = o.getBoundingRect();
+    if (r.width * r.height > area) { area = r.width * r.height; best = o; }
+  }
+  return best;
+}
+
+/** Até 4 cores dominantes da imagem (grade 16×16); imagem de outra origem suja o canvas → nenhuma. */
+function imageColors(img: FabricImage): string[] {
+  try {
+    const c = document.createElement('canvas');
+    c.width = 16;
+    c.height = 16;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img.getElement() as CanvasImageSource, 0, 0, 16, 16);
+    return dominantColors(ctx.getImageData(0, 0, 16, 16).data, 16, 16, 4);
+  } catch {
+    return [];
+  }
+}
+
+/** "Cores neste anúncio": camadas + fundo + cores dominantes da foto do produto. */
+function documentColors(): string[] {
+  const out = collectColors(editor.canvas.getObjects() as unknown as ColorSource[], editor.canvas.backgroundColor);
+  const img = mainProductImage();
+  if (img) for (const c of imageColors(img)) if (!out.includes(c)) out.push(c);
+  return out;
+}
+
+function showColorPalette(current: string, apply: (hex: string) => void): void {
+  document.getElementById('palette')?.remove();
+  const pick = (hex: string) => { apply(hex); recentColors.add(hex); close(); };
+  const swatches = (colors: string[]) => h('div', { class: 'chips' }, ...colors.map((c) => h('button', {
+    type: 'button', class: 'swatch-chip', style: `background:${c}`, title: c, 'data-color': c, onclick: () => pick(c),
+  })));
+  const custom = h('input', { type: 'color', value: toHex(current) });
+  custom.addEventListener('change', () => pick(custom.value));
+  const brand = Object.values(brandKit.colors).filter((c): c is string => Boolean(c)).map((c) => toHex(c));
+  const docColors = documentColors();
+  const recent = recentColors.colors;
+  const root = h('div', { id: 'palette' },
+    h('div', { class: 'scrim', onclick: () => close() }),
+    h('div', { class: 'panel' },
+      h('div', { class: 'sheet-head' }, h('strong', {}, 'Cor'), button('✕', () => close(), 'icon')),
+      h('div', { class: 'row' },
+        button('💧 Conta-gotas', () => void eyedrop(), 'primary eyedropper-btn'),
+        h('label', { class: 'color' }, custom, h('span', {}, 'Outra cor…'))),
+      ...(brand.length ? [h('h4', {}, 'Cores da marca'), swatches([...new Set(brand)])] : []),
+      h('h4', {}, 'Cores neste anúncio'),
+      docColors.length ? swatches(docColors) : h('p', { class: 'hint' }, 'Nenhuma cor ainda.'),
+      ...(recent.length ? [h('h4', {}, 'Recentes'), h('div', { class: 'recent' }, swatches(recent))] : [])));
+  const close = () => root.remove();
+  const eyedrop = async () => {
+    root.hidden = true;
+    const hex = await pickColorFromCanvas(editor, toast);
+    if (hex) { pick(hex); toast(`Cor ${hex} aplicada`); } else root.hidden = false;
+  };
+  document.body.append(root);
+}
+setColorPaletteProvider({ open: showColorPalette, used: (hex) => recentColors.add(hex) });
+
+/**
+ * Contraste do texto contra o que está atrás dele: o fundo marca-texto, ou a média de 9 pontos (3×3) da página renderizada
+ * sem o próprio texto. Contorno (≥ 2 px) e sombra forte (alfa ≥ 0,6) contam como proteção de leitura.
+ */
+function textContrast(t: FabricText): { ratio: number; background: Rgba } | null {
+  const fg = parseColor(t.fill);
+  if (!fg) return null; // degradê/padrão: fora do verificador
+  const box = parseColor(t.textBackgroundColor);
+  let behind: Rgba | null = null;
+  if (!box || box.a < 1) {
+    try {
+      const { canvas, scale } = editor.renderPageCanvas(512, (o) => o !== t);
+      const ctx = canvas.getContext('2d')!;
+      const r = t.getBoundingRect();
+      const pts: Rgba[] = [];
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+        const x = Math.min(canvas.width - 1, Math.max(0, Math.floor((r.left + (r.width * (2 * i + 1)) / 6) * scale)));
+        const y = Math.min(canvas.height - 1, Math.max(0, Math.floor((r.top + (r.height * (2 * j + 1)) / 6) * scale)));
+        const d = ctx.getImageData(x, y, 1, 1).data;
+        pts.push({ r: d[0], g: d[1], b: d[2], a: d[3] / 255 });
+      }
+      behind = averageColor(pts);
+    } catch {
+      behind = null;
+    }
+  }
+  const bg = box ? (box.a < 1 && behind ? composite(box, behind) : box) : behind;
+  if (!bg) return null;
+  let ratio = contrastRatio(fg.a < 1 ? composite(fg, bg) : fg, bg);
+  const stroke = parseColor(t.stroke);
+  if (stroke && (t.strokeWidth ?? 0) >= 2) ratio = Math.max(ratio, contrastRatio(composite(stroke, bg), bg));
+  const shadow = t.shadow instanceof Shadow ? parseColor(t.shadow.color) : null;
+  if (shadow && shadow.a >= 0.6) ratio = Math.max(ratio, contrastRatio(composite(shadow, bg), bg));
+  return { ratio, background: bg };
+}
+
+let contrastSlot: { el: HTMLElement; t: FabricText } | null = null;
+
+function contrastRow(t: FabricText): HTMLElement {
+  const el = h('div', { class: 'row contrast-slot', hidden: true });
+  contrastSlot = { el, t };
+  refreshContrast(true);
+  return el;
+}
+
+/** Atualiza o aviso de contraste do texto selecionado (a cor pelo seletor nativo não refaz o painel). */
+function refreshContrast(building = false): void {
+  const s = contrastSlot;
+  if (!s || (!building && (!s.el.isConnected || editor.active !== s.t))) return;
+  const info = textContrast(s.t);
+  s.el.dataset.ratio = info ? info.ratio.toFixed(2) : '';
+  if (!info || info.ratio >= LOW_CONTRAST) { s.el.hidden = true; s.el.replaceChildren(); return; }
+  s.el.hidden = false;
+  s.el.replaceChildren(
+    h('span', { class: 'contrast-warn' }, `⚠️ Baixo contraste (${formatRatio(info.ratio)})`),
+    button('Corrigir', () => fixContrast(s.t, info.background), 'chip primary contrast-fix'));
+}
+
+function fixContrast(t: FabricText, background: Rgba): void {
+  const brand = Object.entries(brandKit.colors).filter(([, c]) => Boolean(c)).map(([role, c]) => ({ color: c!, role }));
+  const s = suggestReadableColor(background, brand);
+  editor.set({ fill: s.color, brandColor: s.role });
+  recentColors.add(s.color);
+  renderProps(t);
+  toast(`Contraste corrigido: ${formatRatio(s.ratio)}`);
+}
+
 function showAnimationSheet(o: FabricObject): void {
   const current = editor.getAnimation(o);
-  let fx: AnimationFx = current?.fx ?? 'none';
-  let startTime = current?.startTime ?? 0;
-  let duration = current?.duration ?? 3;
-
-  const animOptions: [string, string][] = [
-    ['none', 'Nenhuma'],
-    ['ken_burns', '🔍 Ken Burns (Zoom Produto)'],
-    ['fade', '✨ Fade (Surgir)'],
-    ['slide_left', '⬅️ Deslizar da Direita'],
-    ['slide_right', '➡️ Deslizar da Esquerda'],
-    ['slide_up', '⬆️ Deslizar de Baixo'],
-    ['slide_down', '⬇️ Deslizar de Cima'],
-    ['zoom_in', '🔎 Zoom In (Crescer)'],
-    ['zoom_out', '🔍 Zoom Out (Diminuir)'],
-    ['shake', '⚡ Shake (Chamar Atenção)'],
-    ['float', '🎈 Flutuar'],
-    ['rotate', '🔄 Girar'],
-  ];
+  const total = editor.videoSettings.duration;
+  // formato antigo (só `fx`) entra no novo: entrada ou ênfase, com a duração antiga como duração da entrada
+  const isNew = Boolean(current && (current.inFx !== undefined || current.emphasisFx !== undefined || current.outFx !== undefined));
+  const legacy = current?.fx ?? 'none';
+  let inFx: EntranceFx = isNew ? current!.inFx ?? 'none' : (ENTRANCE_OPTIONS.some(([v]) => v === legacy) ? legacy as EntranceFx : 'none');
+  let emphasisFx: EmphasisFx = isNew ? current!.emphasisFx ?? 'none' : (EMPHASIS_OPTIONS.some(([v]) => v === legacy) ? legacy as EmphasisFx : 'none');
+  let outFx: ExitFx = isNew ? current!.outFx ?? 'none' : current?.fxOut === 'fade' ? 'fade_out' : 'none';
+  let easing: EasingCurve = current?.easing ?? 'ease_out';
+  let startTime = Math.min(current?.startTime ?? 0, Math.max(0, total - 0.5));
+  let inDuration = isNew ? current!.inDuration ?? 0.8 : Math.min(3, current?.duration ?? 0.8);
+  let outDuration = current?.outDuration ?? 0.8;
+  let onScreen = isNew ? Math.min(current!.duration, total - startTime) : total - startTime;
 
   const update = () => {
-    if (fx === 'none') {
+    if (inFx === 'none' && emphasisFx === 'none' && outFx === 'none') {
       editor.setAnimation(undefined, o);
-    } else {
-      editor.setAnimation({ fx, startTime, duration }, o);
+      return;
     }
+    const anim: LayerAnimation = {
+      fx: legacyFx({ inFx, emphasisFx }), startTime, duration: Math.max(0.5, Math.min(onScreen, total - startTime)),
+      inFx, inDuration, emphasisFx, outFx, outDuration, easing,
+    };
+    editor.setAnimation(anim, o);
   };
+  const tag = (el: HTMLElement, name: string) => { el.dataset.anim = name; return el; };
 
-  const close = openSheet('Animação da Camada', h('div', {},
-    h('p', { class: 'hint' }, 'Escolha o movimento desta camada no vídeo promocional:'),
-    select('Efeito', animOptions, fx, (v) => { fx = v as AnimationFx; update(); }),
-    slider('Início (s)', 0, Math.max(0, editor.videoSettings.duration - 0.5), 0.5, startTime, (v) => { startTime = v; update(); }),
-    slider('Duração (s)', 0.5, editor.videoSettings.duration, 0.5, duration, (v) => { duration = v; update(); }),
+  const close = openSheet('🎬 Animação da Camada', h('div', { class: 'anim-sheet' },
+    h('p', { class: 'hint' }, 'Combine como a camada entra, o que ela faz na tela e como sai do vídeo.'),
+    h('h4', {}, '1. Entrada — como a camada surge'),
+    tag(select('Entrada', ENTRANCE_OPTIONS, inFx, (v) => { inFx = v as EntranceFx; update(); }), 'in'),
+    tag(slider('Duração da entrada (s)', 0.2, 3, 0.1, inDuration, (v) => { inDuration = v; update(); }), 'inDuration'),
+    h('h4', {}, '2. Ênfase — enquanto está na tela'),
+    tag(select('Ênfase', EMPHASIS_OPTIONS, emphasisFx, (v) => { emphasisFx = v as EmphasisFx; update(); }), 'emphasis'),
+    h('h4', {}, '3. Saída — como a camada sai'),
+    tag(select('Saída', EXIT_OPTIONS, outFx, (v) => { outFx = v as ExitFx; update(); }), 'out'),
+    tag(slider('Duração da saída (s)', 0.2, 3, 0.1, outDuration, (v) => { outDuration = v; update(); }), 'outDuration'),
+    h('h4', {}, 'Tempo'),
+    tag(select('Curva (easing)', EASING_OPTIONS, easing, (v) => { easing = v as EasingCurve; update(); }), 'easing'),
+    tag(slider('Aparece em (s)', 0, Math.max(0, total - 0.5), 0.1, startTime, (v) => { startTime = v; update(); }), 'start'),
+    tag(slider('Tempo na tela (s)', 0.5, total, 0.1, onScreen, (v) => { onScreen = v; update(); }), 'onScreen'),
     h('div', { class: 'row' },
-      button('Testar Animação', () => {
+      button('▶ Testar animação', () => {
         editor.videoPreview.stop();
-        editor.videoPreview.seek(startTime);
+        editor.videoPreview.seek(Math.max(0, startTime - 0.2));
         editor.videoPreview.play();
       }, 'primary'),
-      button('Concluir', () => close()),
+      button('Concluir', () => { editor.videoPreview.stop(); close(); }),
     ),
   ));
 }
@@ -294,6 +547,12 @@ function textProps(t: FabricText): Node[] {
     editor.set({ fill: c, brandColor: role });
     renderProps(t);
   });
+  const bgChips = brandColorChips((c) => {
+    editor.set({ textBackgroundColor: c });
+    renderProps(t);
+  });
+  const currentWarpStyle = (t.get('warpStyle') as WarpStyle | undefined) ?? (t.get('curve') ? 'arc' : 'none');
+
   return [
     h('div', { class: 'row scroll' },
       button('✏️ Editar texto', () => showEditText(t, false), 'primary'),
@@ -301,12 +560,31 @@ function textProps(t: FabricText): Node[] {
       colorInput('Cor', String(t.fill), (v) => editor.set({ fill: v, brandColor: undefined })),
       button('N', () => editor.set({ fontWeight: Number(t.fontWeight) >= 600 || t.fontWeight === 'bold' ? 400 : 700 }), 'icon b'),
       button('I', () => editor.set({ fontStyle: t.fontStyle === 'italic' ? 'normal' : 'italic' }), 'icon i'),
+      button('S̶', () => { editor.set({ linethrough: !t.linethrough }); renderProps(t); }, t.linethrough ? 'icon b primary' : 'icon b'),
+      button('S̲', () => { editor.set({ underline: !t.underline }); renderProps(t); }, t.underline ? 'icon b primary' : 'icon b'),
+      button('Aa', () => { editor.cycleTextCase(t); renderProps(t); }, 'icon b'),
+      button('☰ Lista', () => showListSheet(t), 'list-btn'),
       button('Alinhar', () => {
         const order = ['left', 'center', 'right', 'justify'];
         editor.set({ textAlign: order[(order.indexOf(t.textAlign) + 1) % order.length] });
       }),
-      button(t.shadow ? 'Sem sombra' : 'Sombra', () => { editor.setShadow(!t.shadow); renderProps(t); })),
+      button('✨ Sombra / Brilho', () => showShadowSheet(t)),
+      button('🌈 Degradê', () => showGradientSheet(t), 'gradient-btn'),
+    ),
+    contrastRow(t),
     ...(chips ? [chips] : []),
+    h('div', { class: 'row scroll' },
+      colorInput('Fundo Marca-Texto', String(t.textBackgroundColor || '#fff176'), (v) => {
+        editor.set({ textBackgroundColor: v });
+        renderProps(t);
+      }),
+      button(t.textBackgroundColor ? '✕ Sem fundo' : 'Fundo', () => {
+        editor.set({ textBackgroundColor: t.textBackgroundColor ? '' : '#fff176' });
+        renderProps(t);
+      }),
+      t instanceof Textbox ? button(`🌊 Deformar (${currentWarpStyle === 'none' ? 'Reto' : currentWarpStyle})`, () => showWarpSheet(t)) : null,
+    ),
+    ...(bgChips ? [h('div', { class: 'row scroll' }, h('span', { class: 'hint', style: 'font-size: 12px; margin-right: 4px;' }, 'Fundo Marca:'), bgChips)] : []),
     h('div', { class: 'row scroll' },
       slider('Tamanho', 8, Math.round(m * 0.4), 1, Math.round(t.fontSize), (v) => editor.set({ fontSize: v })),
       slider('Espaçamento', -100, 800, 10, t.charSpacing ?? 0, (v) => editor.set({ charSpacing: v })),
@@ -314,9 +592,123 @@ function textProps(t: FabricText): Node[] {
     h('div', { class: 'row scroll' },
       colorInput('Contorno', String(t.stroke ?? '#000000'), (v) => editor.set({ stroke: v, paintFirst: 'stroke' })),
       slider('Espessura', 0, Math.round(m * 0.02), 1, t.strokeWidth ?? 0, (v) => editor.set({ strokeWidth: v, paintFirst: 'stroke' })),
-      t instanceof Textbox ? slider('Curva', -100, 100, 1, Number(t.get('curve') ?? 0), (v) => editor.setCurve(v)) : null),
+      t instanceof Textbox ? slider('Curva', -100, 100, 1, Number(t.get('warpBend') ?? t.get('curve') ?? 0), (v) => editor.setCurve(v)) : null),
     h('div', { class: 'row scroll ai' }, button('✨ Reescrever', () => showRewrite(t))),
   ];
+}
+
+function showShadowSheet(o: FabricObject): void {
+  const current = o.shadow instanceof Shadow ? o.shadow : null;
+  let color = current?.color ?? 'rgba(0,0,0,0.45)';
+  let blur = current?.blur ?? 16;
+  let offsetX = current?.offsetX ?? 0;
+  let offsetY = current?.offsetY ?? 8;
+
+  let hexColor = '#000000';
+  let opacity = 45;
+  if (color.startsWith('#')) {
+    hexColor = color;
+    opacity = 100;
+  } else {
+    const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (match) {
+      const r = Number(match[1]).toString(16).padStart(2, '0');
+      const g = Number(match[2]).toString(16).padStart(2, '0');
+      const b = Number(match[3]).toString(16).padStart(2, '0');
+      hexColor = `#${r}${g}${b}`;
+      opacity = match[4] !== undefined ? Math.round(Number(match[4]) * 100) : 100;
+    }
+  }
+
+  const apply = () => {
+    const r = parseInt(hexColor.slice(1, 3), 16) || 0;
+    const g = parseInt(hexColor.slice(3, 5), 16) || 0;
+    const b = parseInt(hexColor.slice(5, 7), 16) || 0;
+    const rgba = `rgba(${r},${g},${b},${(opacity / 100).toFixed(2)})`;
+    editor.setShadow({ color: rgba, blur, offsetX, offsetY });
+  };
+
+  const close = openSheet('Sombra e Brilho (Glow)', h('div', { class: 'list' },
+    h('p', { class: 'hint' }, 'Presets rápidos de sombra e iluminação:'),
+    h('div', { class: 'row scroll' },
+      button('🚫 Nenhuma', () => { editor.setShadow(null); close(); renderProps(o); }),
+      button('☁️ Suave (Drop)', () => {
+        hexColor = '#000000'; opacity = 35; blur = 16; offsetX = 0; offsetY = 8;
+        apply();
+      }),
+      button('⬛ Dura / Retrô', () => {
+        hexColor = '#000000'; opacity = 100; blur = 0; offsetX = 6; offsetY = 6;
+        apply();
+      }),
+      button('⚡ Neon (Glow)', () => {
+        hexColor = brandKit.colors.accent ?? '#ffeb3b'; opacity = 90; blur = 25; offsetX = 0; offsetY = 0;
+        apply();
+      }),
+      button('🪐 Flutuante', () => {
+        hexColor = '#000000'; opacity = 55; blur = 32; offsetX = 0; offsetY = 18;
+        apply();
+      }),
+    ),
+    h('h4', {}, 'Ajustes Manuais:'),
+    h('div', { class: 'row' },
+      colorInput('Cor', hexColor, (v) => { hexColor = v; apply(); }),
+      slider('Opacidade %', 0, 100, 5, opacity, (v) => { opacity = v; apply(); }),
+    ),
+    slider('Desfoque (Blur)', 0, 100, 1, blur, (v) => { blur = v; apply(); }),
+    slider('Deslocamento X', -50, 50, 1, offsetX, (v) => { offsetX = v; apply(); }),
+    slider('Deslocamento Y', -50, 50, 1, offsetY, (v) => { offsetY = v; apply(); }),
+    button('Concluir', () => { close(); renderProps(o); }, 'primary'),
+  ));
+}
+
+function showWarpSheet(t: Textbox): void {
+  let style = (t.get('warpStyle') as WarpStyle | undefined) ?? (t.get('curve') ? 'arc' : 'none');
+  let bend = Number(t.get('warpBend') ?? t.get('curve') ?? 50);
+  let distortH = Number(t.get('warpDistortH') ?? 0);
+  let distortV = Number(t.get('warpDistortV') ?? 0);
+
+  const warpOptions: [WarpStyle, string][] = [
+    ['none', 'Reto (Sem Deformação)'],
+    ['arc', 'Arco Circular (Caminho)'],
+    ['wave', 'Onda Senoidal (Caminho)'],
+    ['flag', 'Bandeira Promocional (Caminho)'],
+    ['rise', 'Subida Diagonal S (Caminho)'],
+    ['arc-upper', 'Arco Superior (Toldo/Ponte)'],
+    ['arc-lower', 'Arco Inferior'],
+    ['bulge', 'Estufado / Barril (Bulge)'],
+    ['squeeze', 'Espremido / Ampulheta (Squeeze)'],
+    ['shell-upper', 'Concha Superior (Leque Cima)'],
+    ['shell-lower', 'Concha Inferior (Leque Baixo)'],
+    ['fish', 'Perfil de Peixe (Fish)'],
+    ['fisheye', 'Olho de Peixe (Radial)'],
+    ['inflate', 'Inflar 3D'],
+    ['twist', 'Torção Angular (Twist)'],
+  ];
+
+  const update = () => {
+    editor.setWarp(style, bend, distortH, distortV);
+  };
+
+  const close = openSheet('Curvar e Deformar Texto (14 Estilos)', h('div', { class: 'list' },
+    h('p', { class: 'hint' }, 'Escolha o estilo de deformação para faixas promocionais e títulos de impacto:'),
+    select('Estilo', warpOptions, style, (v) => {
+      style = v as WarpStyle;
+      update();
+    }),
+    h('div', { class: 'row scroll' },
+      button('Reto', () => { style = 'none'; update(); }),
+      button('Arco', () => { style = 'arc'; update(); }),
+      button('Onda', () => { style = 'wave'; update(); }),
+      button('Subida S', () => { style = 'rise'; update(); }),
+      button('Estufado', () => { style = 'bulge'; update(); }),
+      button('Peixe', () => { style = 'fish'; update(); }),
+      button('Inflar', () => { style = 'inflate'; update(); }),
+    ),
+    slider('Curvatura / Intensidade', -100, 100, 1, bend, (v) => { bend = v; update(); }),
+    slider('Perspectiva H', -100, 100, 5, distortH, (v) => { distortH = v; update(); }),
+    slider('Perspectiva V', -100, 100, 5, distortV, (v) => { distortV = v; update(); }),
+    button('Concluir', () => { close(); renderProps(t); }, 'primary'),
+  ));
 }
 
 // ---------- texto com IA (§18.5) ----------
@@ -324,6 +716,7 @@ function textProps(t: FabricText): Node[] {
 function setText(t: FabricText, text: string): void {
   t.set({ text });
   editor.refitCurve(t);
+  editor.refreshGradient(t);
   t.setCoords();
   editor.canvas.requestRenderAll();
   editor.commit();
@@ -353,6 +746,137 @@ function showEditText(t: FabricText, onRelease: boolean): void {
   };
   document.addEventListener('pointerup', released);
   document.addEventListener('touchend', released);
+}
+
+// ---------- listas e localizar/substituir (TASK-14) ----------
+
+/** "☰ Lista": cada linha vira um item; o estilo ativo fica destacado e tocá-lo de novo tira os marcadores. */
+function showListSheet(t: FabricText): void {
+  const body = h('div', { class: 'list-sheet' });
+  const render = () => {
+    const current = editor.listStyleOf(t) ?? 'none';
+    body.dataset.style = current;
+    body.replaceChildren(
+      h('p', { class: 'hint' }, 'Cada linha do texto vira um item. Toque no estilo ativo para tirar os marcadores.'),
+      h('div', { class: 'chips' }, ...LIST_OPTIONS.map(([style, label]) => h('button', {
+        type: 'button', class: 'list-style' + (current === style ? ' primary' : ''), 'data-style': style,
+        onclick: () => { editor.applyListStyle(style, t); render(); },
+      }, label))));
+  };
+  render();
+  openSheet('☰ Lista', body);
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Localizar em todas as camadas de texto (inclusive em grupos) e trocar em uma ou em todas, com um só undo. */
+function showFindReplace(): void {
+  const findInput = h('input', { type: 'text', class: 'name find-input', placeholder: 'Ex.: R$ 199,90', enterkeyhint: 'next' });
+  const replaceInput = h('input', { type: 'text', class: 'name replace-input', placeholder: 'Ex.: R$ 149,90', enterkeyhint: 'done' });
+  const matchCase = h('input', { type: 'checkbox', class: 'match-case' });
+  const counter = h('p', { class: 'hint find-count' });
+  const results = h('div', { class: 'list find-results' });
+  const replaceAll = h('button', { type: 'button', class: 'primary replace-all', onclick: () => apply() }, 'Substituir tudo');
+  const refresh = () => {
+    const find = findInput.value;
+    const hits = find ? editor.findTextMatches(find, matchCase.checked) : [];
+    const total = hits.reduce((s, m) => s + m.count, 0);
+    counter.dataset.matches = String(total);
+    counter.dataset.layers = String(hits.length);
+    counter.textContent = !find ? 'Digite o que procurar no anúncio'
+      : total ? `${plural(total, 'ocorrência', 'ocorrências')} em ${plural(hits.length, 'camada', 'camadas')}` : 'Nada encontrado';
+    replaceAll.disabled = total === 0;
+    results.replaceChildren(...hits.map(({ layer, count }) => h('div', { class: 'layer find-hit' },
+      h('span', { class: 'grow' }, `${matchSnippet(layer.text, find, matchCase.checked)} ×${count}`),
+      button('Trocar', () => apply([layer]), 'replace-one'))));
+  };
+  const apply = (only?: FabricText[]) => {
+    const r = editor.findAndReplaceAll(findInput.value, replaceInput.value, matchCase.checked, only);
+    if (r.layers) toast(`${plural(r.matches, 'troca', 'trocas')} em ${plural(r.layers, 'camada', 'camadas')} — ↶ desfaz tudo`);
+    if (r.skipped) toast(`${plural(r.skipped, 'camada ficaria vazia e não foi alterada', 'camadas ficariam vazias e não foram alteradas')}`);
+    refresh();
+    renderProps(editor.active);
+  };
+  findInput.addEventListener('input', refresh);
+  matchCase.addEventListener('change', refresh);
+  replaceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !replaceAll.disabled) apply(); });
+  const close = openSheet('🔍 Localizar e substituir', h('div', { class: 'find-replace' },
+    h('label', { class: 'field' }, h('span', {}, 'Localizar'), findInput),
+    h('label', { class: 'field' }, h('span', {}, 'Substituir por'), replaceInput),
+    h('label', { class: 'check' }, matchCase, h('span', {}, 'Diferenciar maiúsculas e minúsculas')),
+    counter,
+    results,
+    h('div', { class: 'row' }, button('Fechar', () => close()), replaceAll)), { tall: true });
+  refresh();
+  findInput.focus();
+}
+
+// ---------- desenho à mão livre (TASK-14) ----------
+
+/** Caneta atual (lembrada entre sessões de desenho): preset de origem, cor (pode ter alfa) e espessura relativa. */
+let pen: { id: PenId; color: string; size: number } = { id: PEN_PRESETS[0].id, color: PEN_PRESETS[0].color, size: PEN_PRESETS[0].size };
+let undoStrokeBtn: HTMLButtonElement | null = null;
+
+const pageMin = (): number => Math.min(editor.width, editor.height);
+
+function startFreehand(): void {
+  if (maskImage) { toast('Conclua o pincel do "Remover objeto" antes'); return; }
+  editor.startFreehandDraw(pen.color, penWidth(pen.size, pageMin()));
+  renderFreehandProps();
+  toast('Desenhe com o dedo · Concluir para mover os traços');
+}
+
+function renderFreehandProps(): void {
+  const m = pageMin();
+  const choose = (id: PenId) => {
+    const p = PEN_PRESETS.find((x) => x.id === id)!;
+    pen = { id: p.id, color: p.color, size: p.size };
+    editor.updateFreehandBrush({ color: p.color, width: penWidth(p.size, m) });
+    renderFreehandProps();
+  };
+  undoStrokeBtn = button('↶ Desfazer traço', () => { if (editor.undoFreehandStroke()) refreshFreehandBar(); }, 'undo-stroke');
+  props.replaceChildren(
+    h('div', { class: 'row scroll pens' }, ...PEN_PRESETS.map((p) => h('button', {
+      type: 'button', class: 'pen' + (pen.id === p.id ? ' primary' : ''), 'data-pen': p.id, onclick: () => choose(p.id),
+    }, p.label))),
+    h('div', { class: 'row scroll' },
+      // o <input type=color> só entende #rrggbb (rgba viraria preto): mostra a cor opaca, o alfa volta no keepAlpha
+      colorInput('Cor', withAlpha(pen.color, 1), (v) => { pen.color = keepAlpha(pen.color, v); editor.updateFreehandBrush({ color: pen.color }); }),
+      slider('Espessura', penWidth(PEN_MIN, m), penWidth(PEN_MAX, m), 1, penWidth(pen.size, m), (v) => {
+        pen.size = v / m;
+        editor.updateFreehandBrush({ width: v });
+      })),
+    h('div', { class: 'row' }, undoStrokeBtn, button('Concluir', () => finishFreehand(), 'primary finish-draw')));
+  props.classList.add('show');
+  refreshFreehandBar();
+}
+
+/** Contador do "Desfazer traço" (cada traço novo, desfeito ou um ↶ da barra muda a conta). */
+function refreshFreehandBar(): void {
+  if (!undoStrokeBtn || !editor.isFreehandDrawing) return;
+  const n = editor.freehandStrokes().length;
+  undoStrokeBtn.textContent = n ? `↶ Desfazer traço (${n})` : '↶ Desfazer traço';
+  undoStrokeBtn.disabled = n === 0;
+  undoStrokeBtn.dataset.count = String(n);
+}
+editor.canvas.on('path:created', () => refreshFreehandBar());
+
+function finishFreehand(): void {
+  const strokes = editor.endFreehandDraw(true); // seleciona os traços → onSelection → renderProps
+  undoStrokeBtn = null;
+  if (!strokes.length) { renderProps(editor.active); return; }
+  toast(strokes.length > 1 ? `${strokes.length} traços selecionados — 🔗 Agrupar junta tudo` : 'Traço pronto: mova ou redimensione');
+}
+
+/** Traço selecionado: cor (o alfa do marca-texto é mantido) e espessura. */
+function freehandProps(o: FabricObject): Node[] {
+  const m = pageMin();
+  return [h('div', { class: 'row scroll freehand-props' },
+    colorInput('Cor do traço', withAlpha(String(o.stroke ?? '#000000'), 1), (v) => editor.set({ stroke: keepAlpha(o.stroke, v) })),
+    slider('Espessura', 1, penWidth(PEN_MAX, m), 1, Math.round(o.strokeWidth ?? 1), (v) => editor.set({ strokeWidth: v })),
+    button('✍️ Desenhar mais', () => startFreehand(), 'draw-more'))];
 }
 
 async function requestRewrite(t: FabricText, style: RewriteStyle): Promise<string[] | undefined> {
@@ -426,9 +950,27 @@ function insertCopy(c: CopyResult): void {
 const FILTERS: [FilterPreset, string][] = [['none', 'Nenhum'], ['grayscale', 'P&B'], ['sepia', 'Sépia'], ['vintage', 'Vintage'],
   ['polaroid', 'Polaroid'], ['kodachrome', 'Kodachrome'], ['invert', 'Inverter']];
 
+function showSwapImage(img: FabricImage): void {
+  let mode: FitMode = 'contain';
+  const close = openSheet('Substituir foto', h('div', { class: 'list' },
+    h('p', { class: 'hint' }, 'A nova foto ocupa o mesmo espaço, com a mesma rotação, sombra e filtros.'),
+    select('Encaixe', [['contain', 'Inteira no espaço (produto)'], ['cover', 'Preencher o espaço (cenário)']], mode,
+      (v) => { mode = v as FitMode; }),
+    button('Escolher da galeria…', () => void (async () => {
+      close();
+      const r = await run('Abrindo imagem', () => bridge.request<BlobResult>('pickImage'));
+      if (r) await run('Substituindo', () => editor.swapImage(img, r.url, mode));
+    })(), 'primary swap-gallery'),
+    brandKit.logoUrl ? button('Logo do brand kit', () => {
+      close();
+      void run('Substituindo', () => editor.swapImage(img, brandKit.logoUrl!, 'contain', { brandLogo: true }));
+    }, 'swap-logo') : null));
+}
+
 function imageProps(img: FabricImage): Node[] {
   return [
     h('div', { class: 'row scroll' },
+      button('🔄 Substituir', () => showSwapImage(img), 'primary swap-btn'),
       button('Filtros', () => showFilters(img)),
       button('Recortar', () => {
         if (editor.startCrop()) {
@@ -581,7 +1123,11 @@ const tabs: [string, () => void][] = [
   ['Marca', showBrand],
   ['🎬 Vídeo', showVideo],
 ];
-document.getElementById('tabs')!.replaceChildren(...tabs.map(([label, fn]) => button(label, fn)));
+// trocar de aba conclui o desenho à mão (senão o objeto inserido ficaria sob o pincel, sem como tocar nele)
+document.getElementById('tabs')!.replaceChildren(...tabs.map(([label, fn]) => button(label, () => {
+  if (editor.isFreehandDrawing) finishFreehand();
+  fn();
+})));
 
 function showTemplates(): void {
   const tile = (t: TemplateEntry) => {
@@ -616,6 +1162,7 @@ function showText(): void {
     h('button', { class: 'big subtitle', type: 'button', style: `font-family:'${heading}'`, onclick: () => add('subtitle', heading) }, 'Adicionar subtítulo'),
     h('button', { class: 'big', type: 'button', style: `font-family:'${bodyFont}'`, onclick: () => add('body', bodyFont) }, 'Adicionar texto'),
     button('✨ Gerar textos com IA', () => { close(); showGenerateCopy(); }),
+    button('🔍 Localizar e substituir…', () => { close(); showFindReplace(); }, 'find-replace-btn'),
     button('Carregar fonte do aparelho…', () => void (async () => {
       const f = await run('Carregando fonte', () => bridge.request<FontRef>('pickFont'));
       if (f) { registerFont(f.family, f.url); toast(`Fonte ${f.family} adicionada`); }
@@ -634,10 +1181,120 @@ function showImage(): void {
 
 function showShapes(): void {
   const color = brandKit.colors.primary ?? '#3b6fd8';
-  const shapes: [ShapeKind, string][] = [['rect', '▬ Retângulo'], ['rounded', '▢ Arredondado'], ['circle', '● Círculo'],
-    ['triangle', '▲ Triângulo'], ['star', '★ Estrela'], ['arrow', '➜ Seta'], ['line', '─ Linha']];
-  const close = openSheet('Formas', h('div', { class: 'chips' },
-    ...shapes.map(([k, label]) => button(label, () => { editor.addShape(k, color); close(); }))));
+  const font = brandKit.fonts.heading ?? DEFAULT_FONT;
+  const m = Math.min(editor.width, editor.height);
+  const w = Math.max(3, Math.round(m * 0.005));
+  const shapes: [ShapeKind, string][] = [['rect', '▬ Retângulo'], ['rounded', '▢ Arredondado'], ['pill', '💊 Pílula'], ['circle', '● Círculo'],
+    ['triangle', '▲ Triângulo'], ['star', '★ Estrela'], ['badge-hex', '⬢ Hexágono'], ['arrow', '➜ Seta'], ['line', '─ Linha']];
+  const line = (shape: ConnectorShape, x2: number, y2: number, startCap: CapStyle, endCap: CapStyle): ConnectorSpec =>
+    ({ x1: 0, y1: 0, x2, y2, shape, startCap, endCap, color, width: w, dash: 'solid' });
+  const callout = (k: CalloutKind) => () => { editor.addCallout(k, color, font); close(); };
+  const close = openSheet('Formas', h('div', {},
+    h('div', { class: 'chips' }, ...shapes.map(([k, label]) => button(label, () => { editor.addShape(k, color); close(); }))),
+    h('h4', {}, '📌 Infográfico / Raio-X'),
+    h('div', { class: 'chips infographic' },
+      button('➝ Seta fina', () => { editor.addConnector(line('straight', m * 0.45, 0, 'none', 'arrow'), undefined, 'Seta'); close(); }, 'add-arrow'),
+      button('↪ Seta curva', callout('curved-arrow'), 'add-curved'),
+      button('⌐ Linha cotovelo', () => { editor.addConnector(line('elbow', m * 0.35, m * 0.25, 'dot', 'arrow'), undefined, 'Linha cotovelo'); close(); }, 'add-elbow'),
+      button('|↔| Cota de medida', callout('dimension'), 'add-dimension'),
+      button('📍 Pino característica', callout('pin'), 'add-pin'),
+      button('🔍 Lupa de detalhe', callout('zoom'), 'add-zoom')),
+    h('h4', {}, '✍️ Desenho à mão'),
+    h('div', { class: 'chips' },
+      button('✍️ Desenhar à mão', () => { close(); startFreehand(); }, 'draw-btn'))));
+}
+
+const SHAPE_LABELS: Record<string, string> = { rect: '▬ Retângulo', rounded: '▢ Arredondado', pill: '💊 Pílula', circle: '● Círculo',
+  triangle: '▲ Triângulo', star: '★ Estrela', 'badge-hex': '⬢ Hexágono' };
+
+/** Degradê, borda (sólida/tracejada/pontilhada), cantos do retângulo e troca de forma (TASK-12). */
+function shapeStyleRow(o: FabricObject): HTMLElement {
+  const kind = editor.shapeKindOf(o);
+  return h('div', { class: 'row scroll shape-style' },
+    o.type !== 'line' ? button('🌈 Degradê', () => showGradientSheet(o), 'gradient-btn') : null,
+    select('Borda', DASH_OPTIONS, editor.dashStyleOf(o), (v) => { editor.setStrokeDash(v as DashStyle); renderProps(editor.active); }),
+    o.type === 'rect' ? slider('Cantos', 0, Math.round(editor.maxCornerRadius(o)), 1, Math.round((o as unknown as { rx: number }).rx ?? 0),
+      (v) => editor.setCornerRadius(v)) : null,
+    kind ? button('🔄 Trocar forma', () => showSwapShape(o), 'swap-shape-btn') : null);
+}
+
+function showSwapShape(o: FabricObject): void {
+  const current = editor.shapeKindOf(o);
+  const close = openSheet('🔄 Trocar forma', h('div', { class: 'chips swap-shapes' },
+    ...SWAP_KINDS.map((k) => button(SHAPE_LABELS[k], () => {
+      close();
+      editor.swapShape(k, o);
+      renderProps(editor.active);
+    }, k === current ? 'primary' : ''))));
+}
+
+/** Pontas, formato, cor, espessura e traço da linha/seta selecionada; cada mudança refaz o Group no mesmo lugar. */
+function connectorProps(): Node[] {
+  const c = editor.connectorOf()!;
+  const m = Math.min(editor.width, editor.height);
+  let timer: number | undefined;
+  // os botões do topo do painel guardam o objeto antigo: redesenha o painel depois da mudança
+  const later = () => { window.clearTimeout(timer); timer = window.setTimeout(() => renderProps(editor.active), 600); };
+  const now = (p: Partial<ConnectorSpec>) => { editor.setConnector(p); renderProps(editor.active); };
+  return [
+    h('div', { class: 'row scroll connector-props' },
+      select('Início', CAP_OPTIONS, c.startCap, (v) => now({ startCap: v as CapStyle })),
+      select('Fim', CAP_OPTIONS, c.endCap, (v) => now({ endCap: v as CapStyle })),
+      select('Linha', SHAPE_OPTIONS, c.shape, (v) => now({ shape: v as ConnectorShape })),
+      button('⇄ Inverter pontas', () => { const cur = editor.connectorOf(); if (cur) now(swapEnds(cur)); }, 'swap-ends')),
+    h('div', { class: 'row scroll' },
+      colorInput('Cor', c.color, (v) => { editor.setConnector({ color: v }); later(); }),
+      slider('Espessura', 1, Math.max(12, Math.round(m * 0.03)), 1, c.width, (v) => editor.setConnector({ width: v }),
+        () => renderProps(editor.active)),
+      select('Traço', DASH_OPTIONS, c.dash, (v) => now({ dash: v as DashStyle }))),
+  ];
+}
+
+/** Editor de degradê: linear/radial, ângulo, 2 a 5 paradas, presets (Ouro, Oferta, Neon, Preto, Marca). */
+function showGradientSheet(target: FabricObject | 'background'): void {
+  const isBg = target === 'background';
+  const current = isBg ? editor.backgroundGradient() : editor.gradientOf(target);
+  const base = toHex(isBg ? editor.canvas.backgroundColor : target.fill);
+  let spec: GradientSpec = current ? structuredClone(current)
+    : { kind: 'linear', angle: 90, stops: evenStops([base, base === '#ffffff' ? (brandKit.colors.primary ?? '#3b6fd8') : '#ffffff']) };
+  const apply = () => { if (isBg) editor.setBackgroundGradientSpec(spec); else editor.setObjectGradient(spec, target); };
+  const presets = [...GRADIENT_PRESETS];
+  const brand = brandGradient(brandKit.colors);
+  if (brand) presets.push(brand);
+  const body = h('div', { class: 'gradient-sheet' });
+  const preview = h('div', { class: 'gradient-preview', style: 'height:36px;border-radius:8px;margin-bottom:8px' });
+  const paint = () => { preview.style.background = gradientCss(spec); };
+  const change = (next: GradientSpec, rerender = true) => { spec = next; apply(); paint(); if (rerender) render(); };
+  const render = () => {
+    paint();
+    body.replaceChildren(
+      preview,
+      h('div', { class: 'row scroll' },
+        button('Linear', () => change({ ...spec, kind: 'linear' }), spec.kind === 'linear' ? 'primary type-linear' : 'type-linear'),
+        button('Radial', () => change({ ...spec, kind: 'radial' }), spec.kind === 'radial' ? 'primary type-radial' : 'type-radial'),
+        button('⇄ Inverter cores', () => change(reverseStops(spec)), 'reverse-btn')),
+      spec.kind === 'linear' ? h('div', { class: 'row scroll' },
+        slider('Ângulo', 0, 360, 1, spec.angle, (v) => change({ ...spec, angle: v }, false)),
+        ...([['↓ 90°', 90], ['→ 0°', 0], ['↘ 45°', 45], ['↗ 315°', 315]] as const).map(([l, a]) =>
+          button(l, () => change({ ...spec, angle: a }), spec.angle === a ? 'primary angle-chip' : 'angle-chip'))) : '',
+      h('h4', {}, 'Cores'),
+      ...spec.stops.map((st, i) => h('div', { class: 'row scroll stop', 'data-stop': i },
+        colorInput(`Cor ${i + 1}`, st.color, (v) => change({ ...spec, stops: spec.stops.map((x, j) => (j === i ? { ...x, color: v } : x)) }, false)),
+        slider('Posição %', 0, 100, 1, Math.round(st.offset * 100),
+          (v) => change({ ...spec, stops: spec.stops.map((x, j) => (j === i ? { ...x, offset: v / 100 } : x)) }, false)),
+        spec.stops.length > 2 ? button('✕', () => change(removeStop(spec, i)), 'icon remove-stop') : null)),
+      spec.stops.length < MAX_STOPS ? button('+ Cor', () => change(addStop(spec)), 'add-stop') : '',
+      h('h4', {}, 'Prontos'),
+      h('div', { class: 'grid small' }, ...presets.map((p) => h('button', {
+        class: 'tile swatch preset', type: 'button', title: p.name, 'data-preset': p.name, style: `background:${gradientCss(p.spec)}`,
+        onclick: () => change(structuredClone(p.spec)),
+      }))),
+      isBg ? '' : button('✕ Remover degradê', () => { close(); editor.setObjectGradient(null, target); renderProps(editor.active); }, 'danger remove-gradient'),
+    );
+  };
+  render();
+  const close = openSheet('🌈 Degradê', body, { tall: true });
+  if (!current) apply();
 }
 
 const BADGE_CATEGORIES = [
@@ -713,7 +1370,8 @@ function showStickers(): void {
 
 function showBackgrounds(): void {
   const close = openSheet('Fundo', h('div', {},
-    h('div', { class: 'row' }, colorInput('Cor sólida', toHex(editor.canvas.backgroundColor), (v) => editor.setBackgroundColor(v))),
+    h('div', { class: 'row' }, colorInput('Cor sólida', toHex(editor.canvas.backgroundColor), (v) => editor.setBackgroundColor(v)),
+      button('🌈 Degradê personalizado', () => { close(); showGradientSheet('background'); }, 'bg-gradient-btn')),
     h('h4', {}, 'Cores e degradês'),
     h('div', { class: 'grid small' }, ...content.backgrounds.filter((b) => b.kind !== 'image').map((b) => h('button', {
       class: 'tile swatch', type: 'button', style: `background:${cssOf(b)}`, title: b.name,
@@ -773,8 +1431,24 @@ function showSize(): void {
       h('button', { class: 'tile format' + (f === current ? ' primary' : ''), type: 'button', title: f.hint, onclick: () => apply(f.width, f.height) },
         formatThumb(f), h('span', {}, f.label), h('small', {}, `${f.width}×${f.height}`))))] : [];
   });
-  const close = openSheet('Tamanho', h('div', {},
+  const snapCheck = h('input', { type: 'checkbox', checked: editor.snappingEnabled }) as HTMLInputElement;
+  snapCheck.addEventListener('change', () => { editor.snappingEnabled = snapCheck.checked; });
+
+  const close = openSheet('Tamanho e Guias', h('div', {},
     h('label', { class: 'check' }, sc, h('span', {}, 'Ajustar o conteúdo ao novo tamanho')),
+    h('h4', {}, 'Zonas Seguras e Alinhamento'),
+    h('div', { class: 'row' },
+      select('Zona Segura', [
+        ['none', 'Nenhuma'],
+        ['social-9x16', 'Reels / Stories (9:16)'],
+        ['marketplace-1x1', 'Marketplace (1:1)'],
+        ['print-bleed', 'Sangria e Corte (Impressão)'],
+      ], editor.guideOverlay, (val) => {
+        editor.guideOverlay = val as OverlayGuideMode;
+        editor.canvas.requestRenderAll();
+      })
+    ),
+    h('label', { class: 'check' }, snapCheck, h('span', {}, 'Smart Guides (Alinhamento Magnético)')),
     ...sections,
     h('h4', {}, 'Personalizado'),
     h('div', { class: 'row' }, custom, h('label', {}, 'L ', w), h('label', {}, 'A ', hh), button('Aplicar', () => apply(Number(w.value), Number(hh.value)), 'primary'))),
@@ -799,20 +1473,72 @@ function showBrand(): void {
 
 // ---------- camadas ----------
 
-function showLayers(): void {
+function showLayers(isMulti = false, selectedIds = new Set<FabricObject>()): void {
   const objs = [...editor.canvas.getObjects()].reverse();
+  const selectableObjs = objs.filter((o) => o.selectable);
   const label = (o: FabricObject) => (o.get('layerName') as string | undefined)
     ?? (o instanceof FabricText ? `“${o.text.slice(0, 24)}”` : o instanceof FabricImage ? 'Imagem' : o.type);
-  const close = openSheet('Camadas', h('div', { class: 'list' }, ...(objs.length ? objs.map((o) => h('div', { class: 'layer' },
-    h('button', { type: 'button', class: 'grow', onclick: () => {
-      if (!o.selectable) return;
-      editor.canvas.setActiveObject(o);
-      editor.canvas.requestRenderAll();
-      renderProps(o);
+
+  const headerControls = h('div', { class: 'row', style: 'margin-bottom: 8px;' },
+    button(isMulti ? 'Modo Normal' : '☑ Selecionar Vários', () => {
       close();
-    } }, label(o) + (o.selectable ? '' : ' (fundo)')),
-    button(o.visible ? '👁' : '—', () => { o.set('visible', !o.visible); editor.commit(); close(); showLayers(); }, 'icon')))
-    : [h('p', { class: 'hint' }, 'Nenhum objeto')])));
+      showLayers(!isMulti, new Set());
+    }),
+    isMulti ? button('Marcar Todos', () => {
+      close();
+      showLayers(true, new Set(selectableObjs));
+    }) : null,
+    isMulti && selectedIds.size > 0 ? button(`Aplicar (${selectedIds.size})`, () => {
+      close();
+      editor.selectMultiple([...selectedIds]);
+      renderProps(editor.canvas.getActiveObject());
+    }, 'primary') : null
+  );
+
+  const layerItems = objs.length ? objs.map((o) => {
+    if (isMulti && o.selectable) {
+      const isChecked = selectedIds.has(o);
+      const cb = h('input', {
+        type: 'checkbox',
+        checked: isChecked,
+        style: 'margin-right: 8px; width: 20px; height: 20px;',
+      }) as HTMLInputElement;
+      cb.addEventListener('change', () => {
+        if (cb.checked) selectedIds.add(o);
+        else selectedIds.delete(o);
+        close();
+        showLayers(true, selectedIds);
+      });
+      return h('div', { class: 'layer' },
+        cb,
+        h('span', { class: 'grow' }, label(o)),
+        button(o.visible ? '👁' : '—', () => { o.set('visible', !o.visible); editor.commit(); close(); showLayers(true, selectedIds); }, 'icon')
+      );
+    }
+
+    const isBg = o.get('layerName') === 'background';
+    const locked = editor.isLocked(o);
+    const reopen = () => { close(); showLayers(false); };
+    return h('div', { class: 'layer' + (locked ? ' locked' : ''), 'data-layer': label(o) },
+      h('button', { type: 'button', class: 'grow', onclick: () => {
+        if (isBg) return;
+        if (locked) { toast('Camada travada — toque em 🔒 para destravar'); return; }
+        editor.canvas.setActiveObject(o);
+        editor.canvas.requestRenderAll();
+        renderProps(o);
+        close();
+      } }, label(o) + (isBg ? ' (fundo)' : '')),
+      isBg ? null : button(locked ? '🔒' : '🔓', () => { editor.toggleLock(o); reopen(); }, 'icon lock'),
+      isBg ? null : button('↑', () => { editor.moveLayer(o, 'up'); reopen(); }, 'icon up'),
+      isBg ? null : button('↓', () => { editor.moveLayer(o, 'down'); reopen(); }, 'icon down'),
+      button(o.visible ? '👁' : '—', () => { o.set('visible', !o.visible); editor.commit(); reopen(); }, 'icon eye')
+    );
+  }) : [h('p', { class: 'hint' }, 'Nenhum objeto')];
+
+  const close = openSheet('Camadas', h('div', { class: 'list' },
+    headerControls,
+    ...layerItems
+  ));
 }
 
 // ---------- vídeo ----------
@@ -916,6 +1642,7 @@ function showVideo(): void {
       button('10s', () => { editor.videoSettings.duration = 10; timeSlider.max = '10'; timeLabel.textContent = `0.0s / 10s`; editor.onChange(); }),
       button('15s', () => { editor.videoSettings.duration = 15; timeSlider.max = '15'; timeLabel.textContent = `0.0s / 15s`; editor.onChange(); }),
     ),
+    musicSection(),
     h('h4', {}, 'Presets de Animação para Produtos'),
     h('div', { class: 'preset-card', onclick: () => applyPreset('showcase') },
       h('div', {},
@@ -942,8 +1669,13 @@ function showVideo(): void {
       button('🎬 Exportar Vídeo MP4', () => {
         editor.videoPreview.stop();
         close();
-        showExport();
+        showExport('mp4');
       }, 'primary'),
+      button('🎞️ GIF Animado', () => {
+        editor.videoPreview.stop();
+        close();
+        showExport('gif');
+      }),
       button('Fechar', () => {
         editor.videoPreview.stop();
         close();
@@ -952,19 +1684,81 @@ function showVideo(): void {
   ));
 }
 
+/** "🎵 Música de Fundo": trilhas empacotadas, áudio do aparelho, volume, início e fade-out (TASK-04 §2.1). */
+function musicSection(): HTMLElement {
+  const root = h('div', { class: 'music' });
+  const vs = () => editor.videoSettings;
+  const restartIfPlaying = () => {
+    if (!editor.videoPreview.playing) return;
+    editor.videoPreview.pause();
+    editor.videoPreview.play();
+  };
+  const choose = (url: string | undefined, name: string | undefined) => {
+    const playing = editor.videoPreview.playing;
+    if (playing) editor.videoPreview.pause();
+    editor.videoPreview.resetAudio();
+    editor.videoSettings = { ...vs(), audioUrl: url, audioName: name };
+    if (url && vs().audioVolume === undefined) editor.videoSettings.audioVolume = 0.8;
+    if (url) void editor.videoPreview.prepareAudio(url).catch((e: unknown) => toast(`Áudio: ${describe(e)}`));
+    editor.onChange();
+    render();
+    if (playing) editor.videoPreview.play();
+  };
+  const render = () => {
+    const cur = vs();
+    const tracks = content.audioTracks ?? [];
+    root.replaceChildren(
+      h('h4', {}, '🎵 Música de Fundo'),
+      h('p', { class: 'hint music-now' }, cur.audioUrl ? `Tocando: ${cur.audioName ?? 'áudio'}` : 'Sem música'),
+      h('div', { class: 'chips' },
+        ...tracks.map((t) => {
+          const url = contentUrl(t.file);
+          const b = button(`🎶 ${t.name}`, () => choose(url, t.name), 'chip' + (cur.audioUrl === url ? ' primary' : ''));
+          b.dataset.track = t.id;
+          b.title = t.mood;
+          return b;
+        }),
+      ),
+      h('div', { class: 'row' },
+        button('📂 Escolher áudio do celular…', () => void (async () => {
+          const a = await run('Carregando áudio', () => bridge.request<AudioRef>('pickAudio'));
+          if (a) { choose(a.url, a.name); toast(`Música: ${a.name}`); }
+        })(), 'pick-audio'),
+        button('🔇 Sem música', () => choose(undefined, undefined), 'no-audio'),
+      ),
+      ...(cur.audioUrl ? [
+        slider('Volume da música (%)', 0, 100, 1, Math.round((cur.audioVolume ?? 0.8) * 100), (v) => {
+          editor.videoSettings.audioVolume = v / 100;
+          const el = editor.videoPreview.audio;
+          if (el) el.volume = v / 100;
+        }, () => editor.onChange()),
+        slider('Início da música (s)', 0, 60, 0.5, cur.audioStartTime ?? 0, (v) => {
+          editor.videoSettings.audioStartTime = v;
+        }, () => { editor.onChange(); restartIfPlaying(); }),
+        h('label', { class: 'check' },
+          h('input', { type: 'checkbox', checked: Boolean(cur.audioFadeOut), class: 'audio-fade',
+            onchange: (e: Event) => { editor.videoSettings.audioFadeOut = (e.target as HTMLInputElement).checked; editor.onChange(); } }),
+          h('span', {}, 'Suavizar final (fade-out de áudio)')),
+      ] : []),
+    );
+  };
+  render();
+  return root;
+}
+
 // ---------- exportar ----------
 
-function showExport(): void {
-  let format: ExportPayload['format'] = 'png';
+function showExport(initial: ExportPayload['format'] = 'png'): void {
+  let format: ExportPayload['format'] = initial;
   let scale = 1;
   let quality = 0.92;
   const name = (editor.name || 'design').replace(/[^\p{L}\p{N}_-]+/gu, '_');
   const go = (action: ExportPayload['action']) => void (async () => {
     close();
-    await run(format === 'mp4' ? 'Gerando vídeo MP4' : 'Exportando', async () => {
+    await run(format === 'mp4' ? 'Gerando vídeo MP4' : format === 'gif' ? 'Gerando GIF animado' : 'Exportando', async () => {
       let data = '';
-      if (format === 'mp4') {
-        const bundle = await editor.exportVideoBundle();
+      if (format === 'mp4' || format === 'gif') {
+        const bundle = await editor.exportVideoBundle(format);
         data = JSON.stringify(bundle);
       } else if (format === 'svg') {
         data = await editor.exportSvg();
@@ -988,17 +1782,27 @@ function showExport(): void {
   qualityRow.hidden = true;
   // o SVG é vetor: a resolução não vale para ele (§31)
   const scaleRow = select('Resolução', [['1', `1× (${editor.width}×${editor.height})`], ['2', '2×'], ['3', '3×']], '1', (v) => { scale = Number(v); });
+  const printBtn = button('Imprimir', () => go('print'));
+  const mockupBtn = button('Ver em mockup', toMockup);
+  const syncRows = () => {
+    const video = format === 'mp4' || format === 'gif';
+    qualityRow.hidden = format !== 'jpg';
+    scaleRow.hidden = format === 'svg' || video;
+    printBtn.hidden = video;
+    mockupBtn.hidden = video;
+  };
   const close = openSheet('Exportar', h('div', {},
-    select('Formato', [['png', 'PNG'], ['jpg', 'JPG'], ['svg', 'SVG (vetor)'], ['mp4', '🎬 Vídeo MP4 (com animações)']], format, (v) => {
+    select('Formato', [['png', 'PNG'], ['jpg', 'JPG'], ['svg', 'SVG (vetor)'], ['mp4', '🎬 Vídeo MP4 (com animações)'],
+      ['gif', '🎞️ GIF Animado (WhatsApp)']], format, (v) => {
       format = v as typeof format;
-      qualityRow.hidden = format !== 'jpg';
-      scaleRow.hidden = format === 'svg' || format === 'mp4';
+      syncRows();
     }),
     scaleRow,
     qualityRow,
     h('div', { class: 'row' }, button('Salvar na galeria', () => go('save'), 'primary'), button('Compartilhar', () => go('share')),
-      button('Imprimir', () => go('print'))),
-    h('div', { class: 'row' }, button('Ver em mockup', toMockup))));
+      printBtn),
+    h('div', { class: 'row' }, mockupBtn)));
+  syncRows();
 }
 
 // ---------- início ----------
