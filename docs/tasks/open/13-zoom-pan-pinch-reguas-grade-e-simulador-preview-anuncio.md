@@ -375,3 +375,17 @@ em `editor.ts`; os símbolos são os mesmos). Três pontos que o plano não tinh
   determinístico, e depois um com empresa "Loja Teste E2E".
 - **H:** a guia é conferida também pelo pixel (violeta `#7c4dff` em x = 200).
 - **F/I:** amostra 8 pontos ao longo da linha tracejada e exige ≥ 1 com a cor; terços = âmbar `#ffb300`.
+
+### Teste rodada 1 — reprovado
+
+Aparelho: emulator-5554 (sdk_gphone64_x86_64). Base sincronizada `b35e837`; fix `6bf5b7f` (sha256 do APK no aparelho = APK da lane).
+Evidencia: `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-1840-task-13-zoom-pan-pinch-reguas-grade-e-simulador-preview-anuncio` (`base-task13.txt`, `fix-task13.txt`, prints em `base/` e `fix/`, APKs).
+
+- Offline: `npx vitest run` 252/252, `npx tsc --noEmit` limpo, `build --bug` exit 0.
+- Controle positivo (base): 5/19 — A/B/C falham (zoom 1,000x, o 1o dedo arrasta o retangulo, passo novo no undo), sem pilula, sem Preview, sem Grade/guia manual. (I na base abortou por folha aberta do passo H, nao chegou a amostrar o pixel.)
+- **T2 (fix): 34/36 — FALHA pertinente no encaixe magnetico (criterio de aceite 3 e Tarefa `computeSnap(..., extra)`):**
+  - F: arrastar o retangulo ate ~3 px de tela de x = 360 (W/3) com Grade "Regra dos tercos" ativa -> esperado `getBoundingRect().left` = 360 (tol 0,5); observado **373,03** (13 px do doc ~ 4,6 px de tela, dentro do limiar de 6 px de tela: o snap devia ter engatado).
+  - H: guia manual vertical em 200 -> arrastar para perto -> esperado left = 200; observado **203,26**.
+  - A grade e a guia aparecem na tela no lugar certo (pixels ambar/violeta conferidos), so o encaixe nao acontece. Verificar se `extraSnapTargets` chega ao `computeSnap` no `object:moving` real (toque) e se o candidato extra e comparado com a borda esquerda da caixa.
+- Resto passou: pinca 3x ancorada sem mover o objeto nem gerar undo, pan, limites 0,5x/4x, reset pela pilula, exportacao a 200% identica (PNG/SVG, arquivo 1080x1080 pela galeria), Preview (Feed/Stories 9:16/Marketplace 170 px), zona segura em escala (bug lateral), traco a 200% sob o dedo, teclado mantem o fator, sem excecao JS.
+- **Nao testado nesta rodada:** T3 vizinhos (`task03/11/12/14.mjs`) e T4 (logcat do PID) — interrompido por limite de uso apos a reprovacao da T2.
