@@ -466,3 +466,15 @@ com `-r` (dados preservados; antes: versionName 0.4.0, lastUpdateTime 2026-11-05
 
 **Para a próxima rodada:** corrigir as 2 falhas do `task05.mjs` (L49 e o check de rede) e rodar `node --check` + o
 script contra o app (o dev não roda o app; o teste roda). Nenhum `build` novo é necessário se só o script mudar.
+
+### Rodada 1 — reprovada: `task05.mjs` quebrava no passo 1 e o check de rede tinha corrida; correção: só o script
+
+- `tools/e2e/task05.mjs::moveActive` (L49): `new o.getCenterPoint().constructor(x, y)` era `new (o.getCenterPoint)()` →
+  `TypeError`. Agora `new (o.getCenterPoint().constructor)(x, y)` — igual à cópia corrigida do teste
+  (`t2-fix-script-corrigido/task05-patched.mjs`, 38/39 com ela).
+- Check de rede do passo 1: deixou de comparar a CONTAGEM de `performance.getEntriesByType('resource')` (uma entrada só
+  entra quando a resposta termina; as buscas de inicialização do `content.ts` iniciadas antes do toque caíam na janela:
+  `18 → 20`). Agora guarda `t0 = performance.now()` antes do toque em "📱 QR Code", espera 1,5 s depois da inserção e exige
+  zero entradas com `startTime ≥ t0` (o detalhe do check lista os nomes, se houver).
+- Provas: `node --check tools/e2e/task05.mjs` → ok; `diff` contra `task05-patched.mjs` → só o bloco do check de rede
+  difere. App sem mudança (o diff da rodada não toca `editor-web/`); o `build` do helper roda de novo só por roteiro.

@@ -46,7 +46,7 @@ const tapDoc = async (x, y) => {
 };
 const qrs = `editor.canvas.getObjects().filter((o) => o.qrConfig)`;
 const tables = `editor.canvas.getObjects().filter((o) => o.tableData)`;
-const moveActive = (x, y) => p.evaluate(`(() => { const o = editor.active; o.setPositionByOrigin(new o.getCenterPoint().constructor(${x}, ${y}), 'center', 'center'); o.setCoords(); editor.commit(); return true; })()`);
+const moveActive = (x, y) => p.evaluate(`(() => { const o = editor.active; o.setPositionByOrigin(new (o.getCenterPoint().constructor)(${x}, ${y}), 'center', 'center'); o.setCoords(); editor.commit(); return true; })()`);
 const geo = (expr) => p.evaluate(`(() => { const o = ${expr}; o.setCoords(); const c = o.getCenterPoint(); return { cx: c.x, cy: c.y, w: o.width * o.scaleX, sx: o.scaleX, sy: o.scaleY,
   index: editor.canvas.getObjects().indexOf(o), payload: o.qrConfig?.payload ?? null }; })()`);
 
@@ -61,7 +61,9 @@ await p.evaluate(`(async () => { await editor.newDocument('E2E 05', 1080, 1080);
 await p.sleep(400);
 
 // ---------- 1. Link, sem rede ----------
-const res0 = await p.evaluate(`performance.getEntriesByType('resource').length`);
+// a entrada `resource` só aparece quando a resposta termina: contar as que COMEÇARAM depois deste instante (as buscas de
+// inicialização do content.ts podem terminar dentro da janela e não são da geração do QR)
+const t0 = await p.evaluate(`performance.now()`);
 await p.tap('#tabs button', '📱 QR Code');
 const s1 = await p.evaluate(`({ kind: document.querySelector('#sheet .qr-kind.primary')?.dataset.kind, url: document.querySelector('#sheet [data-field=url]')?.value })`);
 r.check('folha do QR abre no modo Link com o site do brand kit pré-preenchido', s1.kind === 'link' && s1.url === 'www.lojateste.com.br', JSON.stringify(s1));
@@ -75,8 +77,9 @@ const q1 = await p.evaluate(`(() => { const g = ${qrs}[0]; return { kind: g.qrCo
 r.check('Inserir cria um Group selecionado com qrConfig.kind "link" e payload https://www.lojateste.com.br', q1.kind === 'link'
   && q1.payload === 'https://www.lojateste.com.br' && q1.active && q1.layer === 'QR Code', JSON.stringify(q1));
 r.check('o grupo só tem Rect/Path (vetorial, nenhuma imagem)', q1.types.every((t) => t === 'rect' || t === 'path'), q1.types.join(','));
-const res1 = await p.evaluate(`performance.getEntriesByType('resource').length`);
-r.check('nenhuma requisição de rede durante a geração (performance resource)', res1 === res0, `${res0} → ${res1}`);
+await p.sleep(1500); // dá tempo de uma requisição disparada pela geração terminar e entrar na lista
+const net = await p.evaluate(`performance.getEntriesByType('resource').filter((e) => e.startTime >= ${t0}).map((e) => e.name)`);
+r.check('nenhuma requisição de rede iniciada durante a geração (performance resource com startTime ≥ toque na aba)', net.length === 0, JSON.stringify(net));
 const png1 = `${out}/05-1-link.png`;
 writeFileSync(png1, Buffer.from((await p.evaluate(`editor.exportRaster('png', 1, 1)`)).split(',')[1], 'base64'));
 const d1 = decodeFile(png1, ['--expect', 'https://www.lojateste.com.br']);
