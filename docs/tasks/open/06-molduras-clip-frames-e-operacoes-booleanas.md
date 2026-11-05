@@ -95,3 +95,154 @@ Inspirado no algoritmo de *sweep-line* encontrado em `module-create-DxNmnX1s.js`
 - [ ] As molduras e formas combinadas aparecem idênticas na exportação PNG, JPG, SVG e Vídeo MP4.
 - [ ] `npx vitest run` e `npm run build` passam sem erros.
 
+---
+
+## Planejamento (pipeline 20261105-1638, 2026-11-05)
+
+**Veredito:** bloqueado — a task junta dois motores independentes (molduras/foto no texto e Pathfinder booleano) e a
+estimativa conferida no código (~1.950–2.250 linhas novas) passa do teto de uma sessão de dev do manual (> ~1.500
+linhas); proposta de divisão em duas tasks abaixo, **o dono decide**.
+**Complexidade:** alta — formato de dados novo no documento (`clipPath` gerado + propriedades próprias + `Pattern` no
+`fill` do texto), patch de renderização de classe do Fabric (aro da moldura) e motor geométrico novo; tudo em
+`editor-web` (um módulo), mas cada metade sozinha já é `media`/`alta`.
+**Severidade:** medio — funcionalidade P2 ausente (não há como mascarar foto em forma, preencher texto com foto nem
+combinar formas); nada existente quebra.
+**Arquivos a alterar (reserva da onda, quando a divisão for aprovada):**
+- Parte A (molduras + foto no texto): `editor-web/src/clipFrames.ts` (novo), `editor-web/src/editor.ts`,
+  `editor-web/src/main.ts`, `editor-web/src/document.ts`, `editor-web/test/clipFrames.test.ts` (novo),
+  `tools/e2e/task06.mjs` (novo), `editor/src/main/assets/editor/index.html` (bundle regerado).
+- Parte B (Pathfinder): `editor-web/src/pathBoolean.ts` (novo), `editor-web/src/editor.ts`, `editor-web/src/main.ts`,
+  `editor-web/test/pathBoolean.test.ts` (novo), `tools/e2e/task<NN>.mjs` (novo, NN da task nova),
+  `editor/src/main/assets/editor/index.html`.
+- As duas partes reservam `editor.ts`, `main.ts` e o `index.html` do bundle: vão em ondas distintas de qualquer jeito.
+
+### Causa raiz (símbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+Item é task: "causa" = estado atual do código, conferido contra o plano do autor (§2/§3 acima). As linhas citadas
+nas §1–§3 estão desatualizadas (o `editor.ts` cresceu com as TASK-01..14); as daqui são da base `0d616c3`.
+
+- `editor-web/src/editor.ts::Editor.startCrop` (L1292) — só recorte retangular: troca `img.controls` por
+  `createImageCroppingControls()` (cropX/cropY/width/height); `endCrop` (L1302) devolve os controles e faz `commit`.
+  Nenhum `clipPath` é criado no editor (único uso: `swapImage` L1279, que só o preserva).
+- `editor.ts::Editor.replaceImage` (L1256) — usado por remover fundo/objeto/texto e upscale (`main.ts` L1032–1100):
+  guarda filtros e aplica `rescaledGeometry` (width×fx, scaleX/fx, crop×fx). **Não mexe em `clipPath`**: como o
+  `clipPath` (não `absolutePositioned`) mora nas unidades locais do objeto, um upscale ×2 numa foto emoldurada
+  deixaria a moldura com metade do tamanho na tela. A moldura tem de ser **regerada a partir de uma spec** depois de
+  toda troca de fonte.
+- `editor.ts::Editor.swapImage` (L1275) — é o "🔄 Substituir" da TASK-11: o "🔄 Trocar foto" do §2.1.3 **já existe**
+  (`main.ts::showSwapImage` L953, botão `.swap-btn` em `imageProps` L973). Preserva o objeto `clipPath`, mas `fitSlot`
+  (`imageGeometry.ts`) muda width/height/scale → mesma desproporção. Basta regerar a moldura no fim.
+- `editor-web/src/document.ts::CUSTOM_PROPERTIES` (L76) → `FabricObject.customProperties` (`editor.ts` L54): o que
+  entrar ali vai no `toObject()`, no snapshot e no undo. Lição da TASK-12: spec gravada no objeto **não pode ter
+  campo `type`** com nome de classe do Fabric (o revive a transforma) — usar `kind`.
+- Fabric 7.4 `shapes/Object/Object.ts::drawObject` (L823–842): `_render(ctx)` e **depois** `_drawClipPath`
+  (composição destination-in) → tudo que o `_render` desenha é recortado; o aro tem de ser desenhado **depois** do
+  `drawObject` original (envolver `FabricImage.prototype.drawObject`, como `curve.ts::installWarpRenderer` L352
+  envolve o `_render` do Textbox) e caber no cache do objeto (`_getCacheCanvasDimensions`, L440): o mais simples é
+  aro **interno** (traço de largura 2w recortado pela própria forma). Patch de classe, não de instância: o
+  `renderThumbnail` (StaticCanvas, `editor.ts`) e o export de vídeo também desenham.
+- Export: `FabricObjectSVGExportMixin.ts::_createBaseSVGMarkup` (L195–257) já emite `<clipPath>` e `fill` de
+  Pattern/Gradient (`isFiller`) → o SVG da foto recortada e do texto com foto vêm de graça; **o aro não** (precisa de
+  `toSVG` estendido, ex.: `<path>` com stroke ao lado). `editor.ts::exportVideoBundle` rasteriza cada camada na
+  `getBoundingRect()` + margem de 2 px → moldura/padrão saem no MP4 se o canvas os desenhar; um aro fora da caixa
+  seria cortado (outro motivo para aro interno). PNG/JPG = `renderPage` → `toDataURL`, idem.
+- Fabric `Pattern/Pattern.ts::toObject` serializa `source` (= `img.src`) e `fromObject` recarrega a imagem;
+  `util/misc/objectEnlive.ts::enlivenObjectEnlivables` (L157–186) revive o `fill` com `type:'pattern'` no
+  `loadFromJSON` → o `textPatternSrc` do doc é redundante para o revive; o que falta é **refazer o
+  `patternTransform` (cover) quando a caixa do texto muda**, no mesmo ponto do `refreshGradient` (`editor.ts`
+  L120–121, eventos `object:modified`/`text:changed`; `refreshGradient` L837).
+- `main.ts::renderProps` (L203) — `ActiveSelection` cai no `else` de formas (cor/contorno) e ganha `🔗 Agrupar`; é
+  ali que entra a linha do Pathfinder (≥ 2 formas fechadas preenchidas). `textProps` L543, `imageProps` L970.
+- `editor.ts::makeShape` (L1666) — formas do editor: `Rect` (rx/ry: rounded/pill), `Circle`, `Triangle`, `Polygon`
+  (star, badge-hex), `Path` (arrow), `Line`. O Pathfinder aceita Rect/Circle/Ellipse/Triangle/Polygon/Path
+  preenchidos; exclui `Line`, conector (`Group` com `connectorSpec`), traço à mão (`freehandDraw.ts::isFreehandPath`),
+  texto, imagem e grupo.
+- Fabric `shapes/Object/ObjectGeometry.ts::calcTransformMatrix` (L487) — sem `skipGroup` já multiplica a matriz do
+  grupo (`ActiveSelection`) → coordenadas de página dos objetos selecionados. Pontos de `Polygon`/`Path` são relativos
+  a `pathOffset`: subtrair antes de aplicar a matriz.
+
+### Provas (comando literal -> resultado)
+- `grep -n "clipPath\|Pattern" editor-web/src/editor.ts editor-web/src/main.ts` → só `editor.ts:429` (comentário de
+  degradê) e `editor.ts:1279` (`swapImage` preserva `clipPath`): não há moldura nem padrão hoje.
+- `wc -l editor-web/src/*.ts` → `editor.ts` 1719, `main.ts` 1893; maiores módulos de task até aqui: `curve.ts` 374,
+  `snapping.ts` 370, `connectors.ts` 140, `gradients.ts` 126. `wc -l tools/e2e/*.mjs` → `task12.mjs` 227,
+  `task14.mjs` 326.
+- Estimativa (calibrada na TASK-12, 5 SP: ~1.000 linhas entre módulos, teste, E2E e UI):
+  Parte A ≈ `clipFrames.ts` 350–400 (15 formas, aro, `toSVG` do aro, helper do Pattern) + `editor.ts` ~150 +
+  `main.ts` ~150 + teste ~150 + E2E ~220 ≈ **1.000–1.100**; Parte B ≈ `pathBoolean.ts` 500–700 (achatamento de
+  Rect com rx/Circle/Polygon/Path com Bézier e arcos ≤ 0,5 px + recorte poligonal com casos degenerados + anéis→`d`)
+  + `editor.ts` ~60 + `main.ts` ~40 + teste ~200 + E2E ~150 ≈ **950–1.150**. Total ≈ 1.950–2.250 > 1.500.
+
+### Hipoteses descartadas (e por que)
+- *"Trocar foto" é trabalho novo* — não: existe desde a TASK-11 (`swapImage` + `.swap-btn`); falta só regerar a
+  moldura depois da troca (e do `replaceImage` das ações de IA).
+- *Guardar o `clipPath` como objeto e confiar no Fabric* — quebra no upscale e na troca (as unidades locais mudam com
+  `rescaledGeometry`/`fitSlot`). Fonte da verdade = spec (`clipShape` + parâmetros); `clipPath` regerado da caixa
+  atual.
+- *Desenhar o aro dentro do `_render`* — o `_drawClipPath` recorta depois (Object.ts L838–839): metade do traço some.
+- *`textPatternSrc` para reviver o padrão* — o Fabric já serializa e revive `Pattern` pelo `fill`; a spec própria só
+  serve para refazer o cover quando o texto muda.
+- *Implementar tudo numa sessão só* — pela regra do manual (seção Itens), task acima do teto vira `bloqueado` com
+  divisão, nunca implementação pela metade; o motor booleano sozinho seria o maior módulo de task do editor.
+- *Dependência npm de recorte poligonal para encurtar a Parte B* — o doc pede TypeScript puro sem dependência; só o
+  dono muda isso (se mudar, a Parte B cai para ~500 linhas e a task inteira caberia numa sessão).
+
+### Proposta de divisão (o dono decide)
+1. **TASK-06 (reduzida) — Molduras de recorte + foto dentro do texto** (§2.1 e §2.2; critérios 1, 2, 4 e 5 da §4
+   restritos a moldura/texto).
+2. **TASK nova (próximo número livre) — Pathfinder: operações booleanas de formas** (§2.3; critério 3 e a parte de
+   "formas combinadas" do 4). Independente da A (não usa nada dela); pode ir antes ou depois.
+Alternativa: autorizar uma dependência npm de recorte poligonal (licença MIT, sem rede em runtime) e manter a task
+inteira. Com a decisão, o próximo planning só confere esta seção (os símbolos já estão abertos acima).
+
+### Tarefas
+Parte A:
+- [ ] `editor-web/src/clipFrames.ts` (novo) — `ClipShapeKind` (none, circle, rounded-sm/lg, pill, leaf-tr/tl,
+  starburst-12/20, hexagon, diamond, shield, arch, heart), `clipPathFor(kind, w, h): FabricObject` centrado na caixa
+  local, `installFrameRenderer(FabricImage)` (aro interno depois do `drawObject`), SVG do aro para o `toSVG`, e
+  `coverPatternTransform(imgW, imgH, boxW, boxH)` — vitest `test/clipFrames.test.ts`: cada forma dentro da caixa
+  (bbox ≤ w×h), pílula/círculo tocam os extremos, o cover cobre a caixa inteira.
+- [ ] `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `clipShape`, `clipScale`, `clipOffsetX`, `clipOffsetY`,
+  `frameStroke`, `frameStrokeWidth`, `textPatternSrc` — vitest: round-trip `toObject`/`loadFromJSON` preserva tudo.
+- [ ] `editor.ts` — `setImageFrame(spec)`, `refreshFrame(img)` chamado no fim de `swapImage`, `replaceImage`,
+  `endCrop` e no `load`/`restore`; zoom/pan interno pelo crop (caixa na página constante); `setTextImageFill(url|null)`
+  e refit do cover junto do `refreshGradient` — vitest: a moldura sobrevive a `swapImage` e a `replaceImage` com fator
+  2 mantendo a mesma caixa na página (bbox do `clipPath` × escala = caixa da imagem).
+- [ ] `main.ts::imageProps` — botão `🖼️ Moldura` (`.frame-btn`) com sheet: grade das formas, cor/espessura do aro
+  (0–40), zoom 1–3×, posição X/Y; `textProps` — `🖼️ Foto no texto` (galeria via `pickImage`) e "Remover foto".
+- [ ] `tools/e2e/task06.mjs` — a T2 abaixo.
+Parte B:
+- [ ] `editor-web/src/pathBoolean.ts` (novo) — `shapeToPolygonRings(obj)` (matriz de página, `pathOffset`, curvas ≤
+  0,5 px), `booleanOp(a, b, op)` (`union|subtract|intersect|exclude`), `ringsToPathD` (evenodd) — vitest
+  `test/pathBoolean.test.ts`: quadrados sobrepostos/disjuntos/contidos/com aresta comum, quadrado × círculo; área de
+  cada resultado contra a fórmula (±0,5%) nas 4 operações.
+- [ ] `editor.ts::applyBooleanOp(op)` — sobre `ActiveSelection` de ≥ 2 formas válidas, ordem = pilha (base = a mais
+  de baixo; subtrair = base − demais), remove as originais, adiciona `Path` com fill/stroke/`brandColor` da base, um
+  só snapshot (1 undo) — vitest: o undo devolve as N formas.
+- [ ] `main.ts::renderProps` — linha do Pathfinder (`.bool-union|subtract|intersect|exclude`) só quando a seleção tem
+  ≥ 2 formas válidas.
+
+### Plano de teste
+- **Offline (sem slot):** `npx tsc --noEmit` e `npx vitest run` em `editor-web/` (testes acima); áreas do booleano
+  contra fórmula; SVG da página com moldura contém `<clipPath>` e o `<path>` do aro.
+- **T2 reprodução como o usuário (E2E, no slot):** Parte A — "Novo design → Post Facebook"; foto na página (setup por
+  `evaluate` `editor.addImage(dataURL)` como `task11.mjs` L14, só como preparo); tocar na foto → `#props .frame-btn`
+  → forma "Selo explosão" e depois "Círculo", aro com cor e espessura 12, zoom 2× → sinal: `img.clipShape` e
+  `img.clipPath` presentes; no `editor.renderPageCanvas()`, pixel no canto da caixa (fora da forma) = cor do fundo e
+  pixel na borda da forma = cor do aro; `.swap-btn` → galeria (`/sdcard/Pictures/e2e_swap.jpg`) → moldura mantida e
+  bbox na página igual (±1 px); texto "VERÃO" → `🖼️ Foto no texto` → `fill` é `Pattern` e pixel dentro de uma letra ≠
+  cor sólida antiga; ↶ desfaz; exportar PNG e SVG (`exportImage`) com a moldura; print do aparelho em cada passo.
+  Parte B — retângulo + círculo sobrepostos pelo botão de formas, seleção múltipla pelo painel Camadas ("Selecionar
+  Vários", como `task11.mjs` L34–40) → `.bool-subtract` → sinal: 1 objeto `path` no lugar dos 2, pixel na área do
+  círculo = fundo; ↶ → 2 objetos de volta; `.bool-union` → 1 `path` com bbox = união das caixas.
+- **Controle positivo:** APK da base: `#props .frame-btn` e `.bool-*` não existem (`querySelector` nulo) e
+  `editor.setImageFrame`/`editor.applyBooleanOp` são `undefined` — a funcionalidade está ausente.
+- **T3 regressão direcionada:** `task11.mjs` (substituir foto, agrupar, camadas), `task12.mjs` (trocar forma, degradê
+  em forma/texto — o refit do padrão divide o ponto com o `refreshGradient`), `task14.mjs` (localizar e substituir em
+  texto), `task03.mjs` (conta-gotas lê o canvas com o aro); vitest inteiro.
+
+### Sessoes seguintes
+- dev: effort high, ultrathink sim — geometria/transformação no Fabric (manual) e, na Parte B, recorte poligonal com
+  casos degenerados.
+- teste: effort medium, ultrathink não — leitura de pixel/objeto por CDP em roteiro já modelado pelos E2E vizinhos.
+

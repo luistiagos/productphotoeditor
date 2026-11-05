@@ -91,3 +91,235 @@ Criar um gerador e editor de tabelas vetoriais/grupos estruturados no Fabric.js:
 - [ ] O usuário consegue inserir uma **Tabela de Medidas** ou **Lista de Preços** com 1 toque, editar as células na sheet e aplicar as cores do Brand Kit.
 - [ ] `npx vitest run` e `npm run build` executam com 0 erros.
 
+---
+
+## Planejamento (pipeline 20261105-1638, 2026-11-05)
+
+**Veredito:** corrigir — a funcionalidade (QR Code vetorial offline + tabelas editáveis) não existe no editor e cabe
+inteira em `editor-web/` (TypeScript puro, sem dependência nova, sem Kotlin, sem ponte).
+**Complexidade:** media — um módulo (`editor-web`), vários arquivos e dois fluxos novos de UI; sem Kotlin, sem ponte
+WebView↔Kotlin; os dados persistidos (`qrConfig`, `tableData`) seguem o padrão já existente de `connectorSpec`
+(propriedade própria no `toObject`, sem mudar `DOC_VERSION`).
+**Severidade:** medio — funcionalidade ausente com contorno (gerar o QR num site e importar da galeria; montar a tabela
+com caixas de texto soltas).
+**Tamanho estimado:** ~1.300 linhas de produção (codificador QR ~350, payloads ~120, SVG ~120, `table.ts` ~250,
+`editor.ts` ~100, `main.ts` ~350) + ~400 de vitest + ~250 do E2E. Abaixo do teto de ~1.500 linhas de produção do
+manual. **Se o dev passar do teto**, a divisão natural é TASK-05a (QR: §2.1) e TASK-05b (tabelas: §2.2) — as duas
+metades não compartilham código além de `document.ts`/`main.ts`.
+
+**Arquivos a alterar (reserva da onda):**
+- `editor-web/src/qrcode.ts` — **novo**: codificador QR (ISO/IEC 18004, modo byte, versões 1–40, EC L/M/Q/H,
+  Reed-Solomon GF(256), 8 máscaras + penalidade, informação de formato e de versão ≥ 7) e o renderizador SVG estilizado.
+- `editor-web/src/qrPayloads.ts` — **novo**: link, WhatsApp (`wa.me`), PIX estático (BRCode EMV + CRC16), Wi-Fi.
+- `editor-web/src/table.ts` — **novo**: `TableData`, templates, operações de linha/coluna e o layout (medida de texto
+  injetada) que monta o `Group` do Fabric.
+- `editor-web/src/document.ts` — `'qrConfig'` e `'tableData'` em `CUSTOM_PROPERTIES`.
+- `editor-web/src/editor.ts` — `qrConfigOf`, `upsertQrCode`, `tableDataOf`, `upsertTable`.
+- `editor-web/src/main.ts` — abas `📱 QR Code` e `📊 Tabela`, folhas de criação/edição, ramos no `renderProps`, gancho
+  de teste do brand kit.
+- `editor-web/src/styles.css` — grade de inputs da folha de tabela e prévia do QR.
+- `editor-web/test/qrcode.test.ts`, `editor-web/test/qrPayloads.test.ts`, `editor-web/test/table.test.ts` — **novos**.
+- `editor-web/test/qr-reference.json` — **novo**: matrizes de referência geradas fora do app (receita abaixo).
+- `editor/src/main/assets/editor/index.html` — bundle regerado (arrastado por qualquer mudança em `editor-web/`; os
+  `assets/index-<hash>.*` entram por `claim` na hora, como manda o manual).
+- `tools/e2e/task05.mjs` — **novo**: E2E da task. `tools/e2e/qr_decode.py` — **novo**: decodifica PNG com OpenCV no PC.
+
+### Causa raiz (símbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+Não há defeito: é funcionalidade ausente. Conferência do plano do autor contra o código (base `0d616c3`):
+
+- `grep -rni "qr\|tableData\|upsertTable" editor-web/src editor-web/test tools/e2e` → nenhuma ocorrência de QR/tabela
+  (só `Math.sqrt`/`SQRT1_2`): a funcionalidade não existe.
+- `editor-web/src/editor.ts::addSvgString(svg, name, place?)` (L366) — `loadSVGFromString` + `addSvgObjects`; devolve
+  `Promise<FabricObject>`. Em erro: `loadSVGFromString` rejeita; SVG sem elementos válidos → `throw new Error('SVG
+  vazio')`. **Pegadinha:** `addSvgObjects` usa `util.groupSVGElements`, que com **um único** elemento devolve o próprio
+  elemento, não um `Group` — o SVG do QR deve ter ≥ 2 elementos (fundo `<rect>` + `<path>` dos módulos) para virar
+  `Group`. Sem `place`, o grupo vai para 35% do menor lado da página, centralizado; com `place`, ocupa o retângulo do
+  objeto dado.
+- `editor-web/node_modules/fabric/dist/index.mjs::svgValidTagNames` (L4212) — o parser aceita `path, circle, polygon,
+  polyline, ellipse, rect, line, image, text`; ignora o que estiver dentro de `defs`, `clipPath`, `mask`, `pattern`
+  (`svgInvalidAncestors`). O SVG do QR não pode usar `clipPath`/`defs`/`<use>`: tudo em `<rect>`/`<path>` (pontos e
+  cantos arredondados como subcaminhos de um `<path>` com arcos `A`).
+- `editor-web/node_modules/fabric/dist/index.mjs::enlivenObjectEnlivables` (L1658) — no `fromObject`, todo valor de
+  primeiro nível com campo `type` registrado no `classRegistry` é revivido como objeto Fabric. **`qrConfig` e
+  `tableData` não podem ter campo `type`** (mesmo achado da TASK-12, `GradientSpec.kind`): usar `kind` e `style`.
+- `editor-web/src/document.ts::CUSTOM_PROPERTIES` (L71) — lida em `editor.ts` L54
+  (`FabricObject.customProperties = [...CUSTOM_PROPERTIES]`): o que estiver nela entra no `toObject()` e portanto no
+  rascunho, no undo (`snapshot`/`restore`) e no duplicar. Basta acrescentar `'qrConfig'` e `'tableData'`.
+- `editor-web/src/editor.ts::setConnector` (L961) e `::replaceObject` (L933) — modelo exato do "editar sem perder
+  posição/tamanho": monta o grupo novo, copia `angle/scaleX/scaleY/flipX/flipY/opacity/shadow/layerName/animation/
+  visible`, `setPositionByOrigin(centro)`, troca na mesma posição da pilha (`insertAt(index)`), reseleciona dentro de
+  `silently()` e chama `commit()` (uma entrada de undo). `upsertQrCode`/`upsertTable` seguem esse padrão.
+- `editor-web/src/editor.ts::set(props)` (L770) — num `Group`, um `fill` recolore **todos** os filhos não brancos e
+  grava `brandColor` neles. Por isso o QR/tabela **não** pode cair no ramo genérico do `renderProps` (o seletor
+  "Preenchimento" dessincronizaria a cor real de `qrConfig.fgColor`).
+- `editor-web/src/main.ts::renderProps(o)` (L203) — ordem dos ramos: `FabricText` → `FabricImage` →
+  `editor.connectorOf(o)` → `isFreehandPath` → genérico (cores/contorno/espessura + chips da marca). Os ramos novos
+  `editor.qrConfigOf(o)` e `editor.tableDataOf(o)` entram **antes** do genérico (logo após o do conector). A barra comum
+  mostra `🔓 Desagrupar` para qualquer `Group` (L212): esconder para QR/tabela (desagrupar perderia os metadados).
+- `editor-web/src/main.ts::tabs` (L1114) — lista `[rótulo, função]` montada em `#tabs`; as abas novas entram aqui
+  (trocar de aba já conclui o desenho à mão, L1127).
+- `editor-web/src/main.ts::brandKit` (L34, `let`) — preenchido no `start()` (`parseBrandKit(startPayload.brandKit)`,
+  L1827), no `applyBrandKit` da ponte (L71) e no "Recarregar do app" (L1470). Não está no `testHook` (L1867): o E2E não
+  tem como pôr um kit conhecido → acrescentar `testHook.setBrandKit = (k) => { brandKit = parseBrandKit(k); }`.
+- `editor-web/src/brandkit.ts::BrandKit` — `profile.website`, `profile.phone`, `colors.primary`, `fonts.heading/body`,
+  `logoUrl` existem com esses nomes exatos (`VARIABLES`, `COLOR_ROLES`). `applyBrandKit` percorre filhos de grupo
+  (`walkObjects`): um `FabricImage` com `brandLogo: true` dentro do grupo do QR tem o `src` trocado quando o kit muda;
+  filhos com `brandColor` seriam recoloridos sem atualizar `qrConfig` → **não** pôr `brandColor` nos módulos do QR.
+- `editor-web/src/main.ts::openSheet` e `dom.ts::{h, button, colorInput, select, slider}` — os blocos de UI a usar nas
+  folhas (sem framework).
+- `editor-web/vite.config.ts` — vitest em `environment: 'node'`; os testes importam `fabric/node` (o pacote `canvas`
+  está em `node_modules`): dá para montar `Group`/`FabricText` reais no teste.
+
+### Provas (comando literal -> resultado)
+
+- `ls editor-web/node_modules | grep -i -E "qr|zxing|jsqr"` → nada: não há biblioteca de QR; o codificador é próprio
+  (diretriz do README: implementação 100% própria).
+- Referência independente no PC (Python do usuário, **sem** `-I`: o pacote está no site do usuário
+  `C:\Users\luist\AppData\Roaming\Python\Python314\site-packages`): `qrcode 8.2` e `opencv 5.0.0`.
+- `qrcode.QRCode(error_correction=ERROR_CORRECT_M, border=2, box_size=8)` com
+  `https://wa.me/5511999999999?text=Ol%C3%A1` → versão 3; `cv2.QRCodeDetector().detectAndDecode(png)` devolve o texto
+  exato. O decodificador do OpenCV serve de "câmera" no E2E.
+- Estilo **pontos** (círculo r = 0,45 módulo, localizadores quadrados) + **buraco central de 22% do lado** + EC **H**,
+  payload PIX de 115 bytes → versão 8 (tem informação de versão), e o OpenCV **decodificou** o texto. O "22%" do doc é
+  do LADO da matriz (≈ 5% dos módulos), não da área — deixar isso numa constante comentada.
+- `qrcode.util.QRData(data, mode=MODE_8BIT_BYTE)` força o modo byte e `QRCode(mask_pattern=k)` fixa a máscara: com
+  isso a matriz de referência é comparável bit a bit com a nossa (sozinho, o Python escolheria modo numérico/
+  alfanumérico). Conferido: `QRData(b'01234567', mode=MODE_8BIT_BYTE)` em M → versão 1, 21×21.
+- CRC16-CCITT-FALSE (poli `0x1021`, início `0xFFFF`, sem reflexão, sem XOR final) de `"123456789"` → `29B1` (valor de
+  verificação padrão; conferido em Python).
+
+### Hipóteses descartadas (e por que)
+
+- **Inserir o QR como imagem PNG** — o critério 2 exige vetor.
+- **Usar `<clipPath>`/`<defs>`/`<use>` no SVG** — o parser do Fabric ignora o conteúdo desses nós
+  (`svgInvalidAncestors`).
+- **Um `Circle`/`Rect` Fabric por módulo** — a versão 10 tem ~1.600 módulos escuros: milhares de objetos no grupo pesam
+  no toque/undo; um único `<path>` com todos os módulos é um objeto só.
+- **Logo como `<image href>` no SVG** — funcionaria (`image` é tag válida), mas o logo viraria `FabricImage` sem
+  `brandLogo`; preferir acrescentar ao grupo um `FabricImage.fromURL(brandKit.logoUrl)` com `brandLogo: true` (o
+  `applyBrandKit` já sabe trocar o `src`).
+- **Medir texto com `FabricText` dentro de `table.ts`** — acopla o layout ao Fabric e ao carregamento de fonte;
+  `layoutTable(data, measure)` recebe a função de medida (no app: `FabricText` com a fonte do kit; no teste: uma medida
+  falsa determinística).
+- **Mudar `DOC_VERSION`** — desnecessário: propriedade própria a mais é ignorada por leitores antigos (precedentes:
+  `connectorSpec`, `customGradient`).
+- **Dividir a task agora** — a estimativa (~1.300 linhas de produção) fica abaixo do teto do manual; a divisão 05a/05b
+  fica registrada acima como contingência.
+- **Provar o "modo avião" desligando a rede do aparelho** — o aparelho é compartilhado com o dono; o sinal objetivo
+  equivalente é nenhuma requisição (`performance.getEntriesByType('resource')`) durante a geração, e o código não ter
+  `fetch`/XHR no caminho do QR.
+
+### Tarefas
+
+- [ ] `editor-web/src/qrcode.ts::encodeQr(text, { ecc, mask?, minVersion? })` → `{ version, size, ecc, mask, modules:
+  boolean[][] }` — UTF-8 em modo byte, menor versão que cabe; tabelas de blocos EC por versão/nível; RS; colocação
+  (localizadores, separadores, temporização, alinhamento, módulo escuro, formato com BCH `0x537` + XOR `0x5412`, versão
+  ≥ 7 com BCH `0x1F25`); máscara forçada ou a de menor penalidade (4 regras). Texto que não cabe na v40 → `throw`.
+  — `qrcode.test.ts`: igualdade bit a bit com `test/qr-reference.json` para ≥ 8 casos (L/M/Q/H; máscaras 0–7;
+  versões 1, 2, 7, 10 e uma ≥ 20; um texto com acento UTF-8), mais: a escolha automática de máscara gera a matriz de
+  penalidade mínima entre as 8; estouro lança.
+  **Receita do fixture** (no PC, Python **sem** `-I`; guardar o script e o comando na §5 do dev):
+  `QRCode(version=None, error_correction=E, border=0, mask_pattern=k); add_data(QRData(s.encode('utf-8'),
+  mode=MODE_8BIT_BYTE)); make(fit=True); get_matrix()` → JSON `{text, ecc, mask, version, rows: ["0101…", …]}`.
+- [ ] `editor-web/src/qrcode.ts::qrSvg(matrix, { dotStyle, eyeStyle, fg, bg, quietZone = 2, logoHole?, label? })` →
+  string SVG: `<rect>` de fundo + um `<path>` dos módulos (quadrado / quadrado arredondado / círculo) + localizadores
+  (quadrado/arredondado) + buraco central de 22% do lado quando `logoHole` + faixa de legenda (`<rect>` + `<text>`)
+  quando `label`. — `qrcode.test.ts`: `viewBox` = (size + 2·quietZone) módulos (+ faixa da legenda); sem `clipPath`/
+  `defs`/`<use>`; nº de subcaminhos = módulos escuros fora do buraco e dos localizadores; buraco vazio quando `logoHole`.
+- [ ] `editor-web/src/qrPayloads.ts` — `linkPayload(url)` (prefixa `https://` se faltar esquema), `whatsappPayload(phone,
+  msg?)` (só dígitos; 10–11 dígitos ganham `55`; `?text=` com `encodeURIComponent`), `pixPayload({ key, name, city,
+  amount?, txid? })` (IDs 00 `01` / 26 [00 `br.gov.bcb.pix`, 01 chave] / 52 `0000` / 53 `986` / 54 opcional com 2 casas
+  e ponto / 58 `BR` / 59 nome ≤ 25 / 60 cidade ≤ 15 / 62 [05 txid, padrão `***`] / 63 CRC; nome e cidade sem acento e
+  em maiúsculas), `isPixPayload` + `pixCrcOk(payload)` (aceitar o "Copia e Cola" colado), `wifiPayload({ ssid, password,
+  auth })` (escapa `\ ; , : "`; `nopass` sem `P:`), `crc16ccitt(s)`. — `qrPayloads.test.ts`:
+  `crc16ccitt('123456789') === '29B1'`; o PIX gerado passa em `pixCrcOk` e tem os campos na ordem com os tamanhos `NN`
+  corretos; payload colado com CRC errado é recusado; WhatsApp com `(11) 99999-9999` →
+  `https://wa.me/5511999999999?text=…`; Wi-Fi com `;` na senha sai escapado.
+- [ ] `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `+ 'qrConfig', 'tableData'` (sem `type` nos dois). — vitest: um
+  `Group` com `qrConfig`/`tableData` sobrevive a `toObject()` → `Group.fromObject()` com os campos iguais (modelo: o
+  teste do `customGradient` em `gradientsAndConnectors.test.ts`).
+- [ ] `editor-web/src/editor.ts::upsertQrCode(config, existing?)` / `qrConfigOf(o)` — `QrConfig = { kind: 'link' |
+  'whatsapp' | 'pix' | 'wifi', fields, payload, ecc, dotStyle, eyeStyle, fgColor, bgColor, label?, withLogo }`. Sem
+  `existing`: `addSvgString(qrSvg(...), 'QR Code')` e, com logo, um `FabricImage` (`brandLogo: true`) centrado no
+  buraco, tudo num `Group` com `qrConfig`. Com `existing`: monta o novo, **mantém o tamanho exibido** (escala nova =
+  largura exibida antiga ÷ largura nova, porque a versão pode mudar), copia ângulo/opacidade/sombra/animação/nome, mesmo
+  centro, mesmo índice da pilha (padrão `setConnector`), `commit()` uma vez. — vitest em `fabric/node` se der; senão,
+  passo 5 do E2E.
+- [ ] `editor-web/src/table.ts` — `TableData = { rows: string[][], style: 'header' | 'zebra' | 'grid' | 'minimal',
+  headerBg, textColor, borderColor, fontFamily, align?: ('left'|'center'|'right')[] }`; `TABLE_TEMPLATES` (medidas de
+  moda, numeração de calçados, lista de preços em 2 colunas com o preço à direita, comparativo em 3 colunas);
+  `addRow/removeRow/addColumn/removeColumn` (mínimo 1×1, células novas vazias, sem mutar a entrada);
+  `layoutTable(data, measure)` → larguras de coluna (máx. medido + padding), altura de linha e retângulos/posições de
+  texto por estilo; `buildTable(data, measure)` → `Group` de `Rect` + `FabricText`. — `table.test.ts`: larguras = maior
+  célula + padding com medida falsa; zebra só nas linhas alternadas do corpo; `minimal` sem bordas verticais; remover a
+  última coluna/linha é recusado; `TableData` sobrevive a JSON.
+- [ ] `editor-web/src/editor.ts::upsertTable(data, existing?)` / `tableDataOf(o)` — sem `existing`: centralizada, largura
+  ≤ 80% da página; com `existing`: mesmo `left/top` (canto) e mesma escala, mesmo índice, um `commit()`.
+- [ ] `editor-web/src/main.ts` — abas `['📱 QR Code', showQrSheet]` e `['📊 Tabela', showTableSheet]`; folha do QR com
+  os 4 modos (Link pré-preenchido de `brandKit.profile.website`; WhatsApp de `profile.phone`; PIX "colar" ou "chave +
+  nome + cidade + valor"; Wi-Fi), estilo dos pontos/cantos, cores (padrão `brandKit.colors.primary ?? '#111111'` /
+  `#ffffff`), "Incluir logo da marca no centro" (só com `brandKit.logoUrl`; força EC H), legenda (3 sugestões + livre)
+  e prévia; folha da tabela com os 4 templates (1 toque insere) e o editor: grade de `<input>`, `+/- Linha`,
+  `+/- Coluna`, estilo (Cabeçalho Destacado com `brandKit.colors.primary`, Zebrada, Grade, Minimalista), "Aplicar".
+  `renderProps`: ramos `qrConfigOf` (botão `✏️ Editar QR Code`) e `tableDataOf` (botão `✏️ Editar Tabela`) antes do
+  genérico; sem `🔓 Desagrupar` para eles. `testHook.setBrandKit`. Classes CSS estáveis para o E2E (`qr-sheet`,
+  `qr-apply`, `table-sheet`, `table-apply`, `edit-qr`, `edit-table`). Erro de payload (PIX sem chave, CRC colado
+  inválido, texto grande demais) → `toast`, nada inserido.
+- [ ] `tools/e2e/task05.mjs` + `tools/e2e/qr_decode.py` (lê PNG, `cv2.QRCodeDetector().detectAndDecode`, imprime o texto;
+  com `--pix` recalcula o CRC16) — cenário da T2 abaixo.
+
+### Plano de teste
+
+- **Offline (sem slot):** `npx tsc --noEmit` e `npx vitest run` em `editor-web/` (os 3 testes novos + os antigos, 0
+  falhas); o `build --bug task-05-qrcode-vetorial-offline-e-tabelas-no-canvas` do helper regera o bundle. Prova de
+  leitura sem app (o dev pode rodar): renderizar `encodeQr` de 4 payloads (link, WhatsApp, PIX gerado, Wi-Fi) × 3
+  `dotStyle` (+ um com buraco de logo em H) para PNG e passar no `qr_decode.py` — todos devolvem o payload exato.
+- **T2 reprodução como o usuário (E2E, no slot):** `node tools/e2e/task05.mjs <pasta>` (modelo `task14.mjs`; aparelho e
+  APK como o manual manda). Estado: `launchEditor()` → documento novo 1080×1080 (`editor.newDocument`);
+  `ppEditor.setBrandKit({ profile: { website: 'www.lojateste.com.br', phone: '(11) 98888-7777' }, colors: { primary:
+  '#c2185b' }, logoUrl: <URL de uma imagem empacotada em content/> })`.
+  1. **Sem rede:** guardar `performance.getEntriesByType('resource').length`. Toque `#tabs` "📱 QR Code" → modo Link →
+     o campo vem com `www.lojateste.com.br` (SINAL: valor do input) → "Inserir". SINAIS: existe um `Group` com
+     `qrConfig.kind === 'link'` e payload `https://www.lojateste.com.br`; a contagem de recursos não mudou;
+     `editor.exportRaster('png', 1, 1)` → arquivo → `python tools/e2e/qr_decode.py <png>` imprime o payload exato; o
+     grupo só tem `Rect`/`Path` (nenhum `FabricImage`); `editor.exportSvg()` contém o `<path` do QR e nenhum `<image`
+     para ele (vetorial).
+  2. **WhatsApp + estilo:** nova inserção, modo WhatsApp (telefone pré-preenchido), mensagem "Olá! Vi o anúncio",
+     estilo "Pontos", cantos arredondados, cor do kit, legenda "CHAME NO WHATSAPP". SINAIS: decodifica para
+     `https://wa.me/5511988887777?text=Ol%C3%A1!%20Vi%20o%20an%C3%BAncio`; módulos em `#c2185b`; legenda presente.
+  3. **PIX:** modo PIX → chave `+5511988887777`, nome "Loja Teste", cidade "São Paulo", valor 19,90. SINAL: decodifica
+     para payload que começa com `000201`, contém `br.gov.bcb.pix`, `540519.90`, `6009SAO PAULO`, e cujo CRC confere
+     (`qr_decode.py --pix`). Colar um payload com CRC adulterado → `toast` de erro e nada inserido.
+  4. **Logo:** "Incluir logo" marcado → o grupo tem 1 `FabricImage` com `brandLogo: true` no centro; `qrConfig.ecc ===
+     'H'`; o PNG exportado ainda decodifica.
+  5. **Re-edição:** mover/escalar o QR do passo 2 (arrasto real + `📏 Posição / Tamanho` largura 300), anotar centro e
+     largura exibida; tocar no QR → `#props` "✏️ Editar QR Code" → a folha reabre com o telefone/mensagem atuais (SINAL:
+     valores dos inputs) → trocar a mensagem → "Aplicar". SINAIS: mesmo centro (±1 px), mesma largura exibida (±1 px),
+     mesmo índice na pilha, o novo payload decodifica; `↶` volta ao QR anterior em 1 toque.
+  6. **Tabela:** `#tabs` "📊 Tabela" → "👕 Tabela de Medidas" (1 toque). SINAIS: `Group` com `tableData.rows` =
+     cabeçalho `Tamanho | Largura | Comprimento` + 4 linhas (P/M/G/GG); textos visíveis no print. Tocar na tabela →
+     "✏️ Editar Tabela" → grade de inputs com os valores atuais → `+ Linha`, digitar `XG | 58 cm | 76 cm`, estilo
+     "Linhas Zebradas" → "Aplicar". SINAIS: 6 linhas em `tableData.rows`, mesmo `left/top` e escala do grupo,
+     retângulos zebrados alternados; no estilo "Cabeçalho Destacado" o fundo do cabeçalho é `#c2185b`. "📋 Lista de
+     Preços": a coluna de preço fica alinhada à direita (borda direita dos textos na borda direita da coluna − padding).
+  7. **Persistência:** `editor.toDocument()` → `editor.load(doc)` → o QR e a tabela continuam com `qrConfig`/`tableData`
+     e os botões "✏️ Editar…" aparecem ao selecioná-los.
+  Prints (`screencap`) após 1, 2, 4, 5 e 6; um print do aparelho com o QR também passa no `qr_decode.py` (leitura "como
+  câmera", a partir da tela).
+- **Controle positivo:** APK da base (`git checkout --detach <base>` + `build`, como o manual): `#tabs` não tem
+  "📱 QR Code" nem "📊 Tabela", `typeof editor.upsertQrCode === 'undefined'` e `ppEditor.setBrandKit` não existe — o
+  `task05.mjs` deve falhar logo no passo 1 com esse sinal (funcionalidade ausente).
+- **T3 regressão direcionada:** vitest inteiro (sem falha nova contra a base); `tools/e2e/task12.mjs` (conectores e
+  `renderProps` de `Group`, mesmo padrão de troca no lugar), `task11.mjs` (agrupar/desagrupar, camadas, inspetor),
+  `task14.mjs` (abas/folhas, `renderProps` de texto) e `task03.mjs` (cores/`colorInput`). No `task05.mjs`, conferir
+  também que um `Group` comum (agrupar 2 formas) ainda mostra "🔓 Desagrupar" e o ramo genérico de cores.
+- **T4:** logcat do PID sem `Uncaught`/erro de console do WebView novo durante o `task05.mjs`.
+
+### Sessões seguintes
+
+- dev: effort high, ultrathink sim — codificador QR do zero (tabelas EC, RS, colocação, máscaras, versão ≥ 7: um bit
+  errado gera QR ilegível) e geometria do Fabric na re-edição (manter o tamanho exibido quando a versão muda).
+- teste: effort medium, ultrathink não — roteiro E2E com sinais objetivos (decodificação por OpenCV, valores por CDP); a
+  classificação de falha é direta.
+

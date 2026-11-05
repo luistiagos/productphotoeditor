@@ -116,3 +116,231 @@ Inspirado em `bgStyleTransfer` (`Ibt` em `module-create-DxNmnX1s.js` L272825–L
 - [ ] Na aba **Fundo**, o botão **"✨ Extrair fundo da foto do produto"** cria um gradiente harmônico com a embalagem do produto e permite replicar o estilo para todas as páginas do carrossel.
 - [ ] `npx vitest run` e `npm run build` executam com 0 erros.
 
+
+---
+
+## Planejamento (pipeline 20261105-1638, 2026-11-05)
+
+**Veredito:** corrigir — tudo cabe em `editor-web/` (TS + bundle). O Kotlin grava o documento como JSON opaco e já exporta
+um arquivo por pedido com nome único, então nenhum módulo Gradle muda (só o bundle versionado em `:editor`).
+**Complexidade:** alta — formato de dados novo (`pages[]` no documento `pp-editor`), histórico (undo) entre páginas e
+geometria no Fabric (reflow); um módulo só, sem mudança na ponte.
+**Severidade:** medio — funcionalidade nova (P2). Hoje dá para contornar com um rascunho por slide e o "Tamanho" 1-a-1.
+**Tamanho estimado:** ~1.400 linhas novas (src ~850, testes ~300, E2E ~250), abaixo do teto de ~1.500 do manual. Se a
+implementação passar muito disso, a ordem de corte é: 1) páginas + salvar/exportar todas, 2) Magic Resize, 3) estilo
+de fundo. Entregar um bloco pela metade não vale: o que não couber fica para uma task nova, escrito no doc.
+
+**Arquivos a alterar (reserva da onda):**
+- `editor-web/src/document.ts` — `EditorPage`, `pages?`, `activePageIndex?` (continua `DOC_VERSION = 1`); `parseDocument`
+  valida/normaliza `pages`; `fontsUsed` passa por todas as páginas.
+- `editor-web/src/history.ts` — `replace(state)`: troca o estado atual sem empilhar (trocar de página não é edição).
+- `editor-web/src/editor.ts` — páginas (`getPageCount`, `getActivePageIndex`, `switchToPage`, `addPage`, `movePage`,
+  `deletePage`, miniaturas), `load`/`toDocument`/`restore` com páginas, `magicResize(formats)`, aplicar o fundo em todas
+  as páginas, `exportAllPagesRaster`.
+- `editor-web/src/magicResize.ts` — **novo**: `smartReflowLayout` puro (caixas → novas posições/escalas).
+- `editor-web/src/bgStyleTransfer.ts` — **novo**: `extractBackgroundStyle` puro (cores dominantes → degradê, mood, cor de texto).
+- `editor-web/src/main.ts` — faixa de páginas, modo ✨ Magic Resize no `showSize`, botões no `showBackgrounds`,
+  "Exportar todas as páginas" no `showExport`.
+- `editor-web/src/brandkit.ts` — `applyBrandKit` aplica o kit em todas as páginas, não só em `fabric`.
+- `editor-web/index.html` — container da faixa de páginas (`<div id="pages">`), se ela não for criada pelo JS.
+- `editor-web/src/styles.css` — estilos da faixa e das miniaturas.
+- `editor-web/test/document.test.ts`, `editor-web/test/history.test.ts`, `editor-web/test/brandkit.test.ts` — casos novos.
+- `editor-web/test/magicResize.test.ts`, `editor-web/test/bgStyleTransfer.test.ts` — **novos**.
+- `tools/e2e/task09.mjs` — **novo**: E2E da T2.
+- `editor/src/main/assets/editor/index.html` — bundle regerado (os `assets/index-<hash>.*` entram por `claim` no dev).
+
+### Causa raiz (símbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+Como é task, a "causa" aqui é por que a funcionalidade não existe e onde ela entra.
+
+- `editor-web/src/document.ts::EditorDocument` (L63–71) — só `name/width/height/videoSettings/fabric`, sem páginas.
+  `createDocument` (L100) monta o objeto com esses campos e **descarta qualquer outro**. Se o dev não o mudar, `pages`
+  some no `toDocument`.
+- `document.ts::parseDocument` (L127–160) — aceita v0 (Fabric cru), o formato antigo `scenes` e a v1; em erro lança
+  `DocumentError`, e com `version !== 1` também lança. **Por isso `pages` entra como campo opcional da v1, não como v2**:
+  um app antigo abre um rascunho de várias páginas mostrando só a página ativa, em vez de recusar o arquivo.
+  O `parseDocument` re-chama `createDocument`, então `pages` precisa ser lido e repassado aqui também.
+- `document.ts::fontsUsed` (L180) — passa só por `doc.fabric.objects`. Quem chama: `Editor.load` (antes do
+  `loadFromJSON`) e `Editor.exportSvg` (L1507). Com páginas, a fonte de uma página não ativa não carrega. Solução: incluir
+  `pages[*].fabric`, ou chamar `ensureFonts` no `switchToPage`.
+- `editor-web/src/editor.ts::Editor.load` (L208–227) — `parseDocument` → `ensureFonts` → define tamanho e nome →
+  `videoSettings` com `width/height` do doc → `loadFromJSON(doc.fabric)` fora do histórico → `syncLocks`/`refitCurves`/
+  `fit` → `history.reset(snapshot)` → `onChange`. Quem chama: `main.ts::start()` (rascunho), `bridge 'loadProject'`
+  (L60), `applyKit` (L147, sobre `toDocument()` + `applyBrandKit`), `openTemplate`, `newDocument`.
+- `editor.ts::Editor.toDocument` (L233–237) — `canvas.toObject()` + `brandBackground` → `createDocument(...)`. É o que vai
+  para o `saveDraft`, para o `getDocument` da ponte e para **todo instantâneo do histórico** (`snapshot`, L239).
+- `editor.ts::Editor.restore` (L263–278) — undo/redo: `parseDocument(state)` → `loadFromJSON(doc.fabric)`; o tamanho só
+  muda se for diferente. Não toca em nome nem em vídeo. Com páginas, precisa restaurar o `pages[]` inteiro e o índice ativo.
+- `history.ts::History` — `push` ignora estado igual ao atual (comparação de string); também há `reset`, `undo` e `redo`.
+  Não há como trocar o estado atual sem empilhar, então o `replace` é novo.
+- `editor.ts::Editor.resize` (L298–318) — com `scaleContent`, escala uniforme `min(sx,sy)` e centraliza; pula a camada
+  `layerName === 'background'`, depois faz `coverPage` + `refreshGradient` do fundo, `fit` e `commit`. É a base do Magic
+  Resize: chamar com `scaleContent=false` e depois posicionar pelo reflow.
+- `editor.ts::backgroundLayer/coverPage/replaceBackgroundLayer/setBackgroundColor/setBackgroundGradientSpec/
+  setBackgroundImage/backgroundGradient` (L391–447) — o fundo é `canvas.backgroundColor` **ou** uma camada
+  `layerName='background'` (Rect com `customGradient`, ou imagem) no índice 0. `setBackgroundGradientSpec` gera o degradê
+  com as coordenadas do tamanho da página atual (`buildFabricGradient(spec, w, h)`). Por isso, para aplicar o fundo em
+  páginas de outro tamanho, o certo é recriá-lo a partir do `customGradient` em cada página, nunca copiar o objeto Rect.
+- `editor.ts::exportRaster` (L1482) / `renderPage` (L1431) / `thumbnail` (L1489) — rasterizam **o canvas atual**. Para
+  "todas as páginas" é preciso, para cada página, trocar a página no canvas, rasterizar e depois voltar à página de antes.
+- `editor.ts::renderThumbnail` (L1651) — renderiza `doc.fabric` num `StaticCanvas` fora do editor. Serve para as
+  miniaturas da faixa sem trocar de página (custo: um `loadFromJSON` por página).
+- `main.ts::saveDraft` (L131–143) — manda `{id, name, document: editor.toDocument(), thumbnail: editor.thumbnail()}`.
+  Um rascunho com páginas sai daqui sem mudar nada, desde que o `toDocument` leve `pages`.
+- `editor/src/main/kotlin/com/productphoto/editor/EditorSession.kt::saveDraft` (L173–179) → `data/.../Drafts.kt::
+  FileDraftRepository.save` (L63) → `header()` (L91) — o Kotlin só lê `format == 'pp-editor'` e `width/height` em
+  1..8000, e grava `document.toString()` inteiro. Em erro, lança e o JS mostra "Rascunho não salvo". **`pages` passa sem
+  mudança no Kotlin**, desde que `width/height` da raiz sejam os da página ativa.
+- `EditorSession.kt::export` (L238) → `exportName` (L324: `base_yyyyMMdd_HHmmss`) → `EditorScreen.kt` (L74) →
+  `EditorExports.save` (L23: MediaStore, `Pictures/<ALBUM>`). Cada pedido `export` grava um arquivo. Com
+  `name = "<nome>_p1"`, `"<nome>_p2"`…, os nomes saem distintos no mesmo segundo. **Exportar todas é um laço no JS, e o
+  Kotlin não muda.** Compartilhar e imprimir continuam com uma página só (cada pedido abre o próprio diálogo).
+- `main.ts::showSize` (L1407–1456) — `apply(W,H)` → `editor.resize(W,H,scale)`. Lista os formatos de
+  `formats.ts::DESIGN_FORMATS` agrupados por `GROUP_LABELS`. O modo Magic Resize reaproveita esse catálogo com checkbox.
+  **O catálogo não tem "Mercado Livre 1200×1200" nem "Banner Facebook 1200×630"** (os exemplos do §2.2). Os equivalentes
+  são `li_square` 1200×1200, `li_post` 1200×627, `fb_post` 1080×1080, `ig_reels`/`story` 1080×1920 e `banner` 1920×1080.
+  Usar o catálogo; não inventar formato.
+- `main.ts::showBackgrounds` (L1371–1391) — cor sólida, degradê personalizado, presets, imagens e cores da marca. Os
+  botões novos entram aqui.
+- `main.ts::mainProductImage` (L358) — a maior `FabricImage` visível que não é fundo (já usada pela paleta).
+  `imageColors` (L370) — até 4 cores dominantes por `palette.ts::dominantColors` numa grade 16×16; com imagem de outra
+  origem (canvas sujo) devolve `[]`, porque o `catch` engole o erro. Ou seja: "Extrair fundo da foto" sem cor precisa de
+  toast, não de degradê vazio.
+- `contrast.ts::relativeLuminance/contrastRatio/suggestReadableColor/LOW_CONTRAST` e `gradients.ts::evenStops/
+  GradientSpec` — já existem e dão `mood` e `recommendedTextColor` sem código novo de cor.
+- `main.ts::showExport` (L1751–1807) — formato, escala, salvar/compartilhar/imprimir e mockup. "Exportar todas as
+  páginas" só faz sentido com PNG/JPG e "Salvar na galeria".
+- `brandkit.ts::applyBrandKit` (L89–118) — copia o doc e anda só em `out.fabric.objects`. Com páginas, o kit chegaria só
+  à ativa (e o `load` seguinte sobrescreveria a ativa com `fabric`, o que é o certo).
+- Leitores de `doc.fabric` no Kotlin: só os testes instrumentados (`EditorExportInstrumentedTest.kt:78`,
+  `EditorBridgeInstrumentedTest.kt:154/194`, via `getDocument`). Com `fabric` = página ativa, eles continuam valendo.
+
+**O desenho que sai disso (o dev confere ao abrir):**
+1. O `Editor` guarda `pages: EditorPage[]` e `activePage`. O canvas é sempre a página ativa. `toDocument()` grava
+   `pages[active] = {id, width, height, fabric: canvas.toObject()}`, e `fabric/width/height` da raiz são os da página
+   ativa (o Kotlin e os leitores antigos continuam funcionando). **Um documento de uma página só sai sem `pages`**, para
+   que o rascunho antigo fique idêntico no round-trip e os testes atuais não mudem.
+2. `load(doc)`: se `pages` existir, a página ativa vem de `doc.fabric/width/height` (é o que `applyKit` e o
+   `loadProject` mandam), e as outras de `pages[i]`. `activePageIndex` fora da faixa → 0.
+3. `switchToPage(i)`: `flushPending` → grava a atual em `pages[active]` → `ensureFonts` da página nova →
+   `loadFromJSON(pages[i].fabric)` sem histórico → tamanho e `videoSettings.width/height` → `syncLocks`/`refitCurves`/`fit`
+   → `history.replace(snapshot)`, sem empilhar. O undo de uma edição feita em outra página volta para aquela página
+   (`restore` lê `activePageIndex` do instantâneo).
+4. `addPage`, `movePage` e `deletePage` são edições: empilham no histórico e chamam `onChange` (o rascunho salva sozinho
+   em 4 s). `deletePage` não apaga a última página.
+5. Magic Resize: para cada formato marcado, duplica a página ativa como página nova, chama `resize(W,H,false)` e aplica
+   `smartReflowLayout` sobre as caixas dos objetos (papel: fundo / topo `top < 0.25·H` / produto = maior imagem / textos).
+   O reflow é puro (números → números), para o vitest provar. A caixa vem do Fabric (`getBoundingRect`): **o dev confere
+   na fonte do fabric 7.4.0 em que plano ela volta** (cena × viewport) antes de usar. O posicionamento é por
+   `setPositionByOrigin`/centro, como o `refitCurve` já faz.
+6. Estilo de fundo: `extractBackgroundStyle(colors)` → `{primaryBgColor, secondaryBgColor, mood, recommendedTextColor}`.
+   "Extrair da foto" = `imageColors(mainProductImage())` → degradê linear `GradientSpec`, mais o ajuste dos textos cujo
+   contraste com o fundo novo fique `< LOW_CONTRAST`. "Aplicar em todas" = ler o fundo da ativa (cor, `customGradient` ou
+   imagem `src`) e recriá-lo em cada página, no tamanho dela, numa entrada só do histórico.
+
+### Provas (comando literal -> resultado)
+
+- `wc -l editor-web/src/*.ts` → `editor.ts` 1.719, `main.ts` 1.893, `document.ts` 193 (base `0d616c3`).
+- `grep -rn "toDocument()\|\.fabric\b\|parseDocument(" editor-web/src` → leitores de `fabric`: `brandkit.ts:92/115`,
+  `editor.ts:214/219/266/269/1507/1657`, `main.ts:65/134/147/154/1138`. Todos leem a página única, e é isso que os
+  itens 1–2 do desenho preservam.
+- `grep -rn "editor.load\|getDocument\|\"fabric\"" app/src editor/src --include=*.kt` → só os testes instrumentados leem
+  `fabric`; nenhum código de produção Kotlin olha dentro do documento além de `Drafts.header`.
+- `sed -n 91,99p data/src/main/kotlin/com/productphoto/data/Drafts.kt` → `header` exige só `format`, `width` e `height`.
+- `formats.ts` (L20–57) → não há 1200×1200 "Mercado Livre" nem 1200×630; há `li_square`, `li_post`, `story` e `banner`.
+
+### Hipóteses descartadas (e por quê)
+
+- **`DOC_VERSION = 2` para páginas:** o `parseDocument` de um app antigo recusaria o rascunho inteiro
+  (`unsupported version`). Com campo opcional na v1, o app antigo abre a página ativa.
+- **Mexer no Kotlin para "exportar todas" (ZIP/lote):** `export` já grava um arquivo por pedido com nome único, e o lote
+  em ZIP é escopo da TASK-10 (`EditorExports.kt`). Aqui o Kotlin não muda. A linha "+ ajuste na exportação de múltiplas
+  páginas em `:editor`" dos metadados não se confirma.
+- **Um canvas Fabric por página:** multiplica a memória (imagens decodificadas) no WebView do celular. Fica um canvas só,
+  com as páginas inativas guardadas como JSON.
+- **Copiar o objeto de fundo (Rect) entre páginas:** as coordenadas do degradê são do tamanho da página de origem
+  (`buildFabricGradient(spec, w, h)`), então numa página de outro tamanho o degradê sai torto. Recriar pelo `customGradient`.
+- **Trocar de página empilhando no histórico:** o "↶" passaria a só alternar páginas. Daí o `History.replace`.
+- **Testar o reflow com Fabric no vitest:** `fabric/node` precisa de `canvas` nativo (ARQUITETURA §15.3). Por isso o
+  reflow e a extração de estilo são funções puras sobre números e cores, e o comportamento no canvas é provado pelo E2E.
+
+### Tarefas
+
+- [ ] `document.ts::EditorPage/EditorDocument/createDocument/parseDocument/fontsUsed` — `pages?` e `activePageIndex?`
+  opcionais; validar cada página (tamanho por `checkSize`, `fabric.objects` array); doc de 1 página sai sem `pages` —
+  vitest `document.test.ts`: round-trip com 3 páginas; doc v1 sem `pages` inalterado; página inválida → `DocumentError`;
+  índice fora da faixa → 0; `fontsUsed` acha a fonte de uma página inativa.
+- [ ] `history.ts::History.replace` — vitest `history.test.ts`: `replace` não cria undo e não mexe em `past`/`future`.
+- [ ] `editor.ts`, páginas (`getPageCount`, `getActivePageIndex`, `switchToPage`, `addPage({duplicateCurrent, width,
+  height})`, `movePage`, `deletePage`, `load`/`toDocument`/`restore`) — E2E `task09.mjs` (casos 1–6 da T2 e o undo cruzado).
+- [ ] `magicResize.ts::smartReflowLayout` (+ classificação das camadas) — vitest `magicResize.test.ts`: 1080² → 1080×1920
+  (produto centralizado com ~45–55% da área útil, título no terço de cima, preço/CTA no de baixo, dentro da zona segura
+  9:16 da TASK-01); 1080² → 1920×1080 (produto à esquerda, textos à direita); o fundo vira `cover`; nada sai da página.
+- [ ] `editor.ts::magicResize(formats)` + `main.ts::showSize` (modo ✨ com checkbox sobre o `DESIGN_FORMATS`, botão "Gerar
+  N formatos como páginas") — E2E caso 7.
+- [ ] `bgStyleTransfer.ts::extractBackgroundStyle` — vitest `bgStyleTransfer.test.ts`: cores escuras → `mood: 'dark'` e
+  texto `#ffffff`; claras → `light` e `#111111`; saturadas → `vibrant`; lista vazia → `null`; contraste texto/fundo ≥ 4,5.
+- [ ] `editor.ts`, aplicar o fundo em todas, + `main.ts::showBackgrounds` ("🎨 Aplicar estilo deste fundo em todas as
+  páginas", "✨ Extrair fundo da foto do produto"; sem foto ou sem cor → toast) — E2E casos 8–9.
+- [ ] `editor.ts::exportAllPagesRaster` + `main.ts::showExport` ("Exportar todas as páginas (N)", só PNG/JPG + Salvar;
+  volta à página de antes) — E2E caso 10.
+- [ ] `brandkit.ts::applyBrandKit` também em `pages[*].fabric` — vitest `brandkit.test.ts`.
+- [ ] `main.ts`, faixa de páginas (`📄 Página i/N`, miniaturas, `+ Nova`, `⧉ Duplicar`, `◀ ▶`, `🗑️`) + `styles.css`
+  (+ `index.html` se precisar) — E2E casos 1–5.
+- [ ] Leitura para o teste pelo `window.editor` (já exposto): `getPageCount()`, `getActivePageIndex()`,
+  `toDocument().pages`. Nenhum atalho que pule a UI.
+- [ ] `npx tsc --noEmit` + `npx vitest run` em `editor-web/`; `build --bug <slug>` em background; commit do código junto
+  com o bundle, `feat(editor): ... (TASK-09)`.
+
+### Plano de teste
+
+- **Offline (sem slot):** `npx tsc --noEmit`; `npx vitest run` (os casos novos acima, mais os 161 atuais sem regressão:
+  `document`, `history` e `brandkit` intocados nos casos de uma página); o `build` do helper (vitest + `testDebugUnitTest`).
+  O `parseDocument` de um rascunho atual (v1 sem `pages`) tem que sair idêntico (`toEqual`).
+- **T2 reprodução como o usuário (E2E, no slot):** `tools/e2e/task09.mjs`, com cwd na lane:
+  `ANDROID_SERIAL=<serial> node tools/e2e/task09.mjs <evidencia>`. Partida: `launchEditor()` → "Novo design → Post
+  Facebook" (1080×1080; no moto, `E2E_FORMAT="Post Instagram"`, 1080×1350, e as contas de geometria usam
+  `editor.width/height`). Montagem pela UI: aba **Texto** → um título e um texto de preço; aba **Imagem** → Galeria → 1º
+  item (`/sdcard/Pictures/e2e_swap.jpg`; o tester confere que ele existe e que não há SVG recente na galeria, ver
+  `docs/bugs/open/editor-galeria-svg-pickimage.md`); aba **Fundo** → um degradê de preset. Sinais lidos por CDP em
+  `editor`, prints por `screencap`:
+  1. A faixa mostra `Página 1/1`. Toque em `⧉ Duplicar` → `editor.getPageCount() === 2`, `getActivePageIndex() === 1`, e a
+     página 2 tem os mesmos objetos (mesma contagem e mesmos textos).
+  2. Toque em `+ Nova` → 3 páginas; a página nova não tem camadas, mas herda o fundo (mesmo `customGradient`).
+  3. Editar o texto na página 2; `◀` para a 1 → o texto da 1 está inalterado; `▶` de volta → a edição está lá.
+  4. Reordenar: mover a página 3 para a 1ª posição → a ordem dos `id` em `toDocument().pages` mudou e a ativa continua
+     sendo a mesma página.
+  5. `🗑️` numa página → N−1 páginas; com 1 página, o botão fica desabilitado.
+  6. Persistência: "Salvar" (ou esperar 4 s) → `am force-stop` → abrir o app → **Rascunhos** → tocar no rascunho →
+     `toDocument().pages.length` igual ao de antes e o texto da página 2 igual. É o critério "tudo é salvo no mesmo
+     rascunho".
+  7. Aba **Tamanho** → ✨ Magic Resize → marcar 3 formatos (Story 1080×1920, Banner 1920×1080, Post LinkedIn quadrado
+     1200×1200) → "Gerar 3 formatos como páginas" → +3 páginas com esses tamanhos. Em 9:16, o centro da foto fica no terço
+     do meio e o título acima dela; em 16:9, o centro da foto fica em `x < W/2` e os textos em `x > W/2`; nenhum objeto sai
+     da página (bbox dentro de `[0,W]×[0,H]`); o fundo cobre a página. Um print de cada.
+  8. Aba **Fundo** → "✨ Extrair fundo da foto do produto" → a camada de fundo tem `customGradient` com cores tiradas da
+     foto (diferentes do preset), e os textos têm contraste ≥ 3 sobre o fundo novo.
+  9. "🎨 Aplicar estilo deste fundo em todas as páginas" → todas as páginas, inclusive as de outro tamanho, com o mesmo
+     `customGradient` e a camada de fundo no tamanho da própria página. Um "↶" desfaz tudo de uma vez.
+  10. **Exportar** → PNG → "Exportar todas as páginas (N)" → "Salvar na galeria" → N arquivos `<nome>_p1..pN_*.png` novos
+     em `Pictures/<álbum do app>` (`adb shell content query --uri content://media/external/images/media --projection
+     _display_name`, filtrado pelo nome, ou `ls` da pasta); depois a página ativa é a mesma de antes. Apagar os exports de
+     teste no fim.
+  Undo cruzado: editar na página 2, ir para a 1, "↶" → volta à página 2 com a edição desfeita.
+- **Controle positivo:** APK da base (`build` com `git checkout --detach <base>`), com o mesmo começo: não há faixa de
+  páginas, `editor.getPageCount` é `undefined`, a aba Tamanho não tem ✨ Magic Resize e a aba Fundo não tem os dois botões.
+  O script tem que falhar já no caso 1, e isso conta como prova da ausência.
+- **T3 regressão direcionada:** `tools/e2e/task12.mjs` (degradê de fundo, `customGradient`, formas), `task11.mjs`
+  (camadas, agrupar, cadeado, inspetor; usa o histórico e o `restore`), `task14.mjs` (localizar/substituir e desenho; usa
+  `textLayers` e o histórico) e `task03.mjs` (paleta/conta-gotas; usa `mainProductImage`/`imageColors`). Mais: abrir um
+  rascunho **antigo** (de uma página, salvo antes do fix) e conferir que ele abre igual e sem `pages`, e que o "Tamanho"
+  normal (1 formato, "Ajustar o conteúdo") segue igual. Vídeo (`task04.mjs`) só se o dev mexer em `videoSettings` além de
+  `width/height`.
+- **T4:** logcat do PID sem erro novo de `chromium` nem `Uncaught` durante a troca de páginas e o Magic Resize.
+
+### Sessões seguintes
+
+- dev: effort high, ultrathink sim — modelo de dados com retrocompatibilidade, histórico entre páginas e geometria no
+  Fabric (reflow por papel), com muitos caminhos (load/restore/applyKit/troca de página) que precisam concordar.
+- teste: effort medium, ultrathink não — o roteiro E2E é longo, mas os sinais são objetivos (contagens, tamanhos, bbox,
+  arquivos). O cuidado é com o aparelho compartilhado e com apagar os exports.

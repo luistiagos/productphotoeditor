@@ -88,3 +88,203 @@ Criar o módulo [`editor-web/src/adPreview.ts`](file:///c:/projects/sandbox/prod
 - [ ] Tocar em **"👁️ Preview"** permite visualizar o anúncio simulado no **Feed do Instagram**, nos **Reels/Stories** e na **Busca do Mercado Livre/Shopee**.
 - [ ] `npx vitest run` e `npm run build` passam com 0 erros.
 
+
+---
+
+## Planejamento (pipeline 20261105-1638, 2026-11-05)
+
+**Veredito:** corrigir — a funcionalidade não existe (zoom fixo no `fit()`, sem grade nem preview) e cabe inteira em `editor-web/` (estimativa ~1.100 linhas novas, 1 módulo), testável no aparelho pelo CDP.
+**Complexidade:** media — um módulo (`editor-web` + o bundle), vários arquivos e um fluxo novo de UI (folha de preview, pílula de zoom); sem Kotlin, sem ponte nova e sem formato de dados novo (grade, guias manuais e zoom são estado de tela, **não** entram no documento).
+**Severidade:** medio — funcionalidade ausente (P2 de usabilidade): sem zoom não há como posicionar detalhe pequeno nem pintar máscara com precisão; o resto do editor funciona.
+**Arquivos a alterar (reserva da onda):**
+- `editor-web/src/viewportZoom.ts` — **novo**: matemática pura do zoom ancorado, limites e rastreador de pinça (sem DOM)
+- `editor-web/src/adPreview.ts` — **novo**: modelo puro dos 3 simuladores + montagem do DOM com `h()` de `dom.ts`
+- `editor-web/src/overlays.ts` — `GridOverlayMode`, `gridLines()` puro e `renderGridOverlay()`
+- `editor-web/src/snapping.ts` — `computeSnap()` aceita candidatos extras (terços e guias manuais)
+- `editor-web/src/editor.ts` — zoom do usuário/pan, gesto de 2 dedos, `after:render` sob o `viewportTransform` (corrige o bug lateral), máscara fora da página, `exportSvg` com viewport identidade, `gridOverlay`/`customGuides`
+- `editor-web/src/main.ts` — botão "👁️ Preview" na topbar, Grade e guias manuais em `showSize()`, pílula de zoom no `#stage`
+- `editor-web/src/styles.css` — pílula de zoom (`#stage` vira `position: relative`) e a folha de preview
+- `editor-web/test/viewportZoom.test.ts` — novo
+- `editor-web/test/adPreview.test.ts` — novo
+- `editor-web/test/overlays.test.ts` — novo (`gridLines`)
+- `editor-web/test/snapping.test.ts` — casos dos terços e das guias manuais
+- `editor/src/main/assets/editor/index.html` — bundle regerado (arrastado por qualquer mudança em `editor-web/`)
+- `tools/e2e/task13.mjs` — E2E novo (T2)
+
+### Causa raiz (símbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+
+Item é task: "causa" = o que existe hoje e onde a funcionalidade entra. Linhas da base `0d616c3` (lane `wt-planning`).
+
+- `editor-web/src/editor.ts::Editor.fit` (l.287–295) — `zoom = min(w/docWidth, h/docHeight)` com `pad = 16`;
+  `setDimensions(página × zoom)` (o elemento `<canvas>` tem exatamente o tamanho da página na tela) e
+  `setViewportTransform([zoom,0,0,zoom,0,0])`. Chamado por: `ResizeObserver(host)` (l.186), `load` (l.222),
+  `restore` (l.273, só se o tamanho mudou) e `resize` (l.315). Não há estado de zoom do usuário: a funcionalidade
+  está ausente. `this.zoom` também é usado em `addImage` (l.351, teto de escala `1/zoom`) e no `after:render`.
+- `editor-web/src/editor.ts::Editor` construtor, `object:moving` (l.126–144) — `computeSnap(bbox, docW, docH,
+  outros, 6 / canvas.getZoom())`: o limiar já acompanha o zoom efetivo; `getBoundingRect()` é em coordenadas de cena.
+- `editor-web/src/editor.ts::Editor` construtor, `after:render` (l.156–166) — desenha `renderOverlayGuide` e
+  `renderGuideLines` no `opt.ctx` em coordenadas de documento, com `this.zoom`. **Defeito existente:** o Fabric
+  entrega esse `ctx` SEM o `viewportTransform` (ver abaixo) → bug lateral
+  `docs/bugs/open/editor-guias-e-zonas-seguras-fora-de-escala.md`. Com pan isso fica ainda mais errado: a TASK-13
+  tem de desenhar tudo sob `ctx.transform(...vpt)`; isso corrige o bug lateral junto.
+- `node_modules/fabric/src/canvas/StaticCanvas.ts::renderCanvas` (l.535–571, Fabric 7.4.0) — ordem: fundo →
+  `save; transform(vpt); _renderObjects; restore` → `drawControls` (se `!controlsAboveOverlay`) → clipPath →
+  `_renderOverlay` → `after:render`. Controles são desenhados no MESMO contexto inferior, ANTES do `after:render`.
+  A escala de retina é fixa no contexto (`canvas/DOMManagers/util.ts:20`).
+- `node_modules/fabric/src/canvas/StaticCanvas.ts::_renderBackgroundOrOverlay` (l.619–668) — o `backgroundColor`
+  preenche o retângulo do ELEMENTO inteiro (0..width, 0..height do canvas, antes do vpt). Se o elemento ficar maior
+  que a página (zoom < 1 ou pan), o branco cobre a área fora da página e objetos fora da página aparecem: hoje quem
+  recorta é a borda do elemento.
+- `node_modules/fabric/src/canvas/Canvas.ts::_isMainEvent` (l.602–618) — pointer com `isPrimary === false` é
+  ignorado: o 2º dedo não chega ao Fabric, mas o 1º continua dirigindo o transform corrente → pinça começada sobre
+  o objeto selecionado o arrastaria. `canvas.selection = false` só desliga o retângulo de seleção, não o arrasto.
+- `node_modules/fabric/src/canvas/SelectableCanvas.ts::endCurrentTransform` (l.1335–1343) — FINALIZA o transform
+  (`_finalizeCurrentTransform` → `object:modified` → instantâneo no undo); não desfaz. Para abortar sem efeito é
+  preciso devolver `target.set(_currentTransform.original)` + `setCoords()` e zerar `_currentTransform` (campo
+  protegido no TS) sem disparar `object:modified`.
+- `editor-web/src/editor.ts::renderPage` (l.1431–1443), `::renderPageCanvas` (l.1449–1463), `::renderRegion`
+  (l.1626) — trocam o vpt por identidade e ligam `isExporting` (o `after:render` sai cedo): PNG/JPG, miniatura,
+  conta-gotas e o pacote de vídeo já independem do zoom. Em erro: `finally` devolve o vpt.
+- `editor-web/src/editor.ts::exportSvg` (l.1503–1525) — **não** troca o vpt: `toSVG` com `viewBox` explícito;
+  objetos saem sem vpt, mas `StaticCanvas._setSVGBgOverlayColor` (≈ l.1178–1182) usa `invertTransform(vpt)` num
+  fundo que seja gradiente/padrão → com zoom/pan o SVG sairia deslocado. Cor lisa usa `100%` (sem efeito).
+- `editor-web/src/editor.ts::clientToDoc`/`docToClient` (l.1467–1479) — usam o vpt e o retângulo do
+  `lowerCanvasEl`: corretos com qualquer vpt (conta-gotas e os E2E dependem deles).
+- `editor-web/src/editor.ts::thumbnail(maxSide)` (l.1489) — `renderPage(maxSide/maior lado, 'jpeg', 0.8)`:
+  `thumbnail(1080)` serve ao preview.
+- Pincel (`freeDrawingBrush`, l.1326/1380) — largura em unidades de cena; o PencilBrush do Fabric desenha com o vpt:
+  funciona ampliado.
+- `editor-web/src/main.ts::updateTopbar` (l.165–173) — ↶ ↷ título Camadas Salvar Exportar: o "👁️ Preview" entra
+  antes de "Exportar".
+- `editor-web/src/main.ts::showSize` (l.1407–1457) — folha "Tamanho e Guias" com `select('Zona Segura', …)` e o
+  checkbox de Smart Guides: lugar da Grade e das guias manuais.
+- `editor-web/src/main.ts` `brandKit` (l.34, variável de módulo) — `BrandKit.profile.company`, `logoUrl`
+  (`brandkit.ts` l.13–17). `editor` fica em `window.editor` (l.1819) para os E2E.
+- `editor-web/src/dom.ts::openSheet(title, content, {tall})` (l.97–109) — devolve `close`.
+- `editor-web/src/styles.css` `#stage` (l.61) — flex centralizado, `overflow: hidden`; `.canvas-container` com sombra.
+- `editor-web/vite.config.ts` — vitest em `environment: 'node'` (sem DOM): a lógica testável tem de ser pura.
+- `tools/e2e/cdp.mjs::connect().pinch(cx, cy, d1, d2)` (l.160–170) — dois dedos reais (ids 1 e 2) na horizontal;
+  pan de 2 dedos se faz no script com `send('Input.dispatchTouchEvent', …)` transladando os dois pontos.
+
+### Provas (comando literal -> resultado)
+- `sed -n 530,575p node_modules/fabric/src/canvas/StaticCanvas.ts` → `ctx.restore()` (l.554) antes de
+  `this.fire('after:render', { ctx })` (l.571).
+- `grep -rn "ctx.scale(" node_modules/fabric/src/canvas/DOMManagers/` → `util.ts:20: ctx.scale(retinaScaling, retinaScaling)`.
+- `grep -n "\"version\"" node_modules/fabric/package.json` → `7.4.0`.
+- `grep -n "this\.zoom\|getZoom()\|viewportTransform" src/*.ts` → só `editor.ts` (l.128, 161, 164, 291–293, 351,
+  1434–1477, 1627): nenhum outro módulo depende do tamanho do elemento.
+- `git status --porcelain docs` → nenhum doc novo de outro planner sobre overlay/guias (dedup do bug lateral).
+
+### Hipóteses descartadas (e por que)
+- **Ampliar o elemento `<canvas>` (página × Z) e rolar o `#stage`** (alternativa do doc original): descartado. A 4×
+  num 1080×1920 o elemento passa de 1350×2400 px CSS (× DPR ≈ 2,75 → ~24 M px por canvas, 2 canvases ≈ 200 MB) e
+  cada quadro da pinça redesenharia tudo isso. O caminho é o vpt com o elemento do tamanho da área útil.
+- **Trocar SEMPRE para elemento = área do `#stage`:** descartado para o fator 1. Mudaria a aparência e o retângulo do
+  canvas em todos os E2E existentes sem necessidade; com `userZoom === 1` e pan 0 o `fit()` atual fica intacto.
+- **`canvas.clipPath` para esconder o que sai da página:** descartado — o `clipPath` é serializado pelo
+  `toObject()` (entraria no documento salvo).
+- **`endCurrentTransform()` para soltar o objeto ao entrar o 2º dedo:** descartado — finaliza (gera
+  `object:modified` e um passo de undo com o deslocamento do 1º dedo), não desfaz.
+- **Guias manuais persistidas no documento:** fora — seria formato de dados novo (`document.ts`); nenhum critério
+  de aceite pede persistência. Ficam no `Editor` durante a sessão.
+
+### Tarefas
+- [ ] `editor-web/src/viewportZoom.ts` (novo) — `MIN_FACTOR = 0.5`, `MAX_FACTOR = 4`; `clampFactor(f)`;
+  `anchoredZoom(state, anchor, newFactor, base)` → `{factor, panX, panY}` mantendo sob `anchor` o mesmo ponto do
+  documento; `pinchStep(start, now)` (distância e ponto médio de 2 dedos → novo estado: escala `d_t/d_0` ancorada em
+  `M_t` + translação `M_t − M_0`); `clampPan(state, page, viewport)` (a página nunca sai inteira da tela: sobra ao
+  menos `min(64 px, lado)` visível); `viewportMatrix(base, state, layout)` → `[Z,0,0,Z,e,f]`. — **prova:**
+  `test/viewportZoom.test.ts`: ponto do documento sob a âncora invariável (tol 1e-6), limites 0,5/4, clamp do pan,
+  fator 1 + pan 0 ⇒ matriz igual à do `fit()` atual.
+- [ ] `editor-web/src/editor.ts::Editor` — `baseZoom` (o atual `zoom`), `userZoom`, `panX/panY`; `fit()`: com
+  fator 1 e pan 0 faz exatamente o de hoje; senão elemento = área útil do host e vpt = `viewportMatrix(...)`.
+  `load`/`newDocument`/`resize` zeram o zoom do usuário; `ResizeObserver` mantém o fator. Públicos: `zoomFactor`
+  (get), `setZoom(f, anchorClient?)`, `zoomBy(step)`, `resetZoom()`, `panBy(dx, dy)`. `addImage` continua com o
+  `baseZoom`. — **prova:** E2E passos A–D (fator 1 depois do reset ⇒ mesmo `getZoom()`, vpt e tamanho de elemento
+  da base).
+- [ ] `editor-web/src/editor.ts::Editor` (gesto) — listeners de toque/pointer no host em captura: ao entrar o 2º dedo,
+  cancelar o `LongPress`, desfazer o transform corrente pelo `original` (sem `object:modified`), descartar o
+  retângulo de seleção em curso, `canvas.selection = false` e não deixar os movimentos do 1º dedo chegarem ao Fabric
+  até todos os dedos saírem; então restaurar. Cada `touchmove` de 2 dedos aplica `pinchStep` + `clampPan` e
+  `requestRenderAll`. — **prova:** E2E passo A (objeto selecionado sob o 1º dedo: `left/top/scaleX/scaleY/angle`
+  iguais e `history` sem passo novo) e passo B (pan).
+- [ ] `editor-web/src/editor.ts` `after:render` — `ctx.save(); ctx.transform(...vpt)`; zona segura, grade, guias
+  manuais e guias ativas com o zoom efetivo `canvas.getZoom()`; `restore`. Fora do fator 1: pintar a área fora da
+  página (cor de fundo do `#stage`) em coordenadas de tela e redesenhar as alças do objeto ativo por cima
+  (`drawControls` roda antes do `after:render`). — **prova:** E2E passos F/I (pixel da linha no lugar certo) e bug
+  lateral.
+- [ ] `editor-web/src/editor.ts::exportSvg` — viewport identidade em `try/finally`, como `renderPage`. — **prova:**
+  E2E passo E (SVG a 200% === SVG a 100%).
+- [ ] `editor-web/src/overlays.ts` — `GridOverlayMode = 'none' | 'thirds' | 'grid-100'`; `gridLines(mode, w, h)`
+  puro → `{axis, pos, major}` (terços: W/3, 2W/3, H/3, 2H/3; grid-100: a cada 10%, `major` a cada 50%);
+  `renderGridOverlay(ctx, mode, w, h, zoom)` (tracejado sutil + os 4 pontos de interseção dos terços). — **prova:**
+  `test/overlays.test.ts`.
+- [ ] `editor-web/src/snapping.ts::computeSnap` — parâmetro opcional `extra?: { x: number[]; y: number[] }`
+  (retrocompatível) com candidatos de página inteira; o `Editor` passa os terços quando `gridOverlay === 'thirds'`
+  e as `customGuides`. — **prova:** `test/snapping.test.ts` (alvo a 3 px de W/3 ⇒ `deltaX` leva a borda/centro a
+  W/3; sem `extra` o resultado de hoje não muda).
+- [ ] `editor-web/src/editor.ts` — `gridOverlay: GridOverlayMode = 'none'` e `customGuides: {axis, pos}[]`
+  (estado de tela, fora do documento/undo). — **prova:** E2E passos F e H.
+- [ ] `editor-web/src/adPreview.ts` (novo) — `previewModel(kit)` puro (nome = `kit.profile.company || 'Sua Loja'`,
+  avatar = `logoUrl` ou inicial, "Patrocinado", "Comprar agora ›", preço `"R$ 99,90"`, "Frete grátis", card
+  170×170) e `buildAdPreview(mode, imageUrl, kit)` para `'feed' | 'stories' | 'marketplace'` (Stories: moldura
+  9:16 com ícones laterais e barra de resposta por cima; Marketplace: grade de 2 colunas com o criativo e cards
+  fictícios). Só imagem `data:` (CSP). — **prova:** `test/adPreview.test.ts` (modelo) + E2E passo G.
+- [ ] `editor-web/src/main.ts` — `button('👁️ Preview', showAdPreview)` antes de "Exportar" (`thumbnail(1080)` +
+  `openSheet(..., {tall: true})` com 3 chips de modo); em `showSize()` `select('Grade', none/thirds/grid-100)` e
+  "Guias manuais" (eixo + posição em px, "Adicionar", "Limpar"); pílula `#zoom-pill` fixa no canto inferior direito
+  do `#stage` (`−`, rótulo `NN%` que reseta ao toque, `+`), atualizada a cada mudança de zoom. — **prova:** E2E.
+- [ ] `editor-web/src/styles.css` — `#stage { position: relative }`, pílula, folha de preview (card feed, moldura
+  9:16, grade marketplace). — **prova:** prints do E2E.
+- [ ] `tools/e2e/task13.mjs` (novo) — o roteiro da T2 abaixo, no modelo de `task14.mjs` (`launchEditor`,
+  `reporter`, `screencap`, terminar com `p.close()`).
+- Ordem: código + vitest → `npx tsc --noEmit` → `build --bug <slug>` (background) → `claim` dos `assets/index-*`
+  que o `git status` listar → commit `feat(editor): zoom/pan por pinça, grade dos terços e preview de anúncio (TASK-13)`
+  junto com o bundle.
+
+### Plano de teste
+- **Offline (sem slot):** `npx vitest run` (todos; novos: `viewportZoom`, `overlays`, `adPreview`, casos novos de
+  `snapping`) e `npx tsc --noEmit` em `editor-web/`; `build --bug` sai 0 (vitest + `:app:assembleDebug
+  testDebugUnitTest`).
+- **T2 reprodução como o usuário (E2E, no slot):** `node tools/e2e/task13.mjs <evidencia>` com cwd na lane.
+  Estado de partida: `launchEditor()` (Novo design → Post Facebook 1080×1080; no moto `E2E_FORMAT="Post Instagram"`),
+  "Formas" → retângulo (objeto selecionado). Antes de tudo guardar `Z0 = editor.canvas.getZoom()`, o vpt e o
+  tamanho do `lowerCanvasEl`. Cada passo com print (`screencap`):
+  - **A — pinça:** 1º dedo sobre o retângulo selecionado, `pinch(cx, cy, 150, 450)` no centro do `#stage` →
+    `getZoom() ≈ 3·Z0` (tol 15%); `editor.clientToDoc(cx, cy)` antes ≈ depois (tol 3 px de documento);
+    `left/top/scaleX/scaleY/angle` do retângulo idênticos; `editor.history` sem passo novo (estado de `canUndo`/
+    tamanho igual); a pílula mostra ≈ 300%.
+  - **B — pan com 2 dedos:** dois pontos transladados +100 px em x → `viewportTransform[4]` aumenta ≈ 100 (tol 10).
+  - **C — limites:** pinça 100→900 repetida → `getZoom() ≤ 4·Z0 + ε`; pinça 600→60 repetida → `≥ 0,5·Z0 − ε`.
+  - **D — reset:** toque no rótulo `%` da pílula → `getZoom() === Z0`, vpt `[Z0,0,0,Z0,0,0]`, elemento do mesmo
+    tamanho de antes. Toque em `+` → fator > 1.
+  - **E — exportar ampliado:** com 200% (pílula `+`), `editor.exportRaster('png', 1, 1)` e `editor.exportSvg()`
+    idênticos (string) aos gerados no fator 1; PNG decodificado 1080×1080. Complemento pelo caminho do usuário:
+    "Exportar → PNG" a 200%, `adb pull` do arquivo novo em `Download/ProductPhoto/` e conferir 1080×1080 no
+    cabeçalho PNG (apagar o export depois).
+  - **F — grade dos terços:** "Tamanho" → Grade "Regra dos terços" → `editor.gridOverlay === 'thirds'`; pixel do
+    `lowerCanvasEl` na posição de tela de `docToClient(360, 200)` com a cor da grade (≠ fundo); no PNG exportado o
+    mesmo ponto é a cor do fundo (grade não exporta). Arrastar o retângulo até a borda esquerda ficar a ~3 px de
+    tela de x = 360 → ao soltar, `getBoundingRect().left === 360` (tol 0,5).
+  - **G — preview:** topbar "👁️ Preview" → folha aberta; modo Feed: texto contém "Patrocinado", "Comprar agora" e o
+    nome da loja (`Sua Loja` sem brand kit); modo Stories: moldura 9:16 com a imagem; modo Marketplace: 2 colunas,
+    "R$ 99,90", "Frete grátis", imagem do criativo com 170 px CSS de lado e `src` começando com `data:image/jpeg`.
+  - **H — guia manual:** "Tamanho" → guia vertical em 200 → arrastar o retângulo para perto → borda/centro em 200.
+  - **I — bug lateral:** Zona Segura "Marketplace (1:1)" no fator 1 → pixel em `docToClient(135, 540)` é o ciano
+    `#00e5ff` (tol de cor; tracejado: amostrar 3 pontos na linha e exigir ≥ 1).
+- **Controle positivo:** APK da base (`git checkout --detach <base>` + `build`) com o mesmo `task13.mjs`: A falha
+  (`getZoom()` não muda e o 1º dedo arrasta o retângulo: `left` muda), não há pílula, nem "👁️ Preview" (G falha), nem
+  select "Grade" (F falha); I falha (a linha ciano está em `docToClient(405, 540)`). O script tem de reportar `fail`
+  nesses passos, não abortar no primeiro (`try` por passo, `reporter` por passo).
+- **T3 regressão direcionada:** `task03.mjs` (conta-gotas: `clientToDoc`/`renderPageCanvas`), `task11.mjs` (arrasto,
+  inspetor, grupos), `task12.mjs`, `task14.mjs` (toque longo em texto, desenho à mão = `freeDrawingBrush` com vpt) —
+  todos no fator 1, sem `fail` novo contra a base. Dentro do `task13.mjs`: com 200%, desenhar à mão um traço e
+  conferir que ele nasce sob o dedo (`clientToDoc` do ponto inicial ≈ início do path, tol 6 px de documento); abrir
+  "Renomear" (teclado encolhe o `#stage`) e fechar → sem exceção e fator mantido.
+- **T4:** logcat do PID (`AndroidRuntime`, `FATAL`, `chromium`/console) na janela do teste sem erro novo.
+
+### Sessões seguintes
+- dev: effort high, ultrathink sim — geometria do viewport no Fabric (âncora, pan, máscara fora da página) e conflito
+  de gestos com o transform interno do Fabric (campo protegido, ordem de render): raciocínio, não digitação.
+- teste: effort medium, ultrathink não — o roteiro está escrito no `task13.mjs`; o cuidado é a pinça por CDP e a
+  tolerância do snap (6 px de tela), já descritos aqui.
