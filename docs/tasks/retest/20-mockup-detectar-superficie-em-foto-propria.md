@@ -1,5 +1,54 @@
 # [TASK-20] Mockup em Foto Própria com "🎯 Detectar Superfície" (Sobel / Alpha)
 
+## Status (pipeline 20261106-0749 — aprovado no teste rodada 1, 2026-11-06)
+
+**Feito:** o estúdio **📦 Mockup 3D** ganhou dois botões:
+- **📷 Usar foto própria**: abre a galeria (`pickImage`) e põe a foto como base, num plano, com o quad central.
+- **🎯 Detectar superfície**: sugere os 4 cantos pelo `editor-web/src/mockup/surfaceDetector.ts` (puro, com vitest).
+  Recorte com alfa usa o contorno α > 32; foto opaca usa bordas Sobel 3×3 com limiar adaptativo; sem superfície clara
+  cai no quad central, com o aviso para ajustar as alças.
+
+O ajuste fino é pelas 4 alças da TASK-08. No modo Caixa 3D o 🎯 fica escondido. Uma foto recortada vai ao design em PNG
+(o transparente continua transparente) e à galeria em JPEG sobre branco.
+
+**Commits** (sobre `origin/main` @ `e290d05`): `61903a6` docs (nota do dev), `a52d61a` feat(editor) TASK-20 (código,
+vitest, `task20.mjs`, `styles.css`, bundle `index-ktLomAS6.js`/`index-DpCRsHtb.css`), `ddc359a` test(e2e) e este
+commit de docs. Diff conferida (`git diff e290d05...HEAD`): só arquivos reservados.
+
+**Aparelho:** emulador `emulator-5554` (sdk_gphone64_x86_64, API 34), o único no adb, que já estava aberto. Antes de
+instalar: `versionName=0.4.0`, `lastUpdateTime=2026-11-06 15:38:04` (`aparelho.txt`). Os SHA-256 batem com o
+`base.apk` instalado: base `3c3690ee…1932`, fix `e2b1b3be…be35`. Ficou instalado o APK do fix. As 3 fotos de teste
+foram apagadas de `/sdcard/Pictures` no fim (conferido: 0 restantes).
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1255-task-20-mockup-detectar-superficie-em-foto-propria\`):
+- **Offline:** `npx tsc --noEmit` deu 0 erros; `surfaceDetector.test.ts` passou 14/14; `npx vitest run` deu 34
+  arquivos e **413 testes**. O `build` do helper saiu 0 na base e no fix (`build-base.log`, `build-fix.log`), e a lane
+  ficou limpa. `testDebugUnitTest` rodou 211 testes, com 0 falhas.
+- **Controle positivo** (APK da base): `task20.mjs` deu 1/2. O estúdio abre, mas sem "Usar foto própria" nem
+  "Detectar superfície" (`base/task20-base.txt`, `base/20-base-estudio.png`).
+- **T2** (APK do fix): `task20.mjs` deu **14/14** (`fix/task20-fix.txt`, prints `fix/20-*.png`):
+  - a foto 1200×900 com retângulo girado 12° vira a base `own` → `sobel`, com cantos a 4–5 px dos verdadeiros (tolerância
+    60), na ordem TL,TR,BR,BL; aparece o toast "Superfície detectada"; as alças ficam nos cantos (erro 0 px); a arte
+    está dentro do quad (artFrac 1,00);
+  - arrastar a alça TL move só o TL (155 px da base);
+  - Inserir adiciona +1 `image` 1200×900 JPEG;
+  - a foto lisa 800×600 dá `fallback`, quad central exato e o toast "Nenhuma superfície clara";
+  - o recorte PNG 900×600 dá `alpha`, com cantos a 1–4 px (tolerância 45); Inserir gera PNG com α = 0 no canto;
+  - nenhuma exceção JS.
+- **T3:** vitest inteiro (acima); `task08.mjs` deu **10/10** (`t3-task08/`); `task19.mjs` deu **11/11** (`t3-task19/`).
+  O `mockupStudio.ts` é dos dois; a Caixa 3D continua igual.
+- **T4:** `logcat-pid-28591.txt` (T2) e `logcat-pid-29332.txt` (T3, task19) não têm FATAL, ANR nem exceção JS. Os
+  únicos `E` são:
+  - `Uncaught exception thrown by finalizer` de `ai.onnxruntime.telemetry.HttpClient`, que já existia. Aparece em todo
+    launch do emulador desde 13:02, inclusive no da base (pid 28270);
+  - `variations_seed_loader` do WebView;
+  - "Failed to fetch remote templates/icons", por falta de rede.
+
+  Nada disso é atribuível ao fix.
+
+**Falta para `done/`:** o dono validar no aparelho dele com uma foto real: um quadro, cartão ou caixa na mesa, e um
+PNG recortado. Detectar, ajustar as alças, inserir e salvar.
+
 > **Origem:** dividida da TASK-08 pelo dono em 2026-11-05 (§2.3 original "Detecção Automática de Superfície por Filtro
 > Sobel" e critério 4; a "08c" do planning). **Depende da
 > [TASK-08](08-mockup-25d-3d-cilindro-esfera-cubo-sobel-iluminacao.md)**: usa o estúdio e as 4 alças dela; só começa

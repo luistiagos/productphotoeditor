@@ -28,7 +28,7 @@
 | **TASK-17** | [Vinheta, Borda Suave e Desfoque de Foco (Bokeh Radial / Tilt-Shift)](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/retest/17-vinheta-borda-suave-e-desfoque-de-foco.md) — *dividida da TASK-07; depende da TASK-07* | 🟡 **Retest** | **Média (P2)** | **Médio** | ~1,5 dia (10h–12h / **3 SP**) | `editor-web` (`imageFilters.ts`, filtros GLSL + 2D) |
 | **TASK-18** | [Retocar Recorte depois de Remover o Fundo (Pincel Apagar / Restaurar)](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/open/18-retocar-recorte-pos-remocao-de-fundo.md) — *dividida da TASK-07* | ⚪ **Aberta** | **Média (P2)** | **Médio** | ~1,5 dia (10h–12h / **3 SP**) | `editor-web` (`refineCutout.ts`) + `:editor` (`putImage`) |
 | **TASK-19** | [Mockup: Caixa 3D Multi-Face](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/retest/19-mockup-caixa-3d-multi-face.md) — *dividida da TASK-08; depende da TASK-08* | 🟡 **Retest** | **Média-Alta (P1/P2)** | **Baixo a Médio** | ~1 dia (7h–8h / **2 a 3 SP**) | `editor-web` (`mockup/box3d.ts`) |
-| **TASK-20** | [Mockup em Foto Própria com "🎯 Detectar Superfície" (Sobel / Alpha)](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/open/20-mockup-detectar-superficie-em-foto-propria.md) — *dividida da TASK-08; depende da TASK-08* | ⚪ **Aberta** | **Média-Alta (P1/P2)** | **Baixo a Médio** | ~1 a 1,5 dia (8h–11h / **3 SP**) | `editor-web` (`mockup/surfaceDetector.ts`) |
+| **TASK-20** | [Mockup em Foto Própria com "🎯 Detectar Superfície" (Sobel / Alpha)](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/retest/20-mockup-detectar-superficie-em-foto-propria.md) — *dividida da TASK-08; depende da TASK-08* | 🟡 **Retest** | **Média-Alta (P1/P2)** | **Baixo a Médio** | ~1 a 1,5 dia (8h–11h / **3 SP**) | `editor-web` (`mockup/surfaceDetector.ts`) |
 
 ---
 
@@ -54,7 +54,7 @@
    - [`TASK-13`](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/retest/13-zoom-pan-pinch-reguas-grade-e-simulador-preview-anuncio.md) *(Em Retest)* — Zoom/Pan por Pinça + Grade Regra dos Terços + Simulador de Preview (Instagram/Mercado Livre)
    - [`TASK-08`](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/retest/08-mockup-25d-3d-cilindro-esfera-cubo-sobel-iluminacao.md) *(Em Retest)* — Mockup 2.5D: Cilindro, Esfera, Plano com malha, Fusão de luz/dobras e Estúdio
    - [`TASK-19`](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/retest/19-mockup-caixa-3d-multi-face.md) *(Em Retest)* — Mockup Caixa 3D multi-face *(dividida da TASK-08; depois da TASK-08)*
-   - [`TASK-20`](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/open/20-mockup-detectar-superficie-em-foto-propria.md) — Mockup em foto própria + Detectar superfície *(dividida da TASK-08; depois da TASK-08)*
+   - [`TASK-20`](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/retest/20-mockup-detectar-superficie-em-foto-propria.md) *(Em Retest)* — Mockup em foto própria + Detectar superfície *(dividida da TASK-08; depois da TASK-08)*
    - [`TASK-09`](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/retest/09-multi-paginas-carrossel-magic-resize-e-bg-style-transfer.md) *(Em Retest)* — Multi-Páginas Carrossel + Magic Resize Multi-Formato + Background Style Transfer
    - [`TASK-10`](file:///c:/projects/sandbox/product_photo_offline/docs/tasks/retest/10-data-merge-geracao-em-lote-catalogo-e-exportacao-batch.md) *(Em Retest)* — Data Merge de Catálogo/Preços + Exportação Lote / WebP / PDF com Sangria
 
