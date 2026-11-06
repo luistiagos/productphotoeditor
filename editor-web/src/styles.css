@@ -306,3 +306,7 @@ button:disabled { opacity: 0.4; }
   border: 3px solid #fff; background: var(--accent); box-shadow: 0 1px 4px rgba(0, 0, 0, .45); touch-action: none; opacity: .9; }
 .mockup-handle.dragging { transform: scale(1.25); opacity: 1; }
 .mockup-controls .row button { flex: 1; }
+/* TASK-19: modo Caixa 3D — uma linha por face (fonte: design / imagem / cor, e a cor) */
+.mockup-face { gap: 10px; }
+.mockup-face label.select > span:first-child { min-width: 4.5em; }
+.mockup-face label.color > span:empty { display: none; }

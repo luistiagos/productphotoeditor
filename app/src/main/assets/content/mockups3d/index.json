@@ -278,6 +278,41 @@
         ]
       ],
       "shadingStrength": 0.8
+    },
+    {
+      "id": "box",
+      "name": "Caixa 3D",
+      "shape": "box3d",
+      "file": "box.webp",
+      "thumb": "box_thumb.webp",
+      "width": 1200,
+      "height": 1200,
+      "quad": [
+        [
+          190.0,
+          130.0
+        ],
+        [
+          1010.0,
+          130.0
+        ],
+        [
+          1010.0,
+          950.0
+        ],
+        [
+          190.0,
+          950.0
+        ]
+      ],
+      "rotX": -20,
+      "rotY": 30,
+      "boxRatio": {
+        "w": 1,
+        "h": 1.3,
+        "d": 0.6
+      },
+      "fov": 35
     }
   ]
 }

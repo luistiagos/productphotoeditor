@@ -88,8 +88,9 @@ await p.tap('#tabs button', 'Mockup 3D');
 await p.waitFor(SHEET_OPEN, 5000);
 await p.waitFor(`document.querySelectorAll('#sheet .mockup-tile').length >= 5`, 10000);
 const tiles = await p.evaluate(`[...document.querySelectorAll('#sheet .mockup-tile')].map((b) => b.textContent)`);
-r.check('folha lista os 5 templates 2.5D e os 4 planos', ['Caneca', 'Pote / Garrafa', 'Bola', 'Ecobag', 'Camiseta', 'Pôster na parede']
-  .every((n) => tiles.includes(n)) && tiles.length === 9, JSON.stringify(tiles));
+// + a Caixa 3D da TASK-19 (entrada `box3d` do mesmo índice): 10 tiles
+r.check('folha lista os 5 templates 2.5D, a Caixa 3D e os 4 planos', ['Caneca', 'Pote / Garrafa', 'Bola', 'Ecobag', 'Camiseta',
+  'Caixa 3D', 'Pôster na parede'].every((n) => tiles.includes(n)) && tiles.length === 10, JSON.stringify(tiles));
 await p.tap('#sheet .mockup-tile', 'Caneca');
 await p.waitFor(`__mockupStudio.state().template === 'mug' && __mockupStudio.state().renders > 0`, 10000);
 await p.sleep(300);

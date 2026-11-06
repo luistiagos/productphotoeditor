@@ -294,7 +294,64 @@ def tshirt():
     return img, quad, mesh, "Camiseta", "plane", {"shadingStrength": .8}
 
 
-TEMPLATES_3D = [("mug", mug), ("jar", jar), ("ball", ball), ("ecobag", ecobag), ("tshirt", tshirt)]
+def box():
+    """Caixa 3D (TASK-19): só o fundo de estúdio (parede que se curva no chão, sem sombra pintada). As faces, a sombra de
+    contato e a rotação são do editor (`box3d.ts`); `quad` é a área de encaixe: a esfera que envolve a caixa cabe nela,
+    com o pé da caixa padrão (rotX −20, rotY 30) sobre o chão, ~925 px."""
+    h = w = S3
+    y = np.mgrid[0:h, 0:w][0].astype(np.float32) / h
+    sweep = np.clip((y - .56) / .18, 0, 1)
+    sweep = sweep * sweep * (3 - 2 * sweep)  # curva suave parede → chão (fundo infinito de estúdio)
+    lit = light(h, w, .4, .25, 1.15, .74, 1.0) * (1 - .1 * sweep) + noise(h, w, 8, .02, rng3)
+    wall = np.asarray((226, 222, 216), np.float32)
+    floor = np.asarray((204, 196, 186), np.float32)
+    col = wall[None, None, :] * (1 - sweep[..., None]) + floor[None, None, :] * sweep[..., None]
+    img = col * lit[..., None]
+    quad = [(190, 130), (1010, 130), (1010, 950), (190, 950)]
+    params = {"rotX": -20, "rotY": 30, "boxRatio": {"w": 1, "h": 1.3, "d": 0.6}, "fov": 35}
+    return img, quad, None, "Caixa 3D", "box3d", params
+
+
+def box_thumb(img, quad, params):
+    """Só a miniatura do tile: a caixa padrão em papelão, com a mesma projeção do `box3d.ts::boxFaces` (esfera envolvente
+    encaixada na área, culling pela área assinada, luz 100/108/78 %), para o tile mostrar uma caixa e não o fundo vazio."""
+    h, w = img.shape[:2]
+    r = params["boxRatio"]
+    n = float(np.sqrt(r["w"] ** 2 + r["h"] ** 2 + r["d"] ** 2))
+    hx, hy, hz = r["w"] / n, r["h"] / n, r["d"] / n
+    ay, ax, hf = np.deg2rad(params["rotY"]), np.deg2rad(params["rotX"]), np.deg2rad(params["fov"]) / 2
+    D = 1 / np.sin(hf)
+    xs, ys = [p[0] for p in quad], [p[1] for p in quad]
+    k = min(max(xs) - min(xs), max(ys) - min(ys)) / (2 * D * np.tan(hf))
+    ox, oy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+
+    def proj(a, b, c):
+        x, y, z = a * hx, b * hy, c * hz
+        x1, z1 = x * np.cos(ay) + z * np.sin(ay), -x * np.sin(ay) + z * np.cos(ay)
+        y2, zc = y * np.cos(ax) + z1 * np.sin(ax), -y * np.sin(ax) + z1 * np.cos(ax) + D
+        return ox + k * D * x1 / zc, oy + k * D * y2 / zc
+
+    faces = {"front": ([(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1)], 1.0),
+             "left": ([(-1, -1, 1), (-1, -1, -1), (-1, 1, -1), (-1, 1, 1)], .78),
+             "right": ([(1, -1, -1), (1, -1, 1), (1, 1, 1), (1, 1, -1)], .78),
+             "top": ([(-1, -1, 1), (1, -1, 1), (1, -1, -1), (-1, -1, -1)], 1.08)}
+    out = img
+    allpts = [proj(*c) for f in faces.values() for c in f[0]]
+    sx0, sx1, sy1 = min(p[0] for p in allpts), max(p[0] for p in allpts), max(p[1] for p in allpts)
+    sw = sx1 - sx0
+    out = shadow(out, ellipse_pts((sx0 + sx1) / 2, sy1 - .03 * sw, .5 * sw, .07 * sw), 0, 0, .06 * sw, .35)
+    kraft = np.asarray((196, 156, 108), np.float32)
+    for corners, lum in faces.values():
+        pts = [proj(*c) for c in corners]
+        area = sum(pts[i][0] * pts[(i + 1) % 4][1] - pts[(i + 1) % 4][0] * pts[i][1] for i in range(4))
+        if area > 0:
+            out = paint(out, poly_mask(h, w, pts), kraft * lum)
+    return out
+
+
+# `box` por último: consome o rng3 depois dos outros, cujos bytes não mudam
+TEMPLATES_3D = [("mug", mug), ("jar", jar), ("ball", ball), ("ecobag", ecobag), ("tshirt", tshirt), ("box", box)]
+THUMBS_3D = {"box": box_thumb}  # miniatura diferente da base (o resto usa a própria base reduzida)
 
 
 def main3d(out_dir):
@@ -307,7 +364,8 @@ def main3d(out_dir):
         arr, quad, mesh, name, shape, params = fn()
         img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
         img.save(out / f"{tid}.webp", "WEBP", quality=90)
-        thumb = img.copy()
+        thumb = (Image.fromarray(np.clip(THUMBS_3D[tid](arr, quad, params), 0, 255).astype(np.uint8)) if tid in THUMBS_3D
+                 else img.copy())
         thumb.thumbnail((320, 320), Image.LANCZOS)
         thumb.save(out / f"{tid}_thumb.webp", "WEBP", quality=80)
         entry = {"id": tid, "name": name, "shape": shape, "file": f"{tid}.webp", "thumb": f"{tid}_thumb.webp",
@@ -327,7 +385,8 @@ def main3d(out_dir):
         "| `jar` | cilindro (arco 140°) | pote/garrafa com tampa escura |\n"
         "| `ball` | esfera | bola clara com luz no alto à esquerda |\n"
         "| `ecobag` | plano com malha 4×4 | sacola de tecido com 2 vincos verticais (`ECOBAG_FOLDS`) |\n"
-        "| `tshirt` | plano com malha 4×4 | camiseta clara com 3 dobras (`TSHIRT_FOLDS`) |\n\n"
+        "| `tshirt` | plano com malha 4×4 | camiseta clara com 3 dobras (`TSHIRT_FOLDS`) |\n"
+        "| `box` | caixa 3D (`box3d`, TASK-19) | só o fundo de estúdio; faces, sombra e rotação são desenhadas pelo editor |\n\n"
         "Lidos só pelo estúdio \"📦 Mockup 3D\" do editor. Não entram em `../mockups/index.json` (fluxo Kotlin, só planos).\n",
         encoding="utf-8")
 

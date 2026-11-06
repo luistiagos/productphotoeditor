@@ -264,9 +264,11 @@ describe('índices de templates', () => {
   });
 
   it('o índice gerado (content/mockups3d) é válido: formas conhecidas, quads convexos dentro da base, malha de 16 pontos', async () => {
-    const raw = await loadJson(INDEX_3D) as { mockups: unknown[] };
+    const raw = await loadJson(INDEX_3D) as { mockups: { shape?: unknown }[] };
     const list = parseMockup3dIndex(raw);
-    expect(list.length).toBe(raw.mockups.length);
+    // a Caixa 3D (`box3d`, TASK-19) é lida pelo `parseBoxTemplates` do box3d.ts (box3d.test.ts); as demais entram todas
+    expect(list.length).toBe(raw.mockups.filter((e) => e.shape !== 'box3d').length);
+    expect(raw.mockups.length - list.length).toBe(1);
     expect(list.map((t) => t.id).sort()).toEqual(['ball', 'ecobag', 'jar', 'mug', 'tshirt']);
     expect(new Set(list.map((t) => t.shape))).toEqual(new Set(['plane', 'cylinder', 'sphere']));
     for (const t of list) {

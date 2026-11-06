@@ -249,7 +249,109 @@ plano se divergir.
   o modo caixa não pode quebrar os outros nem as handles); `testDebugUnitTest` do `build` (`MockupTest`: 4 planos em
   `mockups/index.json`, intocado).
 
+### Nota do dev (2026-11-06) — o código da TASK-08 aberto; correções ao plano
+Símbolos abertos (base `6493dc6`, TASK-08 já integrada):
+- `mockupEngine.ts` — `homographyFromQuads` (null em quad degenerado), `applyH`, `sampleBilinear(src,u,v,out)` (u,v em
+  px, centro do pixel em i+0,5; vizinho fora da imagem conta transparente → o box3d prende u,v em [0,5; lado−0,5]),
+  `isConvexQuad`, tipos `Pt`/`Quad`/`Pixels`. `Shape = 'plane'|'cylinder'|'sphere'` e `parseMockup3dIndex` **descarta**
+  `shape: 'box3d'` (comentário dela já diz "box3d é da TASK-19"); `isPt`/`toQuad`/`num` não são exportados.
+  **Não preciso tocar o `mockupEngine.ts`**: a entrada `box3d` é lida por um `parseBoxTemplates` próprio em `box3d.ts`.
+- `mockupStudio.ts::openMockupStudio` — confere com o plano: `select` Forma/Arte, sliders Arco/Inclinação/Fusão,
+  `.mockup-handle` ×4, `renderPreview` por rAF, `renderFull` (JPEG 0,92), `insert`→`editor.addImage`, `save`→`bridge
+  .request('export', …)`, estado em `window.__mockupStudio.state()` e `canvas.dataset.state`. `setArt` lê arte por
+  `editor.renderPageCanvas(ART_MAX).canvas` (`editor.ts:2285`, devolve `{canvas, scale}`) ou `img.toCanvasElement`.
+- `dom.ts` — `slider`/`select`/`colorInput`/`h`/`button` como o plano descreve; `styles.css:35` — `[hidden]` vence o
+  `display:flex` das classes (as linhas do modo caixa somem com `hidden`).
+- `gen_mockups.py::main3d` — `rng3 = default_rng(83)` criado no `main3d`, templates em `TEMPLATES_3D` na ordem; reescreve
+  `index.json`/`SOURCES.md` de `mockups3d/`. **Prova:** `python tools/gen_mockups.py --3d <tmp>` + `cmp` contra os 12
+  arquivos versionados → os 12 idênticos (gerador determinístico) → o `box` entra **por último** em `TEMPLATES_3D`.
+- `content/SOURCES.md:11` já cobre a pasta `mockups3d/` inteira → **não precisa mudar** (fica fora do commit).
+
+Correções ao plano:
+1. **Dois arquivos que o plano não previu quebrariam a T3** se a entrada `box` entrasse no índice sem mexer neles:
+   `editor-web/test/mockupEngine.test.ts` (o teste do índice exige `list.length === raw.mockups.length` e os ids
+   exatos dos 5) e `tools/e2e/task08.mjs` (exige `tiles.length === 9`; com a Caixa 3D são 10). Os dois foram
+   reservados por `claim` (saída 0) junto com os da pasta nova.
+2. **Encaixe da caixa pelo disco da esfera envolvente, não pelo bbox das faces** (`fitFaces` do plano): com o bbox a
+   caixa "respira" (muda de tamanho) a cada grau de rotação. A esfera que envolve a caixa projeta-se num disco de raio
+   `f·tan(fov/2)` (câmera a `D = R/sen(fov/2)` do centro, `R` = meia diagonal = 1 após normalizar): escala fixa, todos
+   os vértices dentro do retângulo do template para QUALQUER rotação (o teste de "dentro do retângulo" vale numa grade).
+3. **Sombra de contato dinâmica** (elipse suave sob a silhueta, `renderBox` opção `shadow`) em vez de sombra pintada no
+   fundo: a pintada não acompanharia a rotação. O fundo `box.webp` é só parede + chão.
+4. **Fresta**: cobertura por distância em px às 4 arestas do quad PROJETADO (exata sob perspectiva) com dilatação de
+   0,5 px: na aresta comum, sempre uma das duas faces cobre 100 % → nenhum fundo vaza.
+5. Rótulo do `fov` no estúdio: "Perspectiva" (graus de campo de visão; maior = mais perspectiva).
+
 ### Sessões seguintes
 - dev: effort high, ultrathink sim — geometria com sinal de eixo fácil de errar (provado no protótipo), perspectiva,
   culling e fresta, mais encaixe num estúdio que só existirá depois da TASK-08; ~600–700 linhas novas.
 - teste: effort medium, ultrathink não — roteiro E2E com sinais numéricos definidos.
+
+---
+
+## Correcao (pipeline 20261106-0749, rodada 1)
+
+**O que mudou (`arquivo::simbolo` — o quê / por quê):**
+- `editor-web/src/mockup/box3d.ts` (novo, puro, sem DOM):
+  - `boxFaces(params, rect)` — 8 vértices da caixa normalizada (meia-diagonal 1), giro em Y e depois inclinação em X,
+    perspectiva com a câmera a `D = 1/sen(fov/2)`; culling pela **área assinada do quad projetado** (y para baixo,
+    > 0 = de frente); faces visíveis ordenadas da mais funda para a mais próxima; quads em px do `rect`. Encaixe pelo
+    disco da esfera envolvente (raio `D·tan(fov/2)` no plano de projeção ⇒ escala fixa, nada sai do retângulo em
+    rotação alguma). Retângulo vazio/NaN → `[]`.
+  - Convenção travada pelos testes: **Rotação Y > 0 → lateral direita** (à direita da frente), **Rotação X < 0 → topo**
+    (acima da frente); X > 0 → base. Cantos de cada face (`CORNERS`) na ordem TL,TR,BR,BL vista de fora: lateral começa
+    na aresta da frente, topo tem a borda de baixo colada no alto da frente, base a de cima no pé da frente.
+  - `FACE_LIGHT` (frente 1,00 · topo 1,08 · laterais/base 0,78), `FACE_SLOT` (left/right → `side`, bottom → `top`).
+  - `renderBox(base, faces, sources, {shadow})` — por face: cobertura pela distância em px às 4 arestas do quad
+    projetado + 0,5 px de dilatação (`COVER_OFFSET = 1`: na aresta comum uma das faces sempre cobre 100 % → sem fresta);
+    textura pela homografia `homographyFromQuads(quad → unitário)` da TASK-08 + `sampleBilinear` com u,v presos meio
+    pixel para dentro; recorte "cover" (`coverWindow`) no aspecto 3D da face; arte transparente sobre branco; RGB × luz
+    da face; sem `applySurfaceLighting`. Sombra de contato opcional (elipse suave sob a silhueta, acompanha a rotação).
+    Face quase de perfil sem homografia → cor média da arte; colapsada → pulada (não lança).
+  - `normalizeBox` (faixas da spec: X ±60, Y ±80, proporções 0,2–2, fov 15–75; NaN → padrão), `rectOfQuad`,
+    `signedArea`, `facePoint`, `parseBoxTemplates` (lê as entradas `shape: 'box3d'` do índice, que o
+    `parseMockup3dIndex` da TASK-08 descarta — **`mockupEngine.ts` não foi tocado**).
+- `editor-web/src/mockup/mockupStudio.ts::openMockupStudio` — modo Caixa 3D pelo tile "Caixa 3D" (template `box3d`):
+  `setBoxMode` esconde Forma/Arte/Arco/Inclinação/Fusão e as 4 alças e mostra `.mockup-box`: sliders Rotação X, Rotação
+  Y, Largura, Altura, Profundidade, Perspectiva e uma linha `.mockup-face[data-slot]` por face (Frente/Lateral/Topo:
+  `select` Design atual / Imagem selecionada (só com imagem selecionada) / Cor + `colorInput`; escolher a cor passa a
+  face para "Cor"). Padrão: frente = design; lateral e topo na cor da moldura do design (`edgeColor`, em geral o fundo
+  dele). Arte lida uma vez por `readArt` (cache; o `setArt` da TASK-08 passou a usá-lo, comportamento igual); arte
+  ilegível (canvas sujo) volta a face para a cor com aviso. `renderPreview`/`renderFull` desviam para `renderBoxAt`
+  (mesmo rAF, mesmo JPEG 0,92, mesmas saídas Inserir/Salvar). Estado exposto: `shape: 'box3d'` e
+  `box: {rotX, rotY, boxRatio, fov, faceArt, faceColor, visibleFaces, faceQuads, faceLight}` (quads em px do preview).
+- `editor-web/src/styles.css` — `.mockup-face` (linha por face).
+- `tools/gen_mockups.py` — `box()` (fundo de estúdio parede→chão, sem sombra pintada; `quad` = área de encaixe
+  190–1010 × 130–950, pé da caixa padrão no chão) **por último** em `TEMPLATES_3D`; `box_thumb` (só a miniatura: a
+  caixa padrão em papelão, mesma projeção, para o tile não ser um fundo vazio); linha `box` no `SOURCES.md`.
+- `app/src/main/assets/content/mockups3d/` — `box.webp`, `box_thumb.webp`, entrada `box` no `index.json`
+  (`rotX −20, rotY 30, boxRatio 1:1,3:0,6, fov 35`), `SOURCES.md` regerado. `content/SOURCES.md` **não muda** (a linha 11
+  já cobre a pasta).
+- `editor-web/test/box3d.test.ts` (novo, 18 testes) e `editor-web/test/mockupEngine.test.ts` (o teste do índice
+  passa a contar as entradas não-`box3d` e exige exatamente 1 `box3d`).
+- `tools/e2e/task19.mjs` (novo, a T2) e `tools/e2e/task08.mjs` (tiles: 10, com "Caixa 3D").
+
+**Provas offline (comando → resultado):**
+- `npx tsc --noEmit` → 0 erros; `npx vitest run` → 33 arquivos, **399 testes passam**; `npx vitest run
+  test/box3d.test.ts` → 18/18.
+- Mutação: `COVER_OFFSET = 0.5` (sem dilatação) → o teste "sem fresta" FALHA (1 failed); revertido → 18/18.
+- `python tools/gen_mockups.py --3d <tmp>` na base + `cmp` → 12/12 idênticos; com o `box` no repo → `git status` só
+  `box.webp`, `box_thumb.webp`, `index.json`, `SOURCES.md`; segunda execução → `index.json` byte a byte igual.
+- Render de conferência (fora do repo): fundo `box.webp` + arte 600×780 em (−20,30), (−45,−50), (25,70) → arte em pé,
+  lateral 78 %, topo/base orientados contra a frente, sombra sob a silhueta, sem fio do fundo nas arestas.
+
+**Hipóteses descartadas nesta rodada:**
+- `fitFaces` pelo bbox das faces (plano) — a caixa encolhia ~30 % ao girar; trocado pelo disco da esfera (nota acima).
+- Cobertura de borda do `renderMockup` (`edgeCov` em coordenadas da textura × largura média do quad): erra a distância
+  em px numa face em escorço forte; a distância às arestas do quad projetado é exata.
+- `Forma = Caixa 3D` nos outros templates: a caixa desenhada sobre a caneca/pote não faz sentido; o modo vem só do
+  template `box3d` (o controle positivo continua: sem tile "Caixa 3D" na base).
+
+**Ajustes ao Plano de teste (T2 = `tools/e2e/task19.mjs`):**
+- Perspectiva: com a caixa padrão o topo só aparece a partir de |X| ≈ 13° (`asen(meia-altura/D)`), por isso X = −10
+  NÃO mostra o topo; o roteiro usa −25 (como planejado).
+- Passo 0 novo: o tile abre em X −20 / Y 30 com frente+direita+topo, alças e Arco ocultos, 3 linhas de face.
+- Passo 5b novo: tile Caneca → cilindro com alças e Arco, sem controles da caixa (`state().box === null`); de volta à
+  Caixa 3D → modo caixa com as escolhas de face preservadas.
+- Salvar (7) antes de Inserir (6), como no `task08.mjs` (inserir fecha a folha); o arquivo é `mockup_box*.jpg`.
+- T3: `task08.mjs` agora exige 10 tiles (com "Caixa 3D"); na base da TASK-08 sem a TASK-19 ele daria 9 — esperado.

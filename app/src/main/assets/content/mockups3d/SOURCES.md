@@ -10,5 +10,6 @@ Nenhum modelo generativo, foto ou asset de terceiros foi usado (nada do app de r
 | `ball` | esfera | bola clara com luz no alto à esquerda |
 | `ecobag` | plano com malha 4×4 | sacola de tecido com 2 vincos verticais (`ECOBAG_FOLDS`) |
 | `tshirt` | plano com malha 4×4 | camiseta clara com 3 dobras (`TSHIRT_FOLDS`) |
+| `box` | caixa 3D (`box3d`, TASK-19) | só o fundo de estúdio; faces, sombra e rotação são desenhadas pelo editor |
 
 Lidos só pelo estúdio "📦 Mockup 3D" do editor. Não entram em `../mockups/index.json` (fluxo Kotlin, só planos).
