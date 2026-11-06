@@ -1,5 +1,55 @@
 # [TASK-18] Retocar Recorte depois de Remover o Fundo (Pincel Apagar / Restaurar com Borda Suave)
 
+## Status (pipeline 20261106-0749 — aprovado no teste rodada 1, 2026-11-06)
+
+**Feito:** depois do **✨ Remover fundo**, a imagem guarda a foto de antes (`originalSrcBeforeCutout`) e o painel ganha
+**🖌️ Retocar recorte**. Ele abre uma barra com:
+- **➖ Apagar sobra** e **➕ Restaurar original** (este devolve a cor da foto de antes);
+- **Tamanho do pincel** (5–120) e **Suavidade da borda** (0–100 %);
+- **Cancelar** e **Concluir**.
+
+O Concluir grava o PNG como blob do editor pela mensagem nova `putImage` (`/blob/edit-<uuid>.png`) e conta como 1 passo do
+↶. As ações de IA seguintes aceitam a imagem retocada. O 🔄 Substituir e o ⚡ lote (`swapPhotoJson`) apagam a original.
+
+**Commits** (sobre `origin/main` @ `9033756`): `4fd2512` docs (nota do dev), `e8b9b3e` feat(editor) TASK-18 (código,
+vitest, Kotlin, `task18.mjs`, bundle `index-eo1AX5-l.js`), `e17e3cb`/`1a7970e`/`a2439b5` docs (rodadas interrompidas por
+ambiente) e este commit. Diff conferida (`git diff 9033756...HEAD`): só arquivos reservados.
+
+**Aparelhos:**
+- Moto g86 5G (`ZY32LMNN9B`, adb-tls): T2, T3 e T4 finais. Antes: `versionName=0.4.0`, `lastUpdateTime=2026-11-05 23:52:10`.
+  Ficou com o APK da **base** `9033756` (o último instalado, para comparar a T3).
+- Emulador `emulator-5554` (recriado): T2 e T3. Saiu do adb no meio do teste; não fui eu que o fechei.
+- SHA-256 conferidos contra o `base.apk` instalado: base `b134ee4f…af3a`, fix `93afec37…a475`.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1318-task-18-retocar-recorte-pos-remocao-de-fundo\`):
+- **Offline:** `npx tsc --noEmit` deu 0 erros; `refineCutout.test.ts` passou 16/16; `npx vitest run` deu 35 arquivos e
+  430 testes, com 0 falhas. O `build` do helper saiu 0 na base e no fix. JVM: 211 testes na base e 213 no fix, com 0
+  falhas (`EditorAssetsTest` 2/2) (`junit-base.txt`, `junit-fix.txt`).
+- **Controle positivo** (APK da base): 3/3 no emulador e no Moto. Não há `.refine-btn` nem `originalSrcBeforeCutout`
+  (`emu2\base-task18-guardado.txt`, `moto\base-task18-guardado.txt`). Foi rodado com uma cópia do script que corrige
+  1 linha (bug lateral `docs/bugs/open/e2e-task18-ramo-da-base-quebra-em-refineinfo.md`).
+- **T2** (APK do fix): `task18.mjs` deu **20/20 no emulador** (`emu2\fix-task18.txt`) e **20/20 no Moto**
+  (`moto\fix-task18.txt`).
+  - Restaurar: o pixel P_t vai de α 0 à cor exata da original. A 0,8 raio, o α fica intermediário (68).
+  - Apagar: P_s vai de α 255 a α 0. ↶ volta ao blob do retoque anterior.
+  - Concluir grava `/blob/edit-…`. A ação de IA seguinte aceita a imagem (caiu no ✨ Remover fundo porque o upscale
+    recusa > 1 MP).
+  - Salvar e reabrir o rascunho mantém a `src` e a `originalSrcBeforeCutout`. Substituir apaga a original.
+  - Prints: `emu2\fix\02-restaurando.png`, `04-apagado.png`.
+- **T3:**
+  - No emulador, com o fix: `task11` 25/25, `task14` 50/50, `task09` 26/26 (`emu2\t3-task*.txt`).
+  - No Moto, com o fix: `task10` **13/13** (lote → `swapPhotoJson`) e `task14` **50/50** (`moto\r2\`).
+  - `task11` no Moto deu 22/25 na base e 22/25 no fix, com as mesmas 3 checagens do seletor de fotos. `task09` no Moto
+    trava no seletor na base e no fix. As duas falhas são do bug já aberto `docs/bugs/open/e2e-task11-seletor-de-fotos-moto-g86.md`
+    (reincidência anotada) e não vêm desta task.
+- **T4:** o logcat do Moto, da instalação do fix até a volta à base, não tem FATAL, ANR nem erro de console do WebView
+  (`moto\logcat-janela.txt`, `moto\r2\logcat-janela.txt`).
+
+**Falta para `done/`:** a validação do dono no aparelho dele. Nesse teste vale olhar:
+- um recorte real de produto (alça de caneca) com Apagar e Restaurar;
+- a sensação do pincel no dedo;
+- que o passo 7 do E2E confere a imagem depois da ação de IA do passo 6, e não o blob `edit-` em si (ver a rodada 1 abaixo).
+
 > **Origem:** dividida da TASK-07 pelo dono em 2026-11-05 (§2.4 original "Pincel de Refinamento de Recorte"; a "07c"
 > do planning). A TASK-07 ficou com mesclagem + Nitidez/Temperatura/Duotone e a
 > [TASK-17](17-vinheta-borda-suave-e-desfoque-de-foco.md) com vinheta, borda suave e desfoque de foco.

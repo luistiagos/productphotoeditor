@@ -32,3 +32,10 @@
 - Correção sugerida: regex `(Photo taken|Foto tirada|Item Foto criado)` e, depois do toque, tocar `Concluir`/`Done` se aparecer;
   se nada casar, `KEYCODE_BACK`. Evidência: `evidencia\20261105-2330-task-10\t3\` (`task09.txt`, `_tmp_task09.mjs`,
   `_tmp_task11.mjs`, `task09-estado.png`) e `t3-base\_tmp_task09_base.txt`.
+
+## Reincidência (teste da TASK-18, pipeline 20261106-0749, 2026-11-06 18:3x)
+
+- Moto g86: `task11` 22/25 com o APK da base `9033756` e com o do fix (mesmas 3 checagens); `task09` travado no seletor
+  na base (timeout da folha "Fundo", l.146) e no fix. Dump do seletor: `content-desc="Item Foto criado em 6 de nov. de 2026 18:21"`.
+  Evidência: `evidencia\20261106-1318-task-18-retocar-recorte-pos-remocao-de-fundo\moto\r2\` (`base-task11.txt`, `fix-task11.txt`,
+  `base-task09.txt`, `fix-task09.txt`).
