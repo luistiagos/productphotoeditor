@@ -244,3 +244,31 @@ Não há defeito: a funcionalidade não existe (`applyBooleanOp`/`.bool-*` ausen
 - dev: effort high, ultrathink sim — recorte poligonal com casos degenerados (vértice/aresta coincidentes, contidos,
   furos) e geometria/transformação no Fabric (manual: geometria no Fabric = high).
 - teste: effort medium, ultrathink não — E2E roteirizado; os sinais são numéricos (contagem, bbox, pixel).
+
+### Nota do dev (2026-11-06, antes da 1ª edição) — conferência e decisões
+- Base da lane = `d97035d` (o `origin/main` andou desde `80b97d7`: TASK-07 e TASK-15). As linhas mudaram, o conteúdo
+  confere: `editor.ts::groupActive` L1118, `swapShape` L1536, `shapeKindOf` L1520, `gradientOf` L1406, `commit`
+  L584, `scheduleSnapshot` L537 (debounce 250 ms), eventos `object:added/removed` L179–180, `makeShape` L2472;
+  `main.ts::renderProps` L262 (botão Agrupar L273). `editor` e exposto em `window.editor` (`main.ts` L2456).
+- Fabric 7.4.0 aberto: `Rect._render` (L89: canto = `bezierCurveTo` com `kRect = 1 − 0,5522847498`, rx/ry presos
+  em w/2, h/2), `Circle._render` (`arc(0,0,r,startAngle,endAngle,counterClockwise)` em graus), `Ellipse._render`
+  (rx, ry), `Triangle._render` (−w/2,h/2 → 0,−h/2 → w/2,h/2), `Polyline._render` (pontos − `pathOffset`; Polygon
+  fecha), `Path._renderPathCommands` (M/L/C/Q/Z − `pathOffset`). `Path` construtor: `_setPath(d, true)` →
+  `setPositionByOrigin(pathOffset, center, center)` — um `Path` criado do `d` em coordenadas de página (sem
+  left/top, origem center) desenha no lugar exato. `ObjectGeometry::calcTransformMatrix` (L487) sem `skipGroup`
+  multiplica a matriz da `ActiveSelection` (`Group::_enterGroup` liga `object.group`): os anéis saem em coordenadas
+  de página COM a seleção ainda ativa — o resultado é calculado antes de qualquer mutação do canvas.
+- Algoritmo escolhido (próprio): **arranjo planar + classificação de arestas**, N operandos de uma vez (sem dobrar
+  par a par): (1) achatar cada forma em anéis de página (curvas: subdivisão adaptativa até a planicidade ≤ 0,25 px;
+  círculo/elipse: nº de cordas pelo raio de página, erro ≤ 0,25 px); (2) cortar todas as arestas em todos os
+  cruzamentos, vértices tocando arestas (junção T) e trechos colineares sobrepostos, com fusão de vértices por ε;
+  (3) deduplicar sub-arestas iguais (aresta comum A/B vira uma); (4) para cada sub-aresta, testar dentro/fora de cada
+  operando (regra de preenchimento dele) num ponto logo à esquerda e logo à direita do meio; ela é borda do resultado
+  se `op(esq) ≠ op(dir)`, orientada com o interior à esquerda; (5) encadear as arestas em anéis (curva mais à
+  esquerda em cada vértice). Com `fillRule: 'evenodd'` o preenchimento só depende do conjunto de arestas, não de como
+  elas se encadeiam — é o que torna os casos degenerados seguros. Greiner-Hormann descartado: falha em vértice/aresta
+  coincidente (exige perturbação). `pathBoolean.ts` não importa valor do `fabric` (só `import type`, matriz própria,
+  tipo pelo `obj.type`): o vitest usa `fabric/node` e `instanceof` entre os dois builds não vale.
+- Operações com N formas: `union` = alguma; `intersect` = todas; `subtract` = base e nenhuma das demais; `exclude` =
+  nº ímpar (XOR). Base = a mais de baixo na pilha; o resultado herda dela (lista do `swapShape` +
+  `globalCompositeOperation`) e entra no índice dela. Resultado com área < 0,5 px² = vazio (nada muda; toast).
