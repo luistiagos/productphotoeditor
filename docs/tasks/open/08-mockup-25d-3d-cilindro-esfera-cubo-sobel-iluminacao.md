@@ -223,3 +223,143 @@ editor-web + assets do `:app` + gerador Python, e UI nova de alças arrastáveis
 ### Sessões seguintes (sugestão daquele planning)
 - dev: effort high + ultrathink (geometria + UI de alças).
 - teste: effort medium, sem ultrathink.
+
+---
+
+## Planejamento (pipeline 20261106-0749, 2026-11-06)
+
+**Veredito:** corrigir — o estúdio de mockup 2.5D (plano com malha, cilindro, esfera, fusão de luz/dobras) cabe todo em
+`editor-web/` + templates procedurais do `tools/gen_mockups.py`, sem Kotlin, e prova-se pela UI no aparelho.
+**Complexidade:** alta — formato de dados novo (`content/mockups3d/index.json` com `shape`/parâmetros), editor-web +
+assets do `:app` + gerador Python, UI nova de alças arrastáveis sobre um preview.
+**Severidade:** medio — funcionalidade nova ausente, com contorno (o mockup plano do fluxo Kotlin "Ver em mockup").
+**Arquivos a alterar (reserva da onda):**
+- `editor-web/src/main.ts` — aba `📦 Mockup 3D` no fim do array `tabs` (l.1376) chamando `openMockupStudio(...)`
+- `editor-web/src/styles.css` — estúdio, preview e alças
+- `editor/src/main/assets/editor/index.html` — bundle regerado pelo `build`
+- `tools/gen_mockups.py` — entrada `--3d <saída>` (os planos ficam intactos)
+- `app/src/main/assets/content/SOURCES.md` — linha dos templates 3D
+- `editor-web/test/mockupEngine.test.ts` (novo) e `tools/e2e/task08.mjs` (novo) — pastas existentes
+- **Arquivos em pasta NOVA — o `plan-done` recusa reservar caminho cuja pasta não existe (`pipeline.py` l.1872): o dev
+  faz `claim` deles ANTES da primeira edição**, numa chamada só:
+  `python <helper> claim --bug task-08-mockup-25d-3d-cilindro-esfera-cubo-sobel-iluminacao
+  --file editor-web/src/mockup/mockupEngine.ts --file editor-web/src/mockup/mockupStudio.ts
+  --file app/src/main/assets/content/mockups3d/index.json --file app/src/main/assets/content/mockups3d/SOURCES.md`
+  e um `--file app/src/main/assets/content/mockups3d/<id>.webp` / `<id>_thumb.webp` por template gerado (`mug`, `jar`,
+  `ball`, `ecobag`, `tshirt`). Ninguém da execução disputa essas pastas: TASK-19 e TASK-20 tocam `editor-web/src/mockup/`
+  mas dependem desta.
+
+### Causa raiz (símbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+Item é task: "causa" = funcionalidade ausente. Conferência da análise herdada (base `0d616c3`) contra a base atual
+(`80b97d7`, depois das TASK-09/10/13): as linhas mudaram, o resto vale.
+- `editor-web/src/**` — continua sem motor de mockup. `main.ts::showExport` (agora l.2304) → `toMockup` (l.2364):
+  `editor.exportRaster('png',1,1)` + `bridge.request('export', {format:'png', action:'mockup', name, data})`. Não muda.
+- `main.ts::tabs` (l.1376) — `[string, () => void][]`, 12 abas; o `replaceChildren` de `#tabs` (l.1391) envolve cada
+  `fn` com `if (editor.isFreehandDrawing) finishFreehand()`. A aba nova entra no fim; `#tabs` tem `overflow-x: auto`
+  (styles.css l.85) e o `center` do `cdp.mjs` faz `scrollIntoView`, então a aba fora da tela é tocável pelo E2E.
+- `editor.ts::renderPageCanvas(maxSide=2048, filter?)` (l.2147) — `{canvas, scale}` da página com vpt identidade
+  (`try/finally` restaura o vpt; em erro propaga). **Fonte da arte "design atual"** (evita o round-trip dataURL de
+  `exportRaster`); `eyedropper.ts::pickColorFromCanvas` (l.25–40) já usa assim, com `try/catch` + mensagem.
+- `editor.ts::exportRaster(format, scale, quality, bleed=0)` (l.2180) — dataURL; `discardActiveObject` antes.
+- `editor.ts::addImage(url, {fit})` (l.931) — `FabricImage.fromURL(url)`, escala para caber (`fit` padrão 0,6),
+  centraliza, `this.add` (histórico). Aceita dataURL (CSP `img-src 'self' data: blob: …`, `editor-web/index.html` l.6).
+- `editor.ts::active` (l.1033) — objeto ativo; "imagem selecionada" = `editor.active instanceof FabricImage`, pixels por
+  `drawImage(img.getElement())` num canvas. **Em erro:** imagem de outra origem (catálogo HF; nenhum `crossOrigin` no
+  código) suja o canvas e `getImageData` lança `SecurityError` — `main.ts::imageColors` (l.449) já trata com
+  `try/catch`; o estúdio deve cair para "design atual" com `toast`, nunca quebrar.
+- `dom.ts` — `openSheet(title, content, {tall})` devolve `close` (l.97); `slider(label,min,max,step,value,onInput,
+  onCommit?)` (l.24: `onInput` no `input`, `onCommit` no `change`); `select(label, [[v,rótulo]], value, onChange)`;
+  `button(label, fn, cls)`; `toast`.
+- `editor/.../EditorSession.kt::export` (l.259) — sem `batch` e formato ≠ pdf/mp4/gif: `EditorAssets.dataUrlBytes(data)`
+  (l.102; não-base64 → `BridgeException(INVALID)`) → `host.export(format, action, name, bytes)` → `{location?}`. Então
+  "Salvar na galeria" = `bridge.request('export', {format:'jpg'|'png', action:'save', name, data})`, **sem Kotlin**. O
+  lote da TASK-10 só entra com `batch` ou pdf.
+- `content.ts::CONTENT_BASE`/`contentUrl` (l.4, l.62) — `new URL('../content/', document.baseURI)` → `/assets/content/`;
+  `EditorAssets.kt` l.25 serve `/assets/` inteiro (`AssetsPathHandler`): `contentUrl('mockups3d/index.json')` e
+  `contentUrl('mockups/index.json')` funcionam sem Kotlin, mesma origem (canvas não suja).
+- `feature/mockup/.../MockupLibrary.kt` — `parseMockupIndex` com `Json { ignoreUnknownKeys = true }` (l.50); `bundled`
+  lê só `mockups/index.json` (l.191); nenhum `assets.list` da pasta. `MockupTest` (l.15) exige **exatamente 4**
+  entradas nesse índice → templates curvos **não** entram lá (índice próprio confirmado).
+- `tools/gen_mockups.py::main(out_dir)` (l.106) — grava `index.json`/`SOURCES.md` inteiros; `rng` global semente 11
+  (l.15) consumido por `noise()`. O caminho `--3d` usa **rng próprio** (`np.random.default_rng(<outra semente>)`) e não
+  chama `main`: não altera a saída nem a sequência aleatória dos planos. Sem flag, comportamento atual idêntico.
+- `core/imaging/.../PerspectiveMockupRenderer.kt::PerspectiveMockup.render` (l.28) — referência de algoritmo (bilinear,
+  cobertura de borda, sombreamento por luminância/percentil 90). Não é chamado.
+- `editor-web/vite.config.ts` — `test.environment: 'node'`: **não há `ImageData` nem canvas no vitest**. O motor opera
+  sobre `{data: Uint8ClampedArray, width, height}` simples (o `ImageData` do navegador satisfaz o tipo).
+
+### Provas (comando literal -> resultado)
+- `grep -rni "mockup" editor-web/src --include=*.ts` → só `content.ts:73,74,89` e `main.ts:2364–2401` (`toMockup`).
+- `ls editor-web/src/mockup app/src/main/assets/content/mockups3d` → "No such file or directory" (os dois).
+- `MockupTest.kt` l.15 → `assertEquals(4, index.mockups.size)`.
+- `grep -rn "crossOrigin" editor-web/src` → nada.
+- `python -c "import numpy, PIL; print(numpy.__version__, PIL.__version__)"` → `2.5.2 12.2.0`.
+
+### Hipóteses descartadas (e por quê)
+- As da análise herdada continuam valendo (Kotlin descartado; `shape` em `mockups/index.json` descartado — agora também
+  pelo `assertEquals(4, …)` do `MockupTest`; rodar `gen_mockups.py` como está descartado; fórmulas conferidas).
+- **Arte do "design atual" por `exportRaster` + decodificar o dataURL**: funciona, mas `renderPageCanvas` já dá o canvas
+  sem codificar/decodificar PNG.
+- **Malha por Coons patch bicúbico**: mais código e sem teste simples. Usar **4×4 pontos → 9 células, cada uma com sua
+  homografia** (piecewise-projetiva): com os 16 pontos sobre a homografia do plano, cada célula reproduz a global → o
+  critério "malha reta = plano" sai exato. Ao arrastar um canto, os 16 pontos seguem pela homografia quad-antigo→novo.
+- **Arquivos do motor soltos em `editor-web/src/`** (convenção atual): as TASK-19/20, aprovadas pelo dono, citam
+  `editor-web/src/mockup/`; mantida a subpasta (custo: o `claim`).
+
+### Tarefas
+- [ ] `claim` dos arquivos em pasta nova (comando acima) — antes de editar.
+- [ ] `editor-web/src/mockup/mockupEngine.ts` (novo, puro, sem DOM) — `Pixels = {data: Uint8ClampedArray, width,
+  height}`, `Quad = [Pt,Pt,Pt,Pt]` (TL,TR,BR,BL); `homographyFromQuads(src, dst)` (DLT 8×8, Gauss com pivoteamento; quad
+  degenerado → `null`), `applyH`; `sampleBilinear`; `uCyl(s, arcDeg)`, `cylTiltDt(s, arcDeg, tiltDepth)`,
+  `sphereUV(dx, dy, arcDeg)` (`r=0` → `sinα/α`; `r>1` → `null`); `renderMockup(base, art, tpl, opts) → Pixels` com
+  `shape: 'plane'|'cylinder'|'sphere'`, `mesh?` (16 pts), `arcDeg`, `tiltDepth`, `shadingStrength`, só no bbox do quad,
+  cobertura de borda; `applySurfaceLighting` (fórmula da §2.2, clamp [0,50; 1,35], L̄ = média da luminância da base sob
+  a máscara, especular se `L_base > 0,85`); sombreamento cilíndrico automático. Teste
+  `editor-web/test/mockupEngine.test.ts`: homografia nos 4 cantos (erro < 1e-6) e centro; `uCyl` 0/0,5/1, monotônica,
+  derivada maior na borda; esfera `r=0` sem NaN, `r=1` borda, `r>1` transparente; luz uniforme não altera a arte; faixa
+  escura escurece; `f ∈ [0,50; 1,35]`; malha reta ≡ plano pixel a pixel; quad degenerado não lança.
+- [ ] `editor-web/src/mockup/mockupStudio.ts` (novo) — `openMockupStudio(deps)` com `openSheet('📦 Mockup 3D', …,
+  {tall:true})`: grade de templates (`fetch(contentUrl('mockups3d/index.json'))` + os 4 planos de `mockups/index.json`
+  como `shape:'plane'` com `slots[0].quad`), `select` "Forma" (Plano/Cilindro/Esfera, padrão = o do template), `select`
+  "Arte" (Design atual / Imagem selecionada — esta só com `FabricImage` ativa), `<canvas class="mockup-preview">` ≤ 512 px
+  de lado, 4 `.mockup-handle` (pointer events, `touch-action: none` para a folha não rolar; coordenadas convertidas para
+  px da base), sliders "Arco" (10–179, 110), "Inclinação" (−0,5–0,5, do template), "Fusão com dobras/luz" (0–1, 0,65),
+  preview em `requestAnimationFrame`; "Inserir no design" (render na resolução da base → JPEG 0,92 →
+  `editor.addImage(url, {fit:0.8})`, fecha a folha) e "Salvar na galeria" (`bridge.request('export', {format:'jpg',
+  action:'save', name:'mockup_'+nome, data})`, `toast` com `location`). Erro de fetch/imagem/canvas sujo → `toast`, sem
+  lançar. Para o E2E: estado corrente (quad em px da base, shape, parâmetros) só de leitura em
+  `canvas.mockup-preview.dataset` (JSON) ou `window.__mockupStudio`.
+- [ ] `editor-web/src/main.ts` — `['📦 Mockup 3D', () => openMockupStudio({ editor, bridge })]` no fim de `tabs`;
+  `styles.css` — `.mockup-studio`, `.mockup-preview`, `.mockup-handle`.
+- [ ] `tools/gen_mockups.py --3d <saída>` — `mug` (Caneca, cilindro, arco 110, tilt 0,12), `jar` (Pote/Garrafa, cilindro
+  140), `ball` (Bola, esfera), `ecobag` e `tshirt` (plano com `mesh` e faixas de dobra escuras conhecidas), bases ≤ 1600
+  px, quads convexos dentro da base, `index.json` no formato `{version:1, mockups:[{id,name,shape,file,thumb,width,
+  height,quad,mesh?,arcDeg?,tiltDepth?,shadingStrength}]}`, `SOURCES.md` da pasta; linha em `content/SOURCES.md`. Prova:
+  `python tools/gen_mockups.py --3d <tmp>` duas vezes → mesmo `index.json`; `git status app/src/main/assets/content/
+  mockups` limpo depois de gerar em `mockups3d`.
+- [ ] `tools/e2e/task08.mjs` — a T2 abaixo (modelo `task14.mjs`, `reporter`).
+- [ ] `build --bug <slug>` (background) → `claim` dos `editor/src/main/assets/editor/assets/index-<hash>.*` → commit
+  `feat(editor): ... (TASK-08)` junto com o bundle.
+
+### Plano de teste
+- **Offline (sem slot):** em `editor-web/`: `npx tsc --noEmit`; `npx vitest run test/mockupEngine.test.ts` e `npx vitest
+  run` inteiro; o gerador `--3d` em pasta temporária (índice válido, determinístico, `content/mockups/` intocado).
+- **T2 reprodução como o usuário (E2E, no slot):** `launchEditor()` (Novo design → Post Facebook) → aba Texto →
+  "Adicionar título" (arte não vazia) → tocar a aba `📦 Mockup 3D` → tile "Caneca". Sinais (via `evaluate` no
+  `canvas.mockup-preview`, `getImageData`): (1) há pixels da arte dentro do quad (diferença contra a base pura acima de
+  um limiar); (2) "Arco" 110→170 → hash dos pixels muda e a largura útil da arte na linha central diminui; (3) "Fusão
+  com dobras/luz" 0→1 → luminância média da arte na faixa da borda do cilindro cai; (4) `drag` de uma `.mockup-handle`
+  → o canto do quad exposto pelo estúdio se move (> 20 px da base); (5) "Forma" = Esfera → hash muda e os cantos do quad
+  voltam à base; (6) "Inserir no design" → `editor.canvas.getObjects().length` +1 e o novo é `FabricImage`; (7) "Salvar
+  na galeria" → `toast` com local (o aparelho é do dono: anotar na evidência o arquivo `mockup_*` criado);
+  `screencap` do estúdio e da página.
+- **Controle positivo:** no APK da base a aba não existe:
+  `[...document.querySelectorAll('#tabs button')].some(b => b.textContent.includes('Mockup 3D'))` = `false`.
+- **T3 regressão direcionada:** vitest inteiro e `testDebugUnitTest` do `build` (`MockupTest`: 4 planos;
+  `PerspectiveMockupTest`); E2E `task12.mjs`, `task14.mjs` e `task10.mjs` (abas/folhas vizinhas e a folha Exportar com
+  "Ver em mockup"); manual: Exportar → "Ver em mockup" abre o `MockupScreen` com os 4 planos.
+
+### Sessões seguintes
+- dev: effort high, ultrathink sim — geometria (homografia, cilindro, esfera, malha) + UI de alças com pointer events
+  sobre preview escalado; ~1.100–1.250 linhas novas (abaixo do teto de ~1.500).
+- teste: effort medium, ultrathink não — roteiro E2E definido; sinais numéricos por `evaluate`.

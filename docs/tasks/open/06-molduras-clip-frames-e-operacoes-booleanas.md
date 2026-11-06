@@ -177,3 +177,121 @@ próprias) e patch de renderização de classe do Fabric (aro da moldura); tudo 
 ### Sessões seguintes (sugestão daquele planning)
 - dev: effort high, ultrathink sim — geometria/transformação no Fabric e patch de renderização de classe.
 - teste: effort medium, ultrathink não — leitura de pixel/objeto por CDP em roteiro já modelado pelos E2E vizinhos.
+
+---
+
+## Planejamento (pipeline 20261106-0749, 2026-11-06)
+
+> **ATENÇÃO — registro errado no pipeline (erro da sessão de planning, 2026-11-06).** O `plan-done` foi chamado com o
+> `reports/task-06-...-plan.json` ainda da execução 20261105-1638 (veredito `bloqueado`, task antiga não dividida):
+> a escrita do JSON novo falhou e o helper registrou o antigo. Estado no `state.json`: `documentado` (bloqueado). O
+> plano válido é ESTE (`corrigir`), e o JSON em `reports/` já foi regravado com ele. Para a TASK-06 entrar numa onda, o
+> dono precisa recolocá-la na próxima execução (`/pipeline-tasks`); o planning dela pode reaproveitar esta seção.
+
+**Veredito:** corrigir — a funcionalidade (moldura de recorte com aro, zoom/pan interno e moldura preservada nas trocas
+de fonte) é implementável só em `editor-web`, ~900 linhas, dentro do teto de uma sessão de dev.
+**Complexidade:** alta — formato de dados novo no documento (6 propriedades próprias + `clipPath` gerado) e patch de
+renderização de classe do Fabric; um módulo só (`editor-web`), sem ponte Kotlin.
+**Severidade:** medio — funcionalidade nova P2; sem ela o usuário ainda recorta em retângulo (contorno).
+**Arquivos a alterar (reserva da onda):**
+- `editor-web/src/clipFrames.ts` (novo) — formas (`ClipShapeKind`), `clipPathFor`, versão JSON pura, aro interno
+  (canvas + SVG).
+- `editor-web/src/document.ts` — 6 propriedades em `CUSTOM_PROPERTIES`.
+- `editor-web/src/editor.ts` — `setImageFrame`, `refreshFrame`, chamado em `replaceImage`/`swapImage`/`endCrop`;
+  `installFrameRenderer(FabricImage)` no topo (ao lado de `installWarpRenderer`, L69); aro no `exportSvg`.
+- `editor-web/src/dataMerge.ts` — `swapPhotoJson` regera o `clipPath` JSON da imagem emoldurada (achado novo, abaixo).
+- `editor-web/src/main.ts` — botão `🖼️ Moldura` (`.frame-btn`) em `imageProps` + sheet.
+- `editor-web/src/styles.css` — grade das formas na sheet (se precisar de estilo novo).
+- `editor-web/test/clipFrames.test.ts` (novo) — geometria, round-trip, trocas de fonte, merge.
+- `tools/e2e/task06.mjs` (novo) — a T2.
+- `editor/src/main/assets/editor/index.html` — bundle regerado (os `assets/index-<hash>.*` por `claim` no dev).
+
+### Causa raiz (simbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+Conferência da "Análise herdada" contra a base `80b97d7` (as linhas mudaram; o comportamento, não):
+- `editor-web/src/editor.ts::Editor.replaceImage` (agora L1942) — guarda filtros, `setSrc`, aplica `rescaledGeometry`
+  (fator = razão dos tamanhos naturais), `setCoords`, `commit`. Não toca `clipPath`. Sem try: erro do `setSrc` propaga
+  ao chamador (`main.ts` L1111/1138/1158/1179). Confirmado: moldura ficaria com tamanho errado no upscale.
+- `editor.ts::Editor.swapImage` (L1961) — guarda `clipPath` no `keep` (L1965) e o reaplica, mas `fitSlot` muda
+  width/height/scale → `clipPath` (unidades locais) desproporcional. Chamadores: `main.ts::showSwapImage` L1041
+  (galeria) e L1045 (logo do brand kit). Erro do `setSrc` propaga.
+- `editor.ts::Editor.startCrop`/`endCrop` (L1978/L1988) — só troca controles; o recorte muda width/height locais →
+  moldura regerada no `endCrop` (mínimo exigido; idealmente também durante o arraste do recorte).
+- `editor.ts::Editor.restore` (L549), `load` (L465), `showPage` (L618), `magicResize` (L714/L729) e `renderThumbnail`
+  (L2395) — todos fazem `loadFromJSON`; o `clipPath` é serializado pelo Fabric e volta coerente com a geometria salva,
+  então não precisam regerar, **desde que o aro seja patch de classe** (o `renderThumbnail` usa `StaticCanvas` novo).
+  `reflowCanvas` (magic resize, L761–767) só multiplica `scaleX/scaleY` e move: o `clipPath` local acompanha.
+- **Achado novo (TASK-10, posterior à análise herdada):** `editor-web/src/dataMerge.ts::swapPhotoJson` (L197) — chamado
+  por `applyMergeRow` (L228) ← `generateMergedPages` (L273). Troca a foto da camada `mergeField: 'foto'` direto no JSON
+  com `fitSlot(..., 'cover')`, mudando `width`/`height`/`cropX`/`cropY`/`scale` e mantendo o `clipPath` JSON antigo →
+  mesma desproporção nos anúncios do lote. Correção: com `o.clipShape`, regerar `o.clipPath` com o JSON de
+  `clipPathFor(spec, g.width, g.height)` (`clipFrames.ts` expõe uma versão pura/JSON, sem canvas). Entrada inválida:
+  devolve `o` intacto (mantém).
+- `editor-web/src/document.ts::CUSTOM_PROPERTIES` (L97–122) → `FabricObject.customProperties` (`editor.ts` L68).
+  Lição da TASK-12/05 confirmada no comentário de L117: spec sem campo `type` (usar `kind`).
+- Fabric 7.4.0 `shapes/Object/Object.ts::drawObject` (L823–842): `_render(ctx)` (L838) e depois `_drawClipPath`
+  (L839) → aro no `_render` seria recortado pela metade; aro vai **depois** do `drawObject` original, interno (traço 2w
+  recortado pela forma), para caber no cache e na caixa do export de vídeo.
+- `editor.ts::exportSvg` (L2206) usa `this.canvas.toSVG` (L2229) → `<clipPath>` sai de graça; o aro precisa do
+  `toSVG` do `FabricImage` estendido (patch de classe).
+- `main.ts::imageProps` (L1049) — linha `row scroll` com Substituir/Filtros/Recortar/Usar como fundo: o `🖼️ Moldura`
+  entra nela.
+
+### Provas (comando literal -> resultado)
+- `grep -n "clipPath" src/*.ts` (em `editor-web/`) → só `editor.ts:1965` (`swapImage` preserva): nenhuma moldura hoje.
+- `wc -l src/*.ts` → `editor.ts` 2466, `main.ts` 2492 (cresceram desde `0d616c3`); maiores módulos de task: `qrcode.ts`
+  540, `snapping.ts` 416, `curve.ts` 374.
+- `grep -n "applyMergeRow\|swapPhotoJson" src/*.ts test/*.ts` → `dataMerge.ts:197/217/228/273`,
+  `test/dataMerge.test.ts:4–5,162,184,186`: caminho de troca de foto que a análise herdada não tinha.
+- `grep -n '"version"' node_modules/fabric/package.json` → `7.4.0`; `sed -n 820,845p .../Object.ts` → ordem
+  `_render` → `_drawClipPath` confirmada.
+- Estimativa: análise herdada ~850 + `dataMerge` (~15) + teste do merge (~30) ≈ **~900 linhas** (< 1.500).
+
+### Hipoteses descartadas (e por que)
+- As da "Análise herdada" continuam valendo (trocar foto não é trabalho novo; `clipPath` como fonte da verdade quebra no
+  upscale/troca; aro dentro do `_render` é recortado).
+- *Regerar a moldura em todo `loadFromJSON`* (`load`/`restore`, como a análise herdada listava) — desnecessário: o
+  `clipPath` salvo já é coerente com a geometria salva; só regeram as operações que mudam as unidades locais (replace,
+  swap, crop, merge).
+- *Magic resize precisa regerar* — não: `reflowCanvas` só escala (`scaleX/Y`) e move.
+
+### Tarefas
+- [ ] `editor-web/src/clipFrames.ts` (novo) — `ClipShapeKind` (15 + `none`), spec `{kind, scale, offsetX, offsetY,
+  stroke, strokeWidth}` lida das props próprias, `clipPathFor(kind, w, h)` (FabricObject centrado) e a versão JSON pura,
+  `installFrameRenderer(FabricImage)` (envolve `drawObject`, aro interno) e SVG do aro — vitest
+  `test/clipFrames.test.ts`: bbox de cada forma ≤ w×h e centrada; círculo/pílula tocam os extremos; SVG da imagem
+  emoldurada tem `<clipPath>` e o `<path>` do aro com `stroke` = cor.
+- [ ] `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `clipShape`, `clipScale`, `clipOffsetX`, `clipOffsetY`,
+  `frameStroke`, `frameStrokeWidth` — vitest: round-trip `toObject`/`loadFromJSON`.
+- [ ] `editor-web/src/editor.ts` — `setImageFrame(img, spec)` (aplica + `commit`), `refreshFrame(img)` no fim de
+  `replaceImage`, `swapImage` (em vez de reaplicar o `clipPath` velho do `keep`) e `endCrop`; zoom/pan interno pelo crop
+  mantendo a caixa na página; `installFrameRenderer(FabricImage)` junto do `installWarpRenderer` — vitest: após
+  `replaceImage` com fator 2 e `swapImage` (contain e cover), bbox do `clipPath` × escala = caixa da imagem (±0,5 px)
+  e `clipShape`/aro preservados; undo volta à forma anterior.
+- [ ] `editor-web/src/dataMerge.ts::swapPhotoJson` — regera `o.clipPath` quando `o.clipShape` existe — vitest (em
+  `clipFrames.test.ts`): `applyMergeRow` numa foto emoldurada gera `clipPath` com bbox = novo width×height.
+- [ ] `editor-web/src/main.ts::imageProps` — `🖼️ Moldura` (`.frame-btn`) → sheet com grade das formas (célula com
+  `data-kind`), cor e espessura do aro (0–40), zoom 1–3×, posição X/Y — prova na T2.
+- [ ] `tools/e2e/task06.mjs` (novo) — a T2 abaixo, no modelo de `task11.mjs`/`task12.mjs`.
+
+### Plano de teste
+- **Offline (sem slot):** em `editor-web/`: `npx tsc --noEmit`; `npx vitest run` inteiro (inclui `clipFrames.test.ts`
+  e o `dataMerge.test.ts` existente sem regressão); `build` do helper (bundle + testes Kotlin).
+- **T2 reproducao como o usuario (E2E, no slot):** app aberto → "Novo design" → "Post Facebook"; foto na página (preparo
+  por `evaluate` `editor.addImage(dataURL)` como `task11.mjs` L14 — só o preparo); tocar na foto no canvas → `#props
+  .frame-btn` → célula "Selo explosão" (`starburst-12`) e depois "Círculo"; cor do aro vermelha e espessura 12; zoom
+  2×. **Sinal:** `img.clipShape === 'circle'` e `img.clipPath` presente; em `editor.renderPageCanvas()`, pixel no canto
+  da caixa da imagem (fora do círculo) = cor do fundo da página e pixel ~6 px para dentro da borda do círculo = vermelho
+  do aro. Depois `.swap-btn` → "Escolher da galeria…" (`/sdcard/Pictures/e2e_swap.jpg` por `adb push` + media scan, como
+  na TASK-11) → `clipShape` mantido, bbox da imagem na página igual (±1 px) e bbox do `clipPath` × escala = caixa; ↶
+  desfaz voltando a foto anterior com a moldura; exportar PNG (mesmo teste de pixel) e SVG (contém `<clipPath` e o
+  `stroke` do aro). `screencap` do aparelho em cada passo.
+- **Controle positivo:** APK da base: com a foto selecionada, `document.querySelector('#props .frame-btn')` é `null` e
+  `typeof editor.setImageFrame === 'undefined'` — funcionalidade ausente.
+- **T3 regressao direcionada:** `node tools/e2e/task11.mjs` (substituir foto, agrupar, camadas), `task12.mjs` (formas,
+  degradê), `task10.mjs` (lote com foto: `swapPhotoJson` mudou), `task03.mjs` (conta-gotas lê o canvas); vitest inteiro
+  e testes Kotlin do `build`.
+
+### Sessoes seguintes
+- dev: effort high, ultrathink sim — geometria de 15 formas, patch de renderização de classe do Fabric (canvas + SVG) e
+  quatro caminhos de troca de fonte que têm de regerar a moldura.
+- teste: effort medium, ultrathink nao — leitura de objeto/pixel por CDP em roteiro já modelado por `task11`/`task12`.

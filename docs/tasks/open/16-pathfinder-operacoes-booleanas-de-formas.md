@@ -128,3 +128,119 @@ separada pelo dono em 2026-11-05. O próximo planning confere a análise contra 
 ### Sessões seguintes (sugestão daquele planning)
 - dev: effort high, ultrathink sim — recorte poligonal com casos degenerados.
 - teste: effort medium, ultrathink não.
+
+## Planejamento (pipeline 20261106-0749, 2026-11-06)
+
+**Veredito:** corrigir — a análise herdada confere com a base `80b97d7`; motor booleano novo em TypeScript puro +
+ação na seleção múltipla, só `editor-web` (≈ 950–1.150 linhas, abaixo do teto de uma sessão).
+**Complexidade:** media — um módulo (`editor-web`), vários arquivos e um fluxo novo de UI; sem Kotlin, sem ponte, sem
+formato de dados novo (`fillRule` já é propriedade nativa e serializada do Fabric).
+**Severidade:** medio — funcionalidade P2 ausente; há contorno (forma pronta feita fora do app e importada em SVG).
+**Arquivos a alterar (reserva da onda):**
+- `editor-web/src/pathBoolean.ts` — NOVO: forma Fabric → anéis em coordenadas de página; `booleanOp`; anéis → `d`
+- `editor-web/src/editor.ts` — `booleanCandidates()` e `applyBooleanOp(op)` sobre a seleção
+- `editor-web/src/main.ts` — linha do Pathfinder em `renderProps` quando a seleção tem ≥ 2 formas válidas
+- `editor-web/test/pathBoolean.test.ts` — NOVO: vitest do motor
+- `tools/e2e/task16.mjs` — NOVO: E2E no aparelho
+- `editor/src/main/assets/editor/index.html` — bundle regerado (os `assets/index-<hash>.*` entram por `claim` no dev)
+
+### Causa raiz (símbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+Não há defeito: a funcionalidade não existe (`applyBooleanOp`/`.bool-*` ausentes em `editor-web/src`). Onde ela entra:
+- `editor.ts::makeShape` (L2413) — `rect`/`rounded`/`pill` = `Rect` (rx/ry), `circle` = `Circle`, `triangle` =
+  `Triangle`, `star`/`badge-hex` = `Polygon`, `arrow` = `Path` (só M/L/Z), `line` = `Line`; marca `shapeKind`.
+- `editor.ts::shapeKindOf` (L1469) — recusa `Group`, `FabricText`, `FabricImage`, `Line` e a camada de fundo
+  (`BACKGROUND_LAYER`). O filtro do Pathfinder segue a mesma regra + exclui `isFreehandPath` (traço à mão é `Path`
+  sem preenchimento) e objeto com `fill` vazio/transparente. Aceita também `Ellipse` e `Path` sem `shapeKind`.
+- `editor.ts::groupActive` (L1110) — MODELO do `applyBooleanOp`: ordena a seleção pela pilha (`all.indexOf`),
+  `discardActiveObject()` (devolve coordenadas de cena — só DEPOIS disso a `calcTransformMatrix()` de cada um é de
+  página), `canvas.remove` de cada um, `insertAt` do novo, `setActiveObject`, `commit()`. Sem `withoutHistory`: os
+  eventos `object:added/removed` (L170–172 → `scheduleSnapshot`, debounce 250 ms) juntam tudo numa entrada de undo.
+  Em erro não há tratamento (lança no meio) — por isso o `applyBooleanOp` deve calcular o resultado ANTES de remover
+  qualquer objeto: exceção ou resultado vazio não pode deixar a página sem as originais.
+- `editor.ts::swapShape` (L1485) — lista de propriedades a herdar da base (`opacity`, `shadow`, `stroke`,
+  `strokeWidth`, `strokeDashArray`, `strokeLineCap`, `strokeDashStyle`, `brandColor`, `brandStroke`, `animation`,
+  `visible`; NÃO `angle`/`flip`: o resultado já está em coordenadas de página) e o degradê: `gradientOf(base)` →
+  `buildFabricGradient(spec, gradientBox(n).width, …height)` + `customGradient`; sem degradê, `fill: base.fill`.
+  Reusar o mesmo trecho (extrair helper se convier).
+- `editor.ts::undo/restore` (L545–575) — o undo recarrega o instantâneo inteiro (`loadFromJSON`): devolve as N formas.
+- `editor.ts::exportRaster` / `exportSvg` / `exportVideoBundle` (L2180–2290) — renderizam o canvas, o `toSVG` do
+  Fabric e, no vídeo, cada objeto rasterizado sozinho: um `Path` comum sai em todos sem código novo.
+- Fabric 7.4.0 `shapes/Object/Object.ts` L1141 — `fillRule === 'evenodd'` → `ctx.fill('evenodd')`;
+  `FabricObjectSVGExportMixin.ts` L31/L77 — exporta `fill-rule`. Com `fillRule: 'evenodd'` o furo de `subtract`/
+  `exclude` aparece no canvas, PNG/JPG, SVG e vídeo.
+- Fabric `shapes/Path.ts` L95 — `this.path = makePathSimpler(...)`: comandos absolutos e só `M/L/C/Q/Z` (arcos já
+  viram curvas) — o achatamento só precisa de L, C (cúbica) e Q (quadrática).
+- Fabric `Circle` — tem `startAngle`/`endAngle` (padrão 0–360): tratar como círculo completo nesse caso.
+- Coordenadas locais: `Rect`/`Circle`/`Ellipse`/`Triangle` centrados em (0,0) do objeto (width/height sem
+  `strokeWidth`); `Polygon`/`Path` têm pontos relativos a `pathOffset` → `p − pathOffset`, depois
+  `util.transformPoint(p, obj.calcTransformMatrix())`.
+- `main.ts::renderProps` (L261) — `ActiveSelection` é `Group`: cai no `else` (cor/contorno) e ganha `🔗 Agrupar`
+  (L272). A linha nova entra só com `isSelection && editor.booleanCandidates().length >= 2`; cada botão chama
+  `editor.applyBooleanOp(op)` e `renderProps(editor.active)`.
+- `main.ts::showLayers` (L2029) — "☑ Selecionar Vários" → `Aplicar (N)` → `editor.selectMultiple` (`editor.ts`
+  L1337): o caminho de seleção múltipla do usuário. Desfazer: botão `↶` da barra (`main.ts` L180 → `editor.undo()`).
+
+### Provas (comando literal -> resultado)
+- `git rev-parse HEAD origin/main` → `80b97d7f…` nos dois: a worktree está na base.
+- `grep -n "makeShape\|snapshot\|isFreehandPath\|connectorSpec" editor-web/src/editor.ts` → `makeShape` L2413,
+  `snapshot` L525, `object:added/removed` L171–172 (as linhas da análise herdada estavam velhas; o conteúdo confere).
+- `grep '"version"' editor-web/node_modules/fabric/package.json` → `7.4.0`; `grep -rn fillRule …/Object/Object.ts` → L1141.
+- `wc -l editor-web/src/*.ts` → maiores: `main.ts` 2492, `editor.ts` 2466, `qrcode.ts` 540; `pathBoolean.ts`
+  (~500–700) fica no porte do `qrcode.ts`.
+- `ls editor-web/test` + `test/groupAndSwap.test.ts` → testes puros com `fabric/node`: `shapeToPolygonRings` é
+  testável com `Rect`/`Circle`/`Polygon`/`Path` de `fabric/node`; a classe `Editor` não tem teste unitário — o 1-undo
+  se prova no E2E.
+
+### Hipóteses descartadas (e por quê)
+- *Dependência npm de recorte (polygon-clipping, MIT)* — o doc pede TS puro; só o dono muda isso.
+- *`clipPath`/`globalCompositeOperation` em vez de geometria* — não gera forma vetorial única nem SVG portátil
+  (critério 3), e `union`/`exclude` não saem de máscara simples.
+- *Mudar `CUSTOM_PROPERTIES` (`document.ts`)* — desnecessário: o resultado é `Path` comum com `fillRule` nativo;
+  `brandColor` etc. já são serializados (o `swapShape` depende disso).
+- *Booleano considerando o contorno (stroke)* — fora do escopo: a geometria é a do preenchimento; o contorno da base
+  é só herdado pelo `Path` resultante.
+
+### Tarefas
+- [ ] `editor-web/src/pathBoolean.ts` (novo) — `shapeToPolygonRings(obj)` (matriz de página, `pathOffset`, Rect com
+  rx/ry, Circle/Ellipse, Triangle, Polygon, Path L/C/Q com erro ≤ 0,5 px); `booleanOp(a, b, op)`
+  (`union|subtract|intersect|exclude`, recorte poligonal próprio — Martinez-Rueda/sweep ou Greiner-Hormann com
+  tratamento de vértice/aresta coincidente); `ringsToPathD(rings)` (para `fillRule:'evenodd'`); `ringsArea`. N formas
+  = dobra pela pilha (`subtract` = base − união das demais) — vitest `test/pathBoolean.test.ts`: quadrados
+  sobrepostos, disjuntos, contidos, com aresta comum e vértice comum; quadrado × círculo; as 4 ops com área contra a
+  fórmula (±0,5%); `exclude` de contidos = anel com furo; `intersect` de disjuntos = `[]`; Rect girado/escalado e
+  Polygon com `pathOffset` → vértices de página corretos.
+- [ ] `editor.ts::booleanCandidates()` + `applyBooleanOp(op)` — filtro (regra do `shapeKindOf` + fill não vazio + não
+  freehand); calcula ANTES de mexer no canvas; resultado vazio → `undefined` sem alterar nada (a UI dá toast "As formas
+  não se sobrepõem"); senão remove as originais, `insertAt` no índice da base, `Path` com `fillRule:'evenodd'`,
+  propriedades da base (lista do `swapShape`) e degradê refeito, `layerName` 'Forma combinada', `setActiveObject`,
+  `commit()` (1 undo) — prova: E2E (o undo devolve N objetos com os mesmos `type` e caixas).
+- [ ] `main.ts::renderProps` — linha `.row.scroll.pathfinder` com `➕ Unir`, `➖ Subtrair`, `✖️ Interseção`,
+  `➗ Vazado` (classes `bool-union|bool-subtract|bool-intersect|bool-exclude`) só com `isSelection` e ≥ 2 candidatas
+  — prova: E2E (aparece com 2 formas; não aparece com forma + texto).
+- [ ] `tools/e2e/task16.mjs` — a T2 abaixo.
+
+### Plano de teste
+- **Offline (sem slot):** em `editor-web/`: `npx tsc --noEmit`; `npx vitest run test/pathBoolean.test.ts` e
+  `npx vitest run` inteiro.
+- **T2 reprodução como o usuário (E2E, no slot):** `tools/e2e/task16.mjs` no molde do `task11.mjs`: design novo
+  1080×1080 (`editor.newDocument`); retângulo 'Cupom' (`addShape('rect', '#e53935')`, 600×300 no centro), círculo
+  'Furo' (`addShape('circle')`, raio ~90, centro na borda esquerda do retângulo) e texto 'Preço'. Na UI:
+  1) Camadas → "☑ Selecionar Vários" → Cupom + Preço → Aplicar (2) → SINAL: `#props .bool-subtract` AUSENTE.
+  2) Selecionar Vários → Cupom + Furo → Aplicar (2) → SINAL: os 4 `.bool-*` presentes; print.
+  3) toque `.bool-subtract` → SINAL: 1 `path` no lugar dos 2 (total −1), `fill` `#e53935`, `fillRule` `evenodd`;
+  pixel do PNG exportado num ponto dentro do círculo e do retângulo = fundo branco, num ponto só do retângulo =
+  vermelho; print. 4) `↶` → SINAL: `rect` + `circle` de volta com as caixas de antes (±1,5 px); print.
+  5) mesma seleção → `.bool-union` → 1 `path` com bbox = união das caixas (±1,5 px); ↶; `.bool-intersect` → bbox
+  dentro da interseção das caixas; ↶; `.bool-exclude` → pixel na sobreposição = fundo, fora dela = vermelho.
+  6) com o resultado do `subtract`: `editor.exportRaster('png'|'jpeg', 1, 0.92)` → pixel no furo = fundo;
+  `editor.exportSvg()` → `<path` com `fill-rule: evenodd`; `editor.exportVideoBundle('mp4')` → há a camada do `path` e
+  o PNG dela tem alpha 0 no ponto do furo. Print do aparelho em cada passo.
+- **Controle positivo:** APK da base com 2 formas selecionadas: `document.querySelector('#props .bool-subtract')`
+  nulo e `typeof editor.applyBooleanOp === 'undefined'` (funcionalidade ausente).
+- **T3 regressão direcionada:** `tools/e2e/task11.mjs` (seleção múltipla, agrupar/desagrupar, mesma barra),
+  `tools/e2e/task12.mjs` (trocar forma, degradê, contorno); `npx vitest run` inteiro e testes de unidade do `build`.
+
+### Sessões seguintes
+- dev: effort high, ultrathink sim — recorte poligonal com casos degenerados (vértice/aresta coincidentes, contidos,
+  furos) e geometria/transformação no Fabric (manual: geometria no Fabric = high).
+- teste: effort medium, ultrathink não — E2E roteirizado; os sinais são numéricos (contagem, bbox, pixel).

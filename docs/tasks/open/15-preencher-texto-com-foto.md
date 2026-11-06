@@ -121,3 +121,161 @@ como preencher as letras com uma imagem.
 ### Sessões seguintes (sugestão)
 - dev: effort medium, ultrathink não.
 - teste: effort medium, ultrathink não.
+
+---
+
+## Planejamento (pipeline 20261106-0749, 2026-11-06)
+
+**Veredito:** corrigir — implementável só em `editor-web` (+ bundle); a análise herdada confere com a base `80b97d7`,
+com UMA correção: o SVG do Fabric **não** sai "de graça" (ver Causa raiz, item 3).
+**Complexidade:** media — um módulo (`editor-web`), vários arquivos (novo `textImageFill.ts` + `editor.ts`, `main.ts`,
+`document.ts`) e um fluxo novo de UI; nada de Kotlin, ponte ou formato de dados novo (o `fill` Pattern é JSON do Fabric).
+**Severidade:** medio — funcionalidade nova P2; sem ela o usuário não tem foto dentro do texto, mas nada quebra.
+**Arquivos a alterar (reserva da onda):**
+- `editor-web/src/textImageFill.ts` — NOVO: `coverPatternTransform`, criar/refazer o `Pattern` do texto, `toSVG` do Pattern que respeita `patternTransform`
+- `editor-web/src/editor.ts` — `setTextImageFill(url|null)`, `textImageFillOf`, refit no `refreshGradient`, limpar a marca no `set`/`setObjectGradient`, instalar o `toSVG`
+- `editor-web/src/main.ts` — botões "🖼️ Foto no texto" / "Remover foto" em `textProps`
+- `editor-web/src/document.ts` — `'textImageFill'` em `CUSTOM_PROPERTIES`
+- `editor-web/test/textImageFill.test.ts` — NOVO
+- `tools/e2e/task15.mjs` — NOVO (T2)
+- `editor/src/main/assets/editor/index.html` — bundle regerado (mais os `assets/index-<hash>.*` que o `git status` listar, por `claim`)
+
+### Causa raiz (símbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+"Causa" = por que a funcionalidade não existe e onde ela se encaixa. Caminhos `fabric/src/...` = `editor-web/node_modules/fabric/src/...` (7.4.0).
+1. **Render no canvas (funciona com `patternTransform`).**
+   - `fabric/src/shapes/Text/Text.ts::handleFiller` (L1295–1320) — com `patternTransform` presente, translada para
+     `(-width/2, -height/2)` e usa `_applyPatternGradientTransformText` (L1267–1293): desenha o Pattern num canvas
+     `(width+strokeWidth) × (height+strokeWidth)` chamando `Object.ts::_applyPatternGradientTransform` (L1081–1102:
+     `ctx.transform(1,0,0,1,-w/2+offsetX,-h/2+offsetY)` e depois `t`). Logo o `patternTransform` é em **pixels da caixa
+     local do texto, origem no canto superior esquerdo** — o mesmo referencial do `gradientBox` (`gradients.ts::gradientBox`
+     L124, `max(1, w/h)`). Detalhe: com contorno, o canvas auxiliar tem `+strokeWidth` e o padrão fica deslocado
+     `strokeWidth/2`; as letras ficam dentro da caixa, então o *cover* continua cobrindo as letras.
+   - `fabric/src/Pattern/Pattern.ts::toLive` (L126) — devolve `null` se a imagem ainda não carregou
+     (`!complete || naturalWidth===0`): o texto some até o load → `setTextImageFill` deve **esperar o load**
+     (`util.loadImage(url)`, exportado por `fabric/src/util/index.ts` L86; `util` já é importado em `editor.ts`) antes
+     do `set`, e só então `commit()`. Em erro de load (`loadImage` rejeita), não mexer no texto e deixar o `run` mostrar o erro.
+   - Envelope warp (`curve.ts::renderWarpedEnvelope` L299–345) chama o `_render` original num offscreen `w×h`: o
+     preenchimento passa por `handleFiller` igual. Texto em caminho (`refitCurve` L1857–1899 põe `path`): também.
+2. **Serialização / undo / rascunho (já funciona).**
+   - `Pattern.ts::toObject` (L147–160) grava `type:'pattern'`, `source` = `img.src` (URL `/blob/…`, não dataURL),
+     `repeat`, `offsetX/Y`, `patternTransform`; `Pattern.fromObject` (L192–212) recarrega com `loadImage` (assíncrono).
+   - `fabric/src/util/misc/objectEnlive.ts::enlivenObjectEnlivables` (L157–186) revive todo valor com `type` registrado
+     (o `fill` Pattern) no `loadFromJSON` → undo (`editor.ts::undo` L546 → `restore` → `loadFromJSON` aguardado) e
+     reabrir rascunho (L477, `withoutHistory(loadFromJSON)`) trazem o Pattern de volta com o mesmo `patternTransform`.
+   - Blob da galeria: `EditorSession.kt::pickImage` (L191) grava em `filesDir/editor/blobs` (`EditorAssets.kt` L20);
+     nenhum código apaga `blobDir` (grep de `delete` no `:editor`/`:app` só acha exportações, vídeo e lote) → a URL
+     do padrão continua válida ao reabrir. Mesma origem do asset loader → canvas não fica "tainted" no PNG.
+   - `document.ts::CUSTOM_PROPERTIES` (L97–121) → `FabricObject.customProperties` (`editor.ts` L68): a marca própria
+     entra no `toObject`/snapshot. Regra da TASK-12/05: **sem campo `type`** no objeto gravado.
+3. **SVG — NÃO sai certo de graça (correção da análise herdada).**
+   - `FabricObjectSVGExportMixin.ts::_createBaseSVGMarkup` (L195–257) emite `fill.toSVG(this)` quando `isFiller(fill)`.
+   - `Pattern.ts::toSVG` (L167–188) **ignora `patternTransform`**: gera `<pattern>` com `patternUnits` padrão
+     (objectBoundingBox: x/y/width/height em fração da *bbox dos glifos*, não da caixa) e a `<image>` no tamanho
+     NATURAL da foto. Com o *cover* (escala ≠ 1, centrado) o SVG mostraria outro recorte da foto.
+   - O texto no SVG vive no referencial centrado do objeto: `TextSVGExportMixin.ts::_getSVGLeftTopOffsets` (L60–66)
+     `textLeft=-width/2, textTop=-height/2`.
+   - → Correção: `textImageFill.ts::installPatternSvg(Pattern)` (instalado em `editor.ts` ao lado de
+     `installWarpRenderer(Textbox)` L69, mesmo padrão de patch de protótipo já usado em `curve.ts::installWarpRenderer`
+     L352): quando `this.patternTransform` existe e `repeat==='no-repeat'`, emitir
+     `<pattern id="SVGID_<id>" patternUnits="userSpaceOnUse" x="<-w/2>" y="<-h/2>" width="<w>" height="<h>"><image
+     x="0" y="0" width="<naturalW>" height="<naturalH>" transform="matrix(a b c d e f)" xlink:href="<src>"/></pattern>`
+     (escapeXml no href; `w/h` = `width/height` do objeto passado ao `toSVG`); senão, o `toSVG` original.
+     `svgExport.ts::inlineSvgResources` (L19–38) já troca o `xlink:href` por dataURL na exportação.
+4. **PNG/JPG/vídeo** desenham pelo canvas do Fabric: `editor.ts::renderPageCanvas` (L2147), `exportVideoBundle`
+   (L2249–2300: cada camada sozinha por `renderRegion`) → cobertos pelo item 1.
+5. **Pontos de integração (refit do *cover*).**
+   - `editor.ts::refreshGradient` (L1420–1426) — hoje retorna se `!(o.fill instanceof Gradient)`. É chamado em TODO
+     ponto em que a caixa muda: `object:modified`/`text:changed` (L174–175, **depois** do `refitCurve`), `set` (L1388,
+     depois do `refitCurve` quando muda layout), `setTextContent` (L1812: localizar/substituir, lista), `main.ts` L798,
+     fundo (L763/L895). → acrescentar ali o ramo do padrão (`o.fill instanceof Pattern && textImageFillOf(o)` →
+     `refitTextImageFill(o)`), sem criar call-sites novos.
+   - `editor.ts::set` (L1352–1357) zera `customGradient` quando chega `fill` string → zerar também `textImageFill`
+     (senão a marca fica órfã). `setObjectGradient` (L1405–1417) → zerar `textImageFill`; `setTextImageFill` → zerar
+     `customGradient` e `brandColor` (o brand kit em `set` L1367–1373 só troca `fill` string, então o Pattern sobrevive).
+   - `main.ts::textProps` (L622–676) — 1ª linha `.row.scroll` tem `🌈 Degradê` (`gradient-btn`): os botões novos
+     entram ao lado. `colorInput('Cor', String(t.fill), …)` (L639) mostraria `[object Object]` com Pattern (mesmo caso
+     do degradê hoje): passar `'#000000'` quando `fill` não for string.
+   - `main.ts::showSwapImage` (L1032–1047) é o modelo de uso: `bridge.request<BlobResult>('pickImage')` dentro de
+     `run('Abrindo imagem', …)`; `BlobResult` (`protocol.ts` L141) = `{url,width,height}`.
+   - `main.ts::textContrast` (L506–508) já devolve `null` com `fill` não-string ("degradê/padrão: fora do verificador").
+
+### Provas (comando literal -> resultado)
+- `grep -rn "patternTransform" node_modules/fabric/src --include=*.ts | grep -v spec` (em `editor-web/`) → só
+  `StaticCanvas.ts:646`, `Pattern.ts:68/157/197/208`, `Object.ts:987/1090`, `Text.ts` (handleFiller): **nenhum uso
+  em `toSVG`** → o SVG precisa do patch do item 3.
+- `grep -n '"version"' node_modules/fabric/package.json` → `7.4.0`.
+- `grep -n "refreshGradient" src/editor.ts src/main.ts` → 9 ocorrências (L174, 175, 763, 895, 1388, 1420, 1812,
+  2370 comentário, main L798): o ramo do padrão dentro de `refreshGradient` cobre todas.
+- `grep -rn "pickImage" tools/e2e/*.mjs` → nenhum E2E chama a ponte direto; o seletor real é dirigido por
+  `pickFirstPhoto` (`task09.mjs` L70–83: `uiautomator dump` + toque na 1ª "Photo taken/Foto tirada").
+- `ls node_modules | grep -E "^canvas$|jsdom"` → `canvas` e `jsdom` presentes: vitest com `fabric/node` carrega
+  imagem por dataURL (modelo: `test/gradientsAndConnectors.test.ts` L54–56, round-trip `Rect.fromObject(r.toObject())`).
+
+### Hipóteses descartadas (e por que)
+- *"O SVG do texto com foto vem de graça"* (análise herdada) — falso: `Pattern.toSVG` não usa `patternTransform`
+  nem a caixa do texto (item 3).
+- *Fonte do Pattern = canvas já recortado em cover (sem `patternTransform`)* — o `toObject` gravaria `toDataURL()`
+  (`Pattern.ts::sourceToString` L119–125) no rascunho e em cada snapshot de undo (MB por passo); a URL `/blob/…` com
+  `patternTransform` fica pequena.
+- *Subclasse `TextPhotoPattern` registrada no `classRegistry`* — `toObject` grava `type:'pattern'` fixo e o revive
+  cairia no `Pattern` base; o patch do `toSVG` (só ativo com `patternTransform`) é menor e não muda o JSON.
+- *Marca só com a URL (`textPatternSrc`)* — "Remover foto" precisa da cor sólida de antes; gravar
+  `textImageFill = { src, fallback }` (sem `type`). A marca não é usada para reviver (o Fabric revive o `fill`).
+- *Refit em listeners novos* — `refreshGradient` já está em todos os pontos em que a caixa muda (Provas).
+
+### Tarefas
+- [ ] `editor-web/src/textImageFill.ts` (novo) — `coverPatternTransform(imgW, imgH, boxW, boxH)`:
+  `s = max(boxW/imgW, boxH/imgH)`, `[s,0,0,s,(boxW-imgW*s)/2,(boxH-imgH*s)/2]`; `isTextImageFill(v)`;
+  `refitTextImageFill(o)` (lê `naturalWidth/Height` do `source`, refaz `patternTransform` com `gradientBox(o)`);
+  `installPatternSvg(PatternClass)` — vitest: cover cobre a caixa (4 cantos da caixa caem dentro da imagem
+  transformada) e centra; caixa mais larga/mais alta que a foto; `toSVG` com `patternTransform` contém
+  `patternUnits="userSpaceOnUse"`, `x="-w/2"` e `matrix(...)`; sem `patternTransform` = saída original.
+- [ ] `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `'textImageFill'` — vitest: `Textbox` com `fill` Pattern
+  (dataURL) + marca → `Textbox.fromObject(JSON.parse(JSON.stringify(t.toObject())))` devolve `fill instanceof Pattern`,
+  mesmo `patternTransform` e a marca.
+- [ ] `editor-web/src/editor.ts` — `textImageFillOf(o)`; `async setTextImageFill(url|null, target)` (carrega a imagem,
+  `new Pattern({source, repeat:'no-repeat', patternTransform: cover})`, grava marca, zera `customGradient`/`brandColor`,
+  1 `commit()`; `null` → `fill = fallback`, marca `undefined`); ramo do padrão em `refreshGradient`; `set` com `fill`
+  string e `setObjectGradient` zeram `textImageFill`; `installPatternSvg(Pattern)` ao lado de `installWarpRenderer` —
+  vitest (em `textImageFill.test.ts`, com `refitTextImageFill` puro): mudar `width` do Textbox e refazer muda o
+  `patternTransform` e continua cobrindo.
+- [ ] `editor-web/src/main.ts::textProps` — `🖼️ Foto no texto` (classe `text-photo-btn`; `pickImage` via `run`, depois
+  `editor.setTextImageFill(r.url)` e `renderProps(t)`) e `Remover foto` (classe `text-photo-remove`, só com a marca);
+  `colorInput` 'Cor' com `'#000000'` quando `fill` não for string — prova: T2.
+- [ ] `tools/e2e/task15.mjs` (novo, modelo `task12.mjs`/`task09.mjs` com `pickFirstPhoto`) — a T2 abaixo.
+- [ ] Doc: ao implementar, anotar na "Análise herdada" que o "Export SVG ... vem de graça" foi corrigido pelo item 3.
+
+### Plano de teste
+- **Offline (sem slot):** em `editor-web/`: `npx tsc --noEmit`; `npx vitest run test/textImageFill.test.ts` e
+  `npx vitest run` inteiro (sem `fail` novo); o `build` do helper (bundle + vitest + Kotlin) sai 0.
+- **T2 reprodução como o usuário (E2E, no slot):** pré-condição: uma foto na galeria (o script faz `adb push` de um
+  JPG gerado — ex.: listras coloridas 1200×800, para o pixel ser inequívoco — para `/sdcard/Pictures/e2e_task15.jpg`
+  + `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/e2e_task15.jpg`, para ser a
+  1ª do seletor). `launchEditor('Post Facebook')` → aba **Texto** → "Adicionar título" → editar para `VERÃO` (tamanho
+  grande) → no painel, **🖼️ Foto no texto** → seletor: `pickFirstPhoto` → sinais:
+  (a) `editor.active.fill` é `Pattern` (`toObject().fill.type==='pattern'`), `textImageFill.src` = a URL `/blob/…`;
+  (b) `editor.renderPageCanvas(1080,(o)=>o===t)`: pixels em 3+ pontos dentro das letras ≠ a cor sólida anterior e
+  com variação de cor (a foto, não cor única); (c) cobertura: os 4 cantos da caixa mapeados pela inversa do
+  `patternTransform` caem dentro de `[0,imgW]×[0,imgH]`; (d) **editar o texto** pela UI para `VERÃO 50%` e **arrastar
+  a alça lateral** do Textbox → `patternTransform` mudou e (c) continua valendo; (e) **↶** uma vez logo após aplicar
+  → `fill` volta à cor sólida (1 toque desfaz a aplicação); reaplicar; (f) **Remover foto** → `fill` string = cor
+  anterior, `textImageFill` ausente; reaplicar; (g) renomear, salvar e **reabrir o rascunho** (Meus designs) → `fill`
+  Pattern de novo, mesmo `patternTransform`, pixel (b) igual; (h) **exportar PNG e JPG** (Salvar na galeria) →
+  arquivo em `/sdcard/Pictures/ProductPhoto/`, `adb pull`, pixel dentro da letra ≠ cor sólida; (i) **SVG**:
+  `await editor.exportSvg()` (o mesmo que o botão chama, `main.ts` L2316) contém `<pattern … patternUnits="userSpaceOnUse"`,
+  `matrix(`, `href="data:image/` e o texto com `fill: url(#SVGID_…)`; (j) **MP4**: exportar vídeo curto (ou
+  `editor.exportVideoBundle('mp4')` como complemento) → o PNG da camada do texto tem pixel da foto. Print do
+  aparelho (`screencap`) em cada passo.
+- **Controle positivo:** APK da base sincronizada: no painel do texto não existe o botão "Foto no texto"
+  (`document.querySelector('#props .text-photo-btn') === null`) e `typeof editor.setTextImageFill === 'undefined'` →
+  o script em modo BASE confere isso e para (a funcionalidade está ausente).
+- **T3 regressão direcionada:** `node tools/e2e/task12.mjs` (degradê em texto/forma/fundo: divide o
+  `refreshGradient` e o `set` que agora zera a marca), `task14.mjs` (localizar/substituir: `setTextContent` →
+  refresh), `task09.mjs` (galeria + rascunho + páginas); vitest inteiro (`gradientsAndConnectors`, `textTools`,
+  `svgExport`, `document`). Logcat do PID sem erro de console do WebView (`Pattern`/`toSVG`).
+
+### Sessões seguintes
+- dev: effort high, ultrathink não — transformação de padrão no Fabric e SVG em referencial próprio (manual: `high`
+  para geometria no Fabric), mas as fórmulas, os pontos de integração e o patch estão especificados acima.
+- teste: effort medium, ultrathink não — E2E no molde do `task12`/`task09`; o único passo sutil é o seletor de fotos
+  (já resolvido por `pickFirstPhoto`).

@@ -137,3 +137,191 @@ uma caneca ou uma ponta do produto é cortada demais. Hoje não há um pincel de
 ### Sessões seguintes (sugestão daquele planning)
 - dev: effort high + ultrathink.
 - teste: effort medium.
+
+---
+
+## Planejamento (pipeline 20261106-0749, 2026-11-06)
+
+**Veredito:** corrigir — a análise herdada confere com a base `80b97d7`; o modo de retoque cabe no `editor-web` + uma
+mensagem `putImage` no `:editor`, ~725 linhas, 1 módulo Gradle (`:editor`; `editor-web` não é Gradle).
+**Complexidade:** alta — ponte WebView ↔ Kotlin (mensagem nova) + dado novo no documento (`originalSrcBeforeCutout`).
+**Severidade:** medio — funcionalidade ausente com contorno (refazer o recorte ou editar fora do app); não quebra nada.
+**Arquivos a alterar (reserva da onda):**
+- `editor-web/src/refineCutout.ts` (novo) — funções PURAS sobre `Uint8ClampedArray` RGBA: alfa do carimbo com feather,
+  pontos do traço espaçados, aplicar apagar/restaurar numa janela (bbox) do buffer.
+- `editor-web/src/editor.ts` — modo de retoque (`startRefine`/traço/`endRefine`), guardas de histórico/página,
+  `swapImage` limpa `originalSrcBeforeCutout`.
+- `editor-web/src/main.ts` — `aiRemoveBg` grava o original; `imageProps` ganha `🖌️ Retocar recorte`; barra do modo;
+  guardas como as do `maskImage`.
+- `editor-web/src/document.ts` — `'originalSrcBeforeCutout'` em `CUSTOM_PROPERTIES`.
+- `editor-web/src/protocol.ts` — `PutImagePayload {data}` / `PutImageResult {url}`.
+- `editor-web/src/styles.css` — só se a barra precisar de classe nova (ex.: alternador ativo); senão fica intocado.
+- `editor-web/test/refineCutout.test.ts` (novo).
+- `editor/src/main/kotlin/com/productphoto/editor/EditorAssets.kt` — helper puro `pngFromDataUrl` (Causa raiz 5).
+- `editor/src/main/kotlin/com/productphoto/editor/EditorSession.kt` — `handle("putImage")`.
+- `editor/src/test/kotlin/com/productphoto/editor/EditorAssetsTest.kt` (novo).
+- `tools/e2e/task18.mjs` (novo).
+- `editor/src/main/assets/editor/index.html` — bundle regerado (mais os `assets/index-<hash>.*` por `claim` no dev).
+
+### Causa raiz (símbolos abertos: `arquivo::simbolo` — faz X; em erro, Y)
+Item é TASK: "sintoma" = a funcionalidade ausente. Conferência da análise herdada contra `80b97d7` (linhas atuais):
+1. `editor-web/src/main.ts::imageProps` (L1049–1072) — linhas `Substituir/Filtros/Recortar/Usar como fundo` e a de IA
+   (`✨ Remover fundo/objeto/texto/Vetorizar/Melhorar resolução`). **Não há** "Retocar recorte" (controle positivo).
+2. `main.ts::aiRemoveBg` (L1109–1112) — `bridge.request('ai.removeBg', {src: editor.imageSrc(img)})` →
+   `editor.replaceImage(img, r.url)`; em erro o `run` (L118–132) faz `toast(describe(e))` e devolve `undefined` (a imagem
+   fica como estava). Ponto de gravar `originalSrcBeforeCutout = editor.imageSrc(img)` (lido ANTES do pedido) só
+   `if (!img.get('originalSrcBeforeCutout'))`, antes do `replaceImage`.
+3. `editor.ts::imageSrc` (L1912) = `img.getSrc(false)` → Fabric `Image.getSrc` (`node_modules/fabric/src/shapes/Image.ts`
+   L442–458) lê `_originalElement`: se for **canvas** devolve `toDataURL()`; se for `<img>`, o `src`. `toObject` usa o
+   mesmo `getSrc()` (Image.ts L345). Consequência: o modo NÃO pode pôr o canvas de trabalho em `_originalElement`
+   (`setElement`) — qualquer `flush`/`pagehide`/autosave durante o modo gravaria PNG base64 no rascunho e a `src` deixaria
+   de ser `/blob/`. Pôr o canvas só em `img._element` (`declare _element`, Image.ts L180) dá a prévia ao vivo e a
+   serialização continua com a URL anterior (retoque em curso não é salvo; se o app morrer no meio, perde-se o retoque —
+   aceitável). Cancelar: `img.applyFilters()` (Image.ts L530–541: sem filtros faz `_element = _originalElement`; com
+   filtros refaz do original) devolve a imagem. `getOriginalSize()` (L297) lê `_element`; o canvas de trabalho tem o
+   tamanho natural, então o `replaceImage` do Concluir calcula fator 1.
+4. `editor.ts::replaceImage` (L1942–1956) — guarda filtros/geometria, `setSrc`, reescala, reaplica filtros, `commit()`
+   (→ `scheduleSnapshot` L529–535, debounce 250 ms) = **1 passo de undo**; não toca props próprias (preserva
+   `originalSrcBeforeCutout`). `swapImage` (L1961–1977) faz `img.set({...keep, brandLogo, filterPreset})` (L1970) —
+   acrescentar `originalSrcBeforeCutout: undefined` ali.
+5. `editor/.../EditorAssets.kt` — `resolve` (L69–80) só aceita `https://appassets.androidplatform.net/blob|assets/…`
+   (`data:` → null → `decode` lança `BridgeException(INVALID,"imagem fora do editor")`): confirma que o Concluir precisa
+   gravar blob. `putBytes(bytes, ext, prefix)` (L41) existe; nome `edit-<uuid>.png` casa com `NAME`
+   (`^[a-z]+-[0-9a-f-]{36}\.[a-z0-9]{2,5}$`). `dataUrlBytes` (L102) usa `android.util.Base64`; o `:editor` roda testes JVM
+   com `unitTests.isReturnDefaultValues = true` (`editor/build.gradle.kts` L20) → ali `Base64.decode` devolve **null**:
+   o caminho do data URL não dá para testar em JVM com `dataUrlBytes`. Por isso: helper novo puro
+   `EditorAssets.pngFromDataUrl(dataUrl): ByteArray` (companion) com `java.util.Base64.getDecoder()` (minSdk 28 ≥ 26),
+   exige prefixo `data:image/png;base64,` e a assinatura PNG (`89 50 4E 47 0D 0A 1A 0A`), senão
+   `BridgeException(ErrorCode.INVALID, …)` (também para base64 inválido: `IllegalArgumentException` → INVALID).
+6. `EditorSession.kt` init (L91–100) — `handle("saveDraft"|"pickImage"|…|"export")`; tipo sem handler cai em
+   `EditorBridge.kt` L178 → `UNSUPPORTED "no handler for …"`. `putImage` entra ali:
+   `handle("putImage") { p, _ -> val name = assets.putBytes(EditorAssets.pngFromDataUrl(p.obj().str("data")), "png", "edit"); buildJsonObject { put("url", assets.blobUrl(name)) } }`
+   (`obj()`/`str()` são os mesmos helpers usados em `EditorHandlers.kt` L60/L68; conferir o import no `EditorSession`).
+7. `editor.ts::startMask/endMask` (L2007–2050) — `PencilBrush` + `isDrawingMode`; `path:created` (L223–233) guarda os
+   traços em `maskPaths`; `endMask` mapeia página → pixels por
+   `multiplyTransformMatrices([1,0,0,1,img.width/2+img.cropX,img.height/2+img.cropY], invertTransform(img.calcTransformMatrix()))`.
+   `maskPaths != null` bloqueia `scheduleSnapshot` (L530), `flushPending` (L2195) e as operações de página
+   (L637/653/688/719/835); `startFreehandDraw` recusa (L2059). Em `main.ts` o `maskImage` faz `renderProps` mostrar a
+   barra da máscara (L262) e recusa desenho/página/lote (L904, L1198, L1271). O retoque precisa das mesmas guardas.
+   `undo()/redo()` (L546–547) NÃO têm guarda hoje: com o retoque aberto o `restore` recarregaria o JSON e o estado do modo
+   apontaria para um objeto morto → o retoque tem de recusar (ou cancelar antes) o undo/redo.
+8. Fabric `Canvas` em modo desenho ainda dispara `mouse:down/move/up` (`node_modules/fabric/src/canvas/Canvas.ts`
+   L988/L1006/L1024 `_handleEvent`): dá para coletar os `scenePoint` do traço; o `PencilBrush` serve de rastro visual
+   e bloqueia seleção/arrasto.
+9. `core/imaging/.../LocalSceneComposer.kt::cutout` (L56–64) — o recorte = imagem decodificada (lado ≤ 4096,
+   `EditorAssets.MAX_SIDE`) com alfa da máscara; o PNG passa por `Bitmap` (pré-multiplicado) → pixels α=0 tendem a sair
+   com RGB 0. Logo "restaurar" tem de copiar a COR do original, não só subir o alfa; e o original (até 8000 px no editor)
+   é escalado para o tamanho natural ATUAL do recorte (cobre também o upscale ×2/×4 posterior).
+
+### Provas (comando literal -> resultado)
+- `git -C <wt-planning> log -1 --format=%H` → `80b97d7f5958758c0e19367b2b47e055bc8d5cb0` (base conferida).
+- `grep -n "Retocar\|originalSrcBeforeCutout\|putImage" editor-web/src/*.ts editor/src/main/kotlin/com/productphoto/editor/*.kt`
+  → nada (funcionalidade ausente).
+- `grep -n "isReturnDefaultValues" editor/build.gradle.kts` → `20: testOptions { unitTests.isReturnDefaultValues = true }`.
+- `grep -n "environment" editor-web/vite.config.ts` → `21: environment: 'node'` (vitest sem canvas/DOM: a lógica de
+  pixels tem de ser pura sobre arrays para ter teste).
+- `grep -n "_handleEvent" node_modules/fabric/src/canvas/Canvas.ts` → L988/1006/1024: eventos de ponteiro em modo desenho.
+- `grep -rn "removeBg\|Remover fundo" tools/e2e/` → nada: nenhum E2E usa o remover fundo ainda; e as fotos dos E2E
+  existentes são `data:` (ex.: `task11.mjs` L11–14), que o `ai.removeBg` recusa → o `task18.mjs` usa asset do APK.
+- Estimativa: `refineCutout.ts` ~140, `editor.ts` ~130, `main.ts` ~90, `protocol.ts` ~10, Kotlin ~35, vitest ~130,
+  teste Kotlin ~40, E2E ~150 ≈ **~725 linhas** (< 1.500; 1 módulo Gradle) → cabe numa sessão.
+
+### Hipóteses descartadas (e por quê)
+- **Concluir com dataURL no `replaceImage`** (spec original) — quebra as ações de IA seguintes (item 5) e infla o rascunho.
+- **Prévia ao vivo com `img.setElement(canvas)`** — `setElement` troca `_originalElement` e `_setWidthHeight` (Image.ts
+  L687–691) reseta `width/height` (perde o recorte `cropX/width`); e `getSrc`/`toObject` passariam a devolver dataURL
+  (item 3).
+- **Rasterizar os traços do `PencilBrush` com `ctx.filter = 'blur()'` para o feather** — não é testável no vitest
+  (`environment: 'node'`, sem canvas) e depende do WebView; o carimbo radial puro é determinístico e testável.
+- **`putImage` re-decodificando com `decodeBytes` + `putPng`** — redimensiona acima de 4096 e recomprime à toa; basta
+  validar a assinatura PNG e gravar os bytes (`putBytes`).
+- **Testar o `putImage` em JVM via `dataUrlBytes`** — `android.util.Base64` vira stub que devolve null (item 5).
+- **TASK-18 depender da TASK-07/17** — a TASK-07 mexe em `imageFilters`/`showFilters`; o retoque só usa o
+  `applyFilters()` do Fabric. Sem `depende_de`; a sobreposição em `main.ts`/`editor.ts`/bundle já separa as ondas.
+
+### Tarefas
+- [ ] `editor-web/src/refineCutout.ts` (novo) — `featherAlpha(d, r, feather)` (1 até `r·(1−feather)`, smoothstep até 0
+  em `r`); `strokeStamps(points, spacing)` (pontos a cada ~`r/4`, inclui o 1º e o último); `applyStamp(buf, w, h,
+  orig|null, cx, cy, r, feather, mode)` sobre `Uint8ClampedArray` RGBA não pré-multiplicado: `erase` α←α·(1−s);
+  `restore` α'=α+(α_o−α)·s, rgb'=(rgb·α·(1−s)+rgb_o·α_o·s)/α' (α'=0 → rgb do original). Janela = bbox clampado.
+  — vitest `refineCutout.test.ts`: centro do apagar α=0, borda com feather 0,5 intermediária (0<α<255), fora do raio
+  intocado; feather 0 = degrau; restaurar no centro = pixel do original exato (α e cor), inclusive sobre α=0 com RGB 0;
+  traço de 2 pontos distantes gera carimbos contínuos; carimbo na borda da imagem não estoura índice.
+- [ ] `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `'originalSrcBeforeCutout'` — vitest: `toContain` + ida/volta
+  `toObject`/`fromObject` de uma FabricImage com a prop (molde: `groupAndSwap.test.ts`, que já importa `fabric/node`).
+- [ ] `editor-web/src/protocol.ts` — `PutImagePayload {data: string}`, `PutImageResult {url: string}`.
+- [ ] `editor/.../EditorAssets.kt::pngFromDataUrl` + `EditorSession.kt` `handle("putImage")` — JVM
+  `EditorAssetsTest.kt`: data URL de um PNG mínimo (bytes literais em base64) → bytes com a assinatura;
+  `data:image/jpeg;…`, sem `;base64`, base64 inválido e bytes não-PNG → `BridgeException` com `ErrorCode.INVALID`.
+- [ ] `editor-web/src/editor.ts` — estado `refine: {img, work: HTMLCanvasElement, orig: ImageData|null, points, mode,
+  size, feather, strokes} | null`:
+  - `startRefine(img, origSrc?)`: `discardActiveObject`; canvas de trabalho no tamanho natural de `img._originalElement`
+    com `getContext('2d', {willReadFrequently: true})`, desenha o `_originalElement` (SEM filtros); com `origSrc`,
+    `util.loadImage` e desenha ESCALADO para o mesmo tamanho → `orig` (falha ao carregar → `orig = null`, Restaurar
+    desabilitado); `img._element = work`, `img.dirty = true`; `PencilBrush` translúcido (vermelho apagar / verde
+    restaurar) com `width` = tamanho; `isDrawingMode = true`.
+  - em `mouse:down/move/up` com `refine` ativo, acumula `scenePoint`; no `path:created` com `refine` ativo: remove o
+    path (`withoutHistory`), converte os pontos pelo mesmo `toPixels` do `endMask`, raio em px da imagem = `size/2 ×`
+    escala da matriz (`hypot(a, b)`), `getImageData` do bbox → `applyStamp` por carimbo → `putImageData`,
+    `img.dirty = true`, render. Nada entra no histórico durante o modo.
+  - guardas: `refine` junto de `maskPaths` em `scheduleSnapshot`, `flushPending`, ops de página e
+    `startFreehandDraw`; `undo/redo` recusam com o modo ativo.
+  - `endRefine(apply)`: desliga o desenho; sem traço ou `apply=false` → `img.applyFilters()` + render, devolve `null`;
+    com traço devolve `work.toDataURL('image/png')` (quem chama faz `putImage` + `replaceImage`, que reaplica filtros
+    e dá o único `commit`).
+  - `swapImage`: `originalSrcBeforeCutout: undefined` no `img.set` (L1970).
+  — prova: E2E (T2) + vitest das funções puras.
+- [ ] `editor-web/src/main.ts`:
+  - `aiRemoveBg`: `const before = editor.imageSrc(img)` antes do pedido; com `r`,
+    `if (!img.get('originalSrcBeforeCutout')) img.set('originalSrcBeforeCutout', before)` antes do `replaceImage` (o
+    `commit` dele já leva a prop no instantâneo).
+  - `imageProps`: botão `🖌️ Retocar recorte` (classe `refine-btn`) quando `img.get('originalSrcBeforeCutout')` OU a
+    imagem tem transparência (amostra 64×64 do `_originalElement`, alguma α<255, cache em `WeakMap` por elemento).
+  - barra (como `renderMaskProps`; `renderProps` a mostra enquanto houver `refineImage`): alternador
+    `➖ Apagar sobra` / `➕ Restaurar original` (Restaurar desabilitado sem original, com hint), slider `Tamanho do
+    pincel` 5–120 (px da página; padrão 40), slider `Suavidade da borda` 0–100 % (padrão 50), `Cancelar`, `Concluir`
+    (classes `refine-erase`, `refine-restore`, `refine-size`, `refine-feather`, `refine-cancel`, `refine-done` para o E2E).
+  - Concluir: `data = editor.endRefine(true)`; com `data`:
+    `run('Salvando retoque', () => bridge.request<PutImageResult>('putImage', { data }))` → `editor.replaceImage(img, r.url)`;
+    sem `transport` → toast "Sem app nativo" e cancela; erro do `putImage` → `img.applyFilters()` (volta ao recorte) +
+    toast do `run`.
+  - guardas do `maskImage` (L904, L1198, L1271) e o undo/redo da barra passam a recusar também com o retoque aberto.
+  — prova: E2E (T2).
+- [ ] `tools/e2e/task18.mjs` — a T2 abaixo.
+
+### Plano de teste
+- **Offline (sem slot):** em `editor-web/`: `npx tsc --noEmit`, `npx vitest run test/refineCutout.test.ts` e
+  `npx vitest run` (bateria inteira, sem `fail` novo); Kotlin `EditorAssetsTest` e o resto do `testDebugUnitTest` pelo
+  `build` do helper.
+- **T2 reprodução como o usuário (E2E, no slot):** `tools/e2e/task18.mjs` (molde `task11.mjs`, driver `cdp.mjs`):
+  1. `launchEditor()`; `editor.newDocument('E2E 18', 1080, 1080)`; insere uma foto SERVIDA pelo asset loader (o
+     `ai.removeBg` recusa `data:`):
+     `editor.addImage('https://appassets.androidplatform.net/assets/content/scenes/pastel_podium.webp')` (ou outra de
+     `content/scenes` / `content/mockups` cujo recorte deixe área transparente), centraliza, seleciona.
+  2. Toca (CDP `tap` no `#props`) **✨ Remover fundo**; espera o fim do busy. Sinal: `src` = `/blob/ai-…`,
+     `originalSrcBeforeCutout` = URL da cena; print `01-recorte.png`.
+  3. Lê o recorte em pixels (canvas a partir do `_originalElement`) e escolhe P_t = pixel com α=0 (fundo removido) e
+     P_s = pixel com α=255 (sujeito), longe das bordas. Sem α=0: registra e usa só o ciclo apagar→restaurar em P_s.
+  4. Toca **🖌️ Retocar recorte** → **➕ Restaurar original**, tamanho 40, suavidade 50; arrasta (toque CDP com
+     `docToClient`) um traço curto sobre P_t; print `02-restaurando.png`; toca **Concluir**. Sinais: `src` =
+     `https://appassets.androidplatform.net/blob/edit-<uuid>.png`; pixel em P_t com α=255 e RGB = pixel do ORIGINAL
+     escalado (tolerância ±2); a ~raio·0,9 do traço, 0<α<255 (feather).
+  5. **➖ Apagar sobra** num traço sobre P_s → Concluir → α(P_s)=0; `editor.flushPending(); editor.undo()` → α(P_s)=255
+     e `src` volta ao blob anterior (1 undo por Concluir).
+  6. **✨ Melhorar resolução ×2** na imagem retocada → sem toast "imagem fora do editor"; `src` = `/blob/ai-…`, tamanho
+     natural ×2. (Upscale indisponível no aparelho → usar **✨ Remover fundo** de novo, que também lê a `src`; anotar.)
+  7. Salva o rascunho (`flush` → `saveDraft`) e reabre (sair do editor e reabrir pela lista de rascunhos) → `src`
+     `/blob/edit-…` e `originalSrcBeforeCutout` mantidos, pixel P_t ainda α=255.
+  8. **🔄 Substituir** por outra foto (caminho do `task11`) → `originalSrcBeforeCutout` ausente.
+  Prints de cada passo; JSON do `reporter` com cada `check`.
+- **Controle positivo:** APK da base: depois do passo 2, `document.querySelector('#props .refine-btn')` = null e
+  `uiFind('Retocar recorte')` → nada; `originalSrcBeforeCutout` = undefined. Com o fix, o botão existe e os passos 4–8 passam.
+- **T3 regressão direcionada:** `node tools/e2e/task11.mjs` (substituir foto, agrupar, cadeado), `task14.mjs` (desenho
+  à mão livre: o pincel do canvas é compartilhado), `task09.mjs` (páginas: guardas de página); remover fundo e upscale
+  já passam no T2; "✨ Remover objeto" (máscara) uma vez no E2E: pinta, Aplicar, sem erro. Vitest inteiro e
+  `testDebugUnitTest` sem `fail` novo contra a base. T4: logcat do PID sem `FATAL`/erro de console novo.
+
+### Sessões seguintes
+- dev: effort high, ultrathink sim — geometria página→pixels, prévia ao vivo mexendo no `_element` do Fabric sem
+  quebrar serialização/undo, guardas em vários fluxos e a mensagem nova na ponte.
+- teste: effort medium, ultrathink não — E2E com receita fechada; a sutileza é escolher P_t/P_s pelo recorte real.
