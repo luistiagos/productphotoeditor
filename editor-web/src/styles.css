@@ -312,3 +312,10 @@ button:disabled { opacity: 0.4; }
 .mockup-face { gap: 10px; }
 .mockup-face label.select > span:first-child { min-width: 4.5em; }
 .mockup-face label.color > span:empty { display: none; }
+
+/* 🖼️ Moldura (TASK-06): grade das formas de recorte */
+.grid.frame-shapes { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); }
+.tile.frame-cell { align-items: center; padding: 6px 4px; }
+.frame-icon { display: block; width: 40px; height: 40px; color: var(--accent); }
+.tile.frame-cell.primary .frame-icon { color: var(--accent-text); }
+.frame-icon svg { width: 100%; height: 100%; display: block; }

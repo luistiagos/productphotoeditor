@@ -295,3 +295,34 @@ Conferência da "Análise herdada" contra a base `80b97d7` (as linhas mudaram; o
 - dev: effort high, ultrathink sim — geometria de 15 formas, patch de renderização de classe do Fabric (canvas + SVG) e
   quatro caminhos de troca de fonte que têm de regerar a moldura.
 - teste: effort medium, ultrathink nao — leitura de objeto/pixel por CDP em roteiro já modelado por `task11`/`task12`.
+
+### Nota do dev (2026-11-06) — plano conferido contra a base `5ed950b`
+O plano vale; as linhas andaram e o desenho foi fixado com o código aberto (Fabric 7.4.0 em `node_modules/fabric/src`):
+- **Linhas atuais:** `editor.ts` — `customProperties`/`installWarpRenderer` L75–77, `object:modified` L220, `commit`
+  L637, `replaceImage` L2124, `swapImage` L2143 (`keep.clipPath` L2147), `startCrop/endCrop` L2162/L2172; `main.ts` —
+  `showSwapImage` L1081, `imageProps` L1098; `dataMerge.ts::swapPhotoJson` L197; `document.ts::CUSTOM_PROPERTIES`
+  L97–129.
+- **Cache:** `Object.needsItsOwnCache` (L750) devolve `true` com `clipPath` e `Image.shouldCache` (L630) só usa isso →
+  imagem emoldurada sempre desenha no cache; o `drawObject` (L823–842) roda no contexto do cache em unidades locais
+  centradas. O aro entra no patch do `FabricImage.prototype.drawObject`, depois do original, com `clip()` pela própria
+  forma (aro interno, cabe no cache). Pular quando `forClipping`. `cacheProperties` da imagem ganha `frameStroke` e
+  `frameStrokeWidth` (o `_set` L615 marca `dirty` só por essa lista).
+- **SVG:** `_createBaseSVGMarkup` (`FabricObjectSVGExportMixin.ts` L195–257) põe o `clip-path` no `<g>` da imagem e o
+  `_toSVG` (Image.ts L372) vai DENTRO desse `<g>` → um `<path>` de aro anexado ao `_toSVG` sai recortado pela forma,
+  igual ao canvas. `exportSvg` (`canvas.toSVG`) não muda.
+- **Forma do `clipPath`:** `Path` (Path.ts L75–84) recalcula `pathOffset` = centro da bbox e põe `left/top` nele; todas
+  as formas tocam os 4 lados da caixa (bbox = caixa, `pathOffset` = 0) → o JSON puro (merge) usa `left/top = 0` sem
+  depender do cálculo de bbox do Fabric. Geometria em px da página (caixa `width·|scaleX| × height·|scaleY|`) com
+  `clipPath.scaleX = 1/|scaleX|`: cantos redondos não deformam com escala não uniforme; o aro usa os comandos do
+  próprio `clipPath` (`_renderPathCommands`), então aro e máscara nunca divergem.
+- **Zoom/posição interna = recorte (`cropX/cropY/width/height` + escala), caixa na página constante:** região máxima com
+  a proporção da caixa (cover da foto natural), dividida pelo zoom, deslocada por `offset ∈ [-1,1]` da folga. A inversa
+  (`framingOf`) relê zoom/posição da geometria → o Recortar manual e o Substituir mantêm os sliders coerentes.
+- **Recorte ao vivo:** os controles do recorte disparam `object:CROPPING` (`croppingHandlers.ts` L81–168,
+  `wrapWithFireEvent`) → a moldura acompanha o arraste; `endCrop` regera e relê o enquadramento.
+- **Substituir com moldura:** encaixe vira *cover* com o zoom/posição guardados (a caixa na página não muda; com
+  `contain` ela mudaria de proporção e quebraria o critério "bbox igual ±1 px"); a folha esconde o "Encaixe".
+- **Hipótese descartada:** testar o editor no vitest — o `canvas` nativo não está compilado (`node_modules/canvas` sem
+  `build/Release`), não há `new Editor` em nenhum teste: a lógica de geometria/regeração fica em `clipFrames.ts` com as
+  classes por parâmetro (padrão do `textImageFill.ts`) e o teste usa `FabricImage`/`Path` do `fabric/node`; o pixel
+  fica para o E2E.

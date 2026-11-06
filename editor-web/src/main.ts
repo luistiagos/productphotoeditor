@@ -24,6 +24,7 @@ import { BLEND_MODES, brandDuotone, BRAND_DUOTONE_ID, DUOTONE_PRESETS, type Duot
 import { FOCUS_DEFAULTS, FocusBlur, type FocusMode, SoftEdge, Vignette } from './focusFilters';
 import { isFreehandPath, keepAlpha, PEN_MAX, PEN_MIN, PEN_PRESETS, type PenId, penWidth, withAlpha } from './freehandDraw';
 import type { FitMode } from './imageGeometry';
+import { CLIP_SHAPE_KINDS, CLIP_SHAPE_LABELS, type ClipShapeKind, clipPathCommands, FRAME_STROKE_MAX, FRAME_ZOOM_MAX, FRAME_ZOOM_MIN, pathD } from './clipFrames';
 import { DESIGN_FORMATS, findFormat, formatSvg, GROUP_LABELS, type MediaFormat } from './formats';
 import type { GridOverlayMode, OverlayGuideMode } from './overlays';
 import { AD_PREVIEW_MODES, type AdPreviewMode, buildAdPreview, previewModel } from './adPreview';
@@ -1080,9 +1081,13 @@ const FILTERS: [FilterPreset, string][] = [['none', 'Nenhum'], ['grayscale', 'P&
 
 function showSwapImage(img: FabricImage): void {
   let mode: FitMode = 'contain';
+  // foto emoldurada (TASK-06): a nova preenche a moldura com o mesmo zoom/posição, então não há encaixe a escolher
+  const framed = !!editor.frameOf(img);
   const close = openSheet('Substituir foto', h('div', { class: 'list' },
-    h('p', { class: 'hint' }, 'A nova foto ocupa o mesmo espaço, com a mesma rotação, sombra e filtros.'),
-    select('Encaixe', [['contain', 'Inteira no espaço (produto)'], ['cover', 'Preencher o espaço (cenário)']], mode,
+    h('p', { class: 'hint' }, framed
+      ? 'A nova foto preenche a mesma moldura, com o mesmo aro, zoom, rotação, sombra e filtros.'
+      : 'A nova foto ocupa o mesmo espaço, com a mesma rotação, sombra e filtros.'),
+    framed ? null : select('Encaixe', [['contain', 'Inteira no espaço (produto)'], ['cover', 'Preencher o espaço (cenário)']], mode,
       (v) => { mode = v as FitMode; }),
     button('Escolher da galeria…', () => void (async () => {
       close();
@@ -1099,6 +1104,7 @@ function imageProps(img: FabricImage): Node[] {
   return [
     h('div', { class: 'row scroll' },
       button('🔄 Substituir', () => showSwapImage(img), 'primary swap-btn'),
+      button('🖼️ Moldura', () => showFrameSheet(img), 'frame-btn'),
       button('Filtros', () => showFilters(img)),
       button('Recortar', () => {
         if (editor.startCrop()) {
@@ -1120,6 +1126,43 @@ function imageProps(img: FabricImage): Node[] {
       button('✨ Melhorar resolução', () => aiUpscale(img))),
   ];
 }
+
+/** Miniatura SVG da forma (célula da grade da folha 🖼️ Moldura). */
+function frameIcon(kind: ClipShapeKind): HTMLElement {
+  const icon = h('span', { class: 'frame-icon' });
+  icon.innerHTML = kind === 'none'
+    ? '<svg viewBox="-20 -20 40 40"><rect x="-17" y="-17" width="34" height="34" fill="currentColor" opacity=".35"/></svg>'
+    : `<svg viewBox="-20 -20 40 40"><path d="${pathD(clipPathCommands(kind, 34, 34))}" fill="currentColor"/></svg>`;
+  return icon;
+}
+
+/**
+ * 🖼️ Moldura (TASK-06): grade das formas e, com moldura, aro (cor/espessura) e zoom/posição internos. A folha se
+ * redesenha ao trocar de forma (os controles só existem com moldura).
+ */
+function showFrameSheet(img: FabricImage): void {
+  const spec = editor.frameOf(img);
+  const current: ClipShapeKind = spec?.kind ?? 'none';
+  const cells = CLIP_SHAPE_KINDS.map((k) => h('button', {
+    type: 'button', class: `tile frame-cell${k === current ? ' primary' : ''}`, 'data-kind': k,
+    onclick: () => { editor.setImageFrame(img, { kind: k }); showFrameSheet(img); },
+  }, frameIcon(k), h('span', {}, CLIP_SHAPE_LABELS[k])));
+  const controls = spec ? [
+    h('h4', {}, 'Aro'),
+    h('div', { class: 'row scroll' },
+      colorInput('Cor do aro', spec.stroke, (v) => editor.setImageFrame(img, { stroke: v }))),
+    h('div', { class: 'sliders' },
+      slider('Espessura', 0, FRAME_STROKE_MAX, 1, spec.strokeWidth, (v) => editor.setImageFrame(img, { strokeWidth: v }))),
+    h('h4', {}, 'Enquadramento da foto'),
+    h('div', { class: 'sliders frame-framing' },
+      slider('Zoom', FRAME_ZOOM_MIN, FRAME_ZOOM_MAX, 0.05, round2(spec.scale), (v) => editor.setImageFrame(img, { scale: v })),
+      slider('Posição X', -1, 1, 0.02, round2(spec.offsetX), (v) => editor.setImageFrame(img, { offsetX: v })),
+      slider('Posição Y', -1, 1, 0.02, round2(spec.offsetY), (v) => editor.setImageFrame(img, { offsetY: v }))),
+  ] : [h('p', { class: 'hint' }, 'Escolha uma forma para colocar a foto dentro dela.')];
+  openSheet('🖼️ Moldura', h('div', { class: 'frame-sheet' }, h('div', { class: 'grid frame-shapes' }, ...cells), ...controls), { tall: true });
+}
+
+const round2 = (v: number): number => Math.round(v * 100) / 100;
 
 function showFilters(img: FabricImage): void {
   const adj: Adjustments = { brightness: 0, contrast: 0, saturation: 0, blur: 0, vignette: 0, softEdge: 0, focus: null };

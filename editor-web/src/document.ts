@@ -125,6 +125,13 @@ export const CUSTOM_PROPERTIES = [
   'textImageFill',
   // TASK-18: URL da foto antes do "✨ Remover fundo" (o "➕ Restaurar original" do 🖌️ Retocar recorte); o 🔄 Substituir limpa
   'originalSrcBeforeCutout',
+  // TASK-06: 🖼️ moldura de recorte da imagem (forma, zoom/posição internos, aro); o `clipPath` é regerado delas
+  'clipShape',
+  'clipScale',
+  'clipOffsetX',
+  'clipOffsetY',
+  'frameStroke',
+  'frameStrokeWidth',
 ] as const;
 
 export const MAX_SIDE = 8000;

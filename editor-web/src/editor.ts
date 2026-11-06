@@ -71,10 +71,16 @@ import { FocusBlur, type FocusSpec, isRegionFilter, SoftEdge, Vignette } from '.
 import { coverPatternTransform, installPatternSvg, isTextImageFill, refitTextImageFill, type TextImageFill } from './textImageFill';
 import { type BooleanOp, booleanRegions, isBooleanShapeType, MIN_RESULT_AREA, ringsArea, ringsToPathD, shapeRegion } from './pathBoolean';
 import { applyStroke, REFINE_FEATHER, REFINE_SIZE, type RefineMode, type RefinePoint } from './refineCutout';
+import {
+  applyFraming, currentFraming, framedGeometry, frameProps, type FrameSpec, frameSpecOf, installFrameRenderer, type PathClass, refreshFrame,
+} from './clipFrames';
 
 FabricObject.customProperties = [...CUSTOM_PROPERTIES];
 installWarpRenderer(Textbox);
 installPatternSvg(Pattern);
+installFrameRenderer(FabricImage);
+/** `Path` com a assinatura que o `clipFrames` usa (a do Fabric aceita mais formatos de caminho). */
+const FramePath = Path as unknown as PathClass;
 // alvos maiores para toque
 InteractiveFabricObject.ownDefaults = {
   ...InteractiveFabricObject.ownDefaults,
@@ -217,7 +223,12 @@ export class Editor {
     this.canvas.on('object:added', changed);
     this.canvas.on('object:removed', changed);
     // texto curvo: a largura da caixa (alças laterais) e a digitação refazem as dimensões do texto reto (§29)
-    this.canvas.on('object:modified', ({ target }) => { this.refitCurve(target); this.refreshGradient(target); changed(); });
+    this.canvas.on('object:modified', ({ target }) => { this.refitCurve(target); this.refreshGradient(target); this.refreshFrameOf(target); changed(); });
+    // moldura (TASK-06) acompanha ao vivo a alça de escala e o arraste do recorte (os controles do recorte disparam
+    // `object:CROPPING`, fabric/extensions `croppingHandlers.ts`)
+    this.canvas.on('object:scaling', ({ target }) => this.refreshFrameOf(target));
+    (this.canvas as unknown as { on(e: string, h: (ev: { target?: FabricObject }) => void): void })
+      .on('object:CROPPING', ({ target }) => this.refreshFrameOf(target));
     this.canvas.on('text:changed', ({ target }) => { this.refitCurve(target); this.refreshGradient(target); changed(); });
     this.canvas.on('selection:created', () => this.onSelection(this.canvas.getActiveObject()));
     this.canvas.on('selection:updated', () => { this.leaveCrop(); this.onSelection(this.canvas.getActiveObject()); });
@@ -2132,13 +2143,16 @@ export class Editor {
     }
     img.filters = keepFilters;
     if (keepFilters.length) img.applyFilters();
+    // a caixa na página é a mesma, as unidades locais não (upscale ×2/×4): a moldura é regerada (TASK-06)
+    refreshFrame(img, FramePath);
     img.setCoords();
     this.commit();
   }
 
   /**
    * Troca a foto mantendo o espaço na página (caixa, centro), rotação, espelho, opacidade, sombra e filtros. `contain`
-   * mostra a foto inteira (produto recortado); `cover` preenche o espaço recortando o excesso (cenário).
+   * mostra a foto inteira (produto recortado); `cover` preenche o espaço recortando o excesso (cenário). Foto
+   * emoldurada (TASK-06): preenche a moldura com o zoom/posição internos guardados — a caixa na página não muda.
    */
   async swapImage(img: FabricImage, url: string, fitMode: FitMode = 'contain', opts: { brandLogo?: boolean } = {}): Promise<void> {
     const slotW = img.width * img.scaleX;
@@ -2146,17 +2160,66 @@ export class Editor {
     const center = img.getCenterPoint();
     const keep = { angle: img.angle, flipX: img.flipX, flipY: img.flipY, opacity: img.opacity, shadow: img.shadow, clipPath: img.clipPath };
     const keepFilters = img.filters;
+    const frame = this.frameOf(img);
     await img.setSrc(url);
     const { width: nw, height: nh } = img.getOriginalSize();
-    if (nw > 0 && nh > 0) img.set(fitSlot(slotW, slotH, nw, nh, fitMode));
+    if (nw > 0 && nh > 0) {
+      img.set(frame ? framedGeometry(slotW, slotH, nw, nh, frame.scale, frame.offsetX, frame.offsetY) : fitSlot(slotW, slotH, nw, nh, fitMode));
+    }
     // a foto nova não é o recorte da antiga: o "➕ Restaurar original" do retoque não vale mais (TASK-18)
     img.set({ ...keep, brandLogo: opts.brandLogo ? true : undefined, filterPreset: img.get('filterPreset'), originalSrcBeforeCutout: undefined });
     img.setPositionByOrigin(center, 'center', 'center');
     img.filters = keepFilters;
     this.refreshFilterRegion(img); // `cover` recorta: vinheta/borda/foco seguem a parte visível nova
     if (keepFilters.length) img.applyFilters();
+    // o clipPath guardado no `keep` está nas unidades locais da foto antiga: regerado para a caixa (TASK-06)
+    refreshFrame(img, FramePath);
     img.setCoords();
     this.commit();
+  }
+
+  // ---------- 🖼️ moldura de recorte (TASK-06) ----------
+
+  /** Moldura da imagem (ou `null`); zoom/posição relidos da geometria (o Recortar manual também os muda). */
+  frameOf(img: FabricImage): FrameSpec | null {
+    const spec = frameSpecOf(img);
+    return spec ? { ...spec, ...currentFraming(img) } : null;
+  }
+
+  /**
+   * Põe, muda ou tira (`kind: 'none'`) a moldura. Zoom/posição na mudança mexem no recorte mantendo a caixa e o centro
+   * na página; a forma e o aro só regeram o `clipPath`. Um passo do undo por chamada (o `commit` agrupa os sliders).
+   */
+  setImageFrame(img: FabricImage, patch: Partial<Omit<FrameSpec, 'kind'>> & { kind?: FrameSpec['kind'] | 'none' }): void {
+    if (patch.kind === 'none') {
+      if (!frameSpecOf(img)) return;
+      img.set({ ...frameProps(null), clipPath: undefined });
+    } else {
+      const cur = this.frameOf(img);
+      const kind = patch.kind ?? cur?.kind;
+      if (!kind) return;
+      const next: FrameSpec = {
+        stroke: '#ffffff', strokeWidth: 0, ...(cur ?? currentFraming(img)), ...patch, kind,
+      };
+      if (patch.scale !== undefined || patch.offsetX !== undefined || patch.offsetY !== undefined) {
+        applyFraming(img, next.scale, next.offsetX, next.offsetY);
+        if (this.refreshFilterRegion(img)) img.applyFilters();
+      }
+      // `frameSpecOf` prende os valores nas faixas (zoom 1..3, posição −1..1, aro 0..40)
+      img.set(frameProps(frameSpecOf(frameProps(next))));
+      refreshFrame(img, FramePath);
+    }
+    img.dirty = true;
+    img.setCoords();
+    this.commit();
+  }
+
+  /** Regera a moldura de uma imagem (ou das imagens de uma seleção/grupo) depois de escala/recorte; sem `commit`. */
+  private refreshFrameOf(o: FabricObject | undefined): void {
+    if (o instanceof FabricImage) refreshFrame(o, FramePath);
+    else if (o instanceof Group) {
+      for (const c of o.getObjects()) this.refreshFrameOf(c);
+    }
   }
 
   startCrop(): boolean {
@@ -2174,6 +2237,8 @@ export class Editor {
     if (!s) return;
     s.img.controls = s.controls;
     if (this.refreshFilterRegion(s.img)) s.img.applyFilters();
+    // moldura: caixa nova e zoom/posição relidos do recorte (os sliders da folha seguem o que o usuário recortou)
+    if (refreshFrame(s.img, FramePath)) s.img.set(frameProps(this.frameOf(s.img)));
     s.img.setCoords();
     this.cropState = null;
     this.commit();

@@ -3,6 +3,7 @@
 // objeto vivo que quem chama revive (`enliven`) — no app, o `fabric` do navegador; no teste, o `fabric/node`.
 import { type FabricJson, walkObjects } from './document';
 import { fitSlot, visibleRegion } from './imageGeometry';
+import { clipPathJson, frameSpecOf, framedGeometry } from './clipFrames';
 
 /** Campos do lote, na ordem em que aparecem na folha e na tabela. `foto` só vale em imagem. */
 export const MERGE_FIELDS = ['produto', 'preco_de', 'preco_por', 'desconto', 'parcelas', 'codigo', 'foto'] as const;
@@ -198,7 +199,11 @@ export function swapPhotoJson(o: Record<string, unknown>, photo: PhotoRef): Reco
   const sx = num(o.scaleX, 1), sy = num(o.scaleY, 1);
   const slotW = num(o.width) * Math.abs(sx), slotH = num(o.height) * Math.abs(sy);
   if (!(slotW > 0 && slotH > 0 && photo.width > 0 && photo.height > 0)) return o;
-  const g = fitSlot(slotW, slotH, photo.width, photo.height, 'cover');
+  // foto emoldurada: o zoom/posição internos da moldura valem para a foto nova (zoom 1 no centro = o mesmo cover)
+  const frame = frameSpecOf(o);
+  const g = frame
+    ? framedGeometry(slotW, slotH, photo.width, photo.height, frame.scale, frame.offsetX, frame.offsetY)
+    : fitSlot(slotW, slotH, photo.width, photo.height, 'cover');
   o.src = photo.url;
   // a foto do produto não é o recorte da foto do modelo: sem "➕ Restaurar original" dela (TASK-18)
   delete o.originalSrcBeforeCutout;
@@ -208,6 +213,8 @@ export function swapPhotoJson(o: Record<string, unknown>, photo: PhotoRef): Reco
   o.cropY = g.cropY;
   o.scaleX = g.scaleX * Math.sign(sx || 1);
   o.scaleY = g.scaleY * Math.sign(sy || 1);
+  // a caixa na página é a mesma, mas as unidades locais mudaram: o clipPath da moldura é regerado (TASK-06)
+  if (frame) o.clipPath = clipPathJson(frame.kind, slotW, slotH, g.scaleX, g.scaleY);
   // vinheta, borda suave e foco agem na parte visível: seguem o recorte da foto nova [[task-17-vinheta-borda-suave-e-desfoque-de-foco]]
   if (Array.isArray(o.filters)) {
     const region = visibleRegion(g, photo.width, photo.height);
