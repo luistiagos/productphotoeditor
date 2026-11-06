@@ -34,7 +34,7 @@ import {
 import { type ReflowItem, smartReflowLayout } from './magicResize';
 import { type CatalogRow, generateMergedPages, type LiveText, mergedPageName } from './dataMerge';
 import { History } from './history';
-import { fitSlot, type FitMode, rescaledGeometry } from './imageGeometry';
+import { fitSlot, type FitMode, type ImageRegion, rescaledGeometry, visibleRegion } from './imageGeometry';
 export interface ShadowOptions {
   color?: string;
   blur?: number;
@@ -66,6 +66,8 @@ import { FREEHAND_DECIMATE, FREEHAND_LAYER, isFreehandPath } from './freehandDra
 import { encodeQr, isQrConfig, type QrConfig, qrLayout, qrSvg } from './qrcode';
 import { buildTable, isTableData, type Measure, type TableData } from './table';
 import { compactFilterAdjust, type DuotoneSpec, duotoneMatrix, sharpenKernel, warmthMatrix } from './imageFilters';
+// também registra as classes no classRegistry (revive de rascunho, undo, páginas, clone, miniatura)
+import { FocusBlur, type FocusSpec, isRegionFilter, SoftEdge, Vignette } from './focusFilters';
 import { coverPatternTransform, installPatternSvg, isTextImageFill, refitTextImageFill, type TextImageFill } from './textImageFill';
 import { type BooleanOp, booleanRegions, isBooleanShapeType, MIN_RESULT_AREA, ringsArea, ringsToPathD, shapeRegion } from './pathBoolean';
 
@@ -93,10 +95,14 @@ export type ShapeKind = 'rect' | 'rounded' | 'circle' | 'triangle' | 'line' | 's
 export const SWAP_KINDS: ShapeKind[] = ['rect', 'rounded', 'pill', 'circle', 'triangle', 'star', 'badge-hex'];
 export type CalloutKind = 'pin' | 'dimension' | 'zoom' | 'curved-arrow';
 export type FilterPreset = 'none' | 'grayscale' | 'sepia' | 'vintage' | 'polaroid' | 'kodachrome' | 'invert';
-/** Sliders da folha Filtros. `sharpen`/`warmth`/`duotone` (TASK-07) são opcionais e relidos de `filterAdjust`. */
+/**
+ * Sliders da folha Filtros. `sharpen`/`warmth`/`duotone` (TASK-07) são opcionais e relidos de `filterAdjust`;
+ * `vignette`/`softEdge`/`focus` (TASK-17) são filtros próprios, relidos de `img.filters` pela classe.
+ */
 export interface Adjustments {
   brightness: number; contrast: number; saturation: number; blur: number;
   sharpen?: number; warmth?: number; duotone?: DuotoneSpec;
+  vignette?: number; softEdge?: number; focus?: FocusSpec | null;
 }
 /** Formatos de raster do `toDataURL` do Fabric 7.4 (`ImageFormat`). */
 export type RasterFormat = 'png' | 'jpeg' | 'webp';
@@ -2030,12 +2036,38 @@ export class Editor {
     if (duo) list.push(new filters.ColorMatrix({ matrix: duo }));
     if (adj.sharpen) list.push(new filters.Convolute({ matrix: sharpenKernel(adj.sharpen), opaque: false }));
     if (adj.blur) list.push(new filters.Blur({ blur: adj.blur }));
+    // TASK-17, depois do desfoque (que não deve borrar a vinheta nem espalhar o alfa da borda), sobre a parte visível.
+    // O foco ligado fica na lista mesmo com intensidade 0 (neutro: o Fabric o pula no render) para a folha relê-lo.
+    const region = this.filterRegion(img);
+    if (adj.focus) list.push(new FocusBlur({ ...adj.focus, ...region }));
+    if (adj.vignette) list.push(new Vignette({ vignette: adj.vignette, ...region }));
+    if (adj.softEdge) list.push(new SoftEdge({ softEdge: adj.softEdge, ...region }));
     img.filters = list;
     img.applyFilters();
     img.set('filterPreset', preset);
     // o que a folha relê (os dois ColorMatrix não se distinguem por `type`); some do JSON quando tudo zera
     img.set('filterAdjust', compactFilterAdjust({ sharpen: adj.sharpen, warmth: adj.warmth, duotone: duo ? adj.duotone : undefined }));
     this.commit();
+  }
+
+  /** Parte visível da imagem (o recorte), 0..1 do tamanho natural: a área da vinheta, da borda suave e do foco. */
+  filterRegion(img: FabricImage): ImageRegion {
+    const { width, height } = img.getOriginalSize();
+    return visibleRegion(img, width, height);
+  }
+
+  /** Leva o recorte atual aos filtros que dependem da região e refiltra se algum mudou (não faz `commit`). */
+  private refreshFilterRegion(img: FabricImage): boolean {
+    const region = this.filterRegion(img);
+    let changed = false;
+    for (const f of img.filters) {
+      if (!isRegionFilter(f)) continue;
+      if (f.x0 !== region.x0 || f.y0 !== region.y0 || f.x1 !== region.x1 || f.y1 !== region.y1) {
+        Object.assign(f, region);
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   /** Troca os pixels mantendo posição/escala (resultado das ações de IA, mesmo tamanho). */
@@ -2074,6 +2106,7 @@ export class Editor {
     img.set({ ...keep, brandLogo: opts.brandLogo ? true : undefined, filterPreset: img.get('filterPreset') });
     img.setPositionByOrigin(center, 'center', 'center');
     img.filters = keepFilters;
+    this.refreshFilterRegion(img); // `cover` recorta: vinheta/borda/foco seguem a parte visível nova
     if (keepFilters.length) img.applyFilters();
     img.setCoords();
     this.commit();
@@ -2093,6 +2126,7 @@ export class Editor {
     const s = this.cropState;
     if (!s) return;
     s.img.controls = s.controls;
+    if (this.refreshFilterRegion(s.img)) s.img.applyFilters();
     s.img.setCoords();
     this.cropState = null;
     this.commit();

@@ -340,8 +340,74 @@ abaixo são da `80b97d7` (antes da TASK-07, que vai deslocá-las). Correções/a
   `task09.mjs` (troca de página = `loadFromJSON`); vitest inteiro; T4: logcat do PID sem `Fragment shader compile
   error`, `No class registered`, `FabricError` nem erro de WebGL do `chromium`.
 
+### Nota do dev (2026-11-06, antes da implementacao) — conferencia na base `42bc4bc` (TASK-07 ja integrada)
+Simbolos reabertos e o que mudou em relacao ao plano:
+- Linhas deslocadas pela TASK-07/15/16: `editor.ts::Adjustments` L97–100 (ja com `sharpen?`, `warmth?`, `duotone?`),
+  `applyFilters` L2012–2039 (cadeia: preset, Brightness, Contrast, Saturation, warmth, duotone, Convolute, Blur; grava
+  `filterPreset` e `filterAdjust`; `commit()`), `replaceImage` L2046, `swapImage` L2065–2080, `startCrop`/`endCrop`
+  L2082–2100; `main.ts::showFilters` L1114–1166; `testHook` L2526. O resto do plano confere.
+- Fabric `WebGLFilterBackend::createTexture` (L211–245): `NEAREST` + `CLAMP_TO_EDGE`. O espelho 2D amostra o pixel
+  `clamp(floor(x + 0.5 + desloc), 0, W-1)` (o texel que o `texture2D` NEAREST pega no centro do pixel deslocado).
+- **Armadilha de TS:** `tsconfig` com `target ES2022` → `useDefineForClassFields`: campo com inicializador na subclasse
+  (`vignette = 0`) seria definido DEPOIS do `Object.assign` do construtor do `BaseFilter` e apagaria as opcoes. Os campos
+  dos filtros usam `declare` (como o `Blur` do Fabric).
+- **Precisao `mediump`:** `BaseFilter.createProgram` troca `highp` por `mediump` quando o probe pede (max ~16384). Distancias
+  em px ao quadrado passariam disso numa foto de 4096 px: o shader normaliza por `unit` ANTES do `length`/`dot`.
+- **Lacuna do plano (novo):** `dataMerge.ts::swapPhotoJson` (L197–211) troca a foto no JSON com `fitSlot` `cover` (muda
+  `cropX/cropY/width/height`) e mantem `filters` — a regiao `x0..y1` dos filtros novos ficaria a do modelo. Correcao:
+  `imageGeometry.ts::visibleRegion(g, W, H)` (puro, sem fabric) usado pelo `editor.filterRegion` e pelo `swapPhotoJson`,
+  que reescreve `x0..y1` de todo filtro do JSON que tem `x0`. Reservados por `claim`: `editor-web/src/dataMerge.ts`,
+  `editor-web/test/dataMerge.test.ts`, `editor-web/src/imageGeometry.ts`. Prova: vitest em `dataMerge.test.ts`.
+- **Decisao (novo):** com o foco ligado e `Intensidade` 0 o `FocusBlur` continua em `img.filters` (neutro: o
+  `Image.applyFilters` o descarta do render, `Image.ts` L532), para a folha reabrir com o chip do modo ativo.
+- **Prova extra offline do shader (novo):** um harness em Chrome headless (WebGL por SwiftShader) aplica os tres filtros
+  pelo `WebGLFilterBackend` e pelo `Canvas2dFilterBackend` do Fabric na mesma imagem e compara os pixels (compila o GLSL e
+  confere a paridade GL × 2D antes do slot). Script so de dev, no `tmp` do job; resultado anotado na secao Correcao.
+
 ### Sessoes seguintes
 - dev: effort high, ultrathink sim — três shaders GLSL ES 1.0 com espelho exato em 2D, desfoque em 2 passadas no
   pipeline do Fabric, região do recorte e a armadilha dos dois registros no vitest.
 - teste: effort high, ultrathink nao — medidas de pixel no aparelho e a distinção GL × 2D (`filterBackendIsWebGL`)
   decidem se a prova vale; o resto segue o molde de `task11`.
+
+## Correcao (pipeline 20261106-0749, rodada 1)
+
+**O que mudou (`arquivo::simbolo`):**
+- `editor-web/src/focusFilters.ts` (novo) — `Vignette`, `SoftEdge`, `FocusBlur` (`extends filters.BaseFilter`, campos com
+  `declare`), cada um com shader GLSL ES 1.0 e `applyTo2d` com a mesma conta da especificacao do Planejamento;
+  `FocusBlur.applyTo` em 2 passadas no GL (como o `Blur`), `reachMap` + `blurPass` no 2D (amostra
+  `floor(x + 0.5 + desloc)` presa a borda = NEAREST/CLAMP do GL); `spec()` para a folha reler; `FOCUS_DEFAULTS`;
+  `isRegionFilter`; `classRegistry.setClass` das tres no carregamento do modulo.
+- `editor-web/src/imageGeometry.ts::visibleRegion` + `ImageRegion`/`FULL_REGION` — regiao visivel 0..1 do recorte (puro).
+- `editor-web/src/editor.ts` — import do `focusFilters` (registro); `Adjustments` + `vignette?`, `softEdge?`, `focus?`;
+  `applyFilters` empurra `FocusBlur` (mesmo com intensidade 0, neutro), `Vignette`, `SoftEdge` depois do `Blur`, com
+  `filterRegion(img)`; `refreshFilterRegion(img)` chamado em `swapImage` (antes do `applyFilters`) e em `endCrop` (refiltra
+  se a regiao mudou).
+- `editor-web/src/dataMerge.ts::swapPhotoJson` — reescreve `x0..y1` dos filtros do JSON que tem `x0` com a regiao do
+  `cover` novo (lacuna anotada na nota do dev).
+- `editor-web/src/main.ts::showFilters` — sliders `Vinheta` (−1..1) e `Borda suave` (0..1); chips `Sem foco` /
+  `Foco radial` / `Foco linear` (`button.focus-chip`); sliders do foco (`Intensidade`, `Centro X/Y`, `Raio`, `Transicao`,
+  `Angulo` so no linear) num `div.sliders` refeito no lugar (sem reabrir a folha); leitura de volta por `instanceof`;
+  "Zerar ajustes" zera os tres. `testHook.filterBackendIsWebGL`.
+- `editor-web/test/focusFilters.test.ts` (novo, 15 testes, com `vi.mock('fabric', → 'fabric/node')`) e
+  `editor-web/test/dataMerge.test.ts` (+1). `tools/e2e/task17.mjs` (novo, 25 checks). Bundle regerado
+  (`index.html`, `assets/index-wfO6JQsv.js`; sai `assets/index-hd8KM5pM.js`; o `.css` so mudava fim de linha: restaurado).
+
+**Provas offline (comando -> resultado):**
+- `npx tsc --noEmit` -> 0 erros; `npx vitest run` -> 31 arquivos, 357 testes, 0 falha.
+- `python <helper> build --bug task-17-...` -> exit 0 (vitest 357/357, `assembleDebug testDebugUnitTest` BUILD SUCCESSFUL).
+- **Shader GL x 2D** (harness no tmp do job: os filtros pelo `WebGLFilterBackend` e pelo `Canvas2dFilterBackend` do Fabric
+  na mesma imagem 400x300 assimetrica, Chrome headless com WebGL SwiftShader; diferenca max por canal, pixels com alfa
+  >= 64): `vignette` 0; `vignetteNegRegion` 1; `softEdge` 0; `softEdgeRegion` 2; `focusRadialTop` (foco em y = 0.25) 7 em
+  0,012 % dos pixels; `focusLinear30` 8 em 0,047 %; cadeia Brightness+foco+vinheta+borda 8 em 0,029 %. Controle: o `Blur`
+  NATIVO do Fabric sozinho diverge GL x 2D em 55 % dos pixels (dither aleatorio no shader dele) — por isso o E2E nao
+  compara o desfoque nativo. Os tres shaders compilam (sem `Fragment shader compile error`) e nao ha inversao vertical.
+- **Ensaio do E2E** (`task17.mjs` com um `cdp.mjs` substituto que abre o bundle da lane num Chrome headless, WebGL
+  SwiftShader; so dev, no tmp): 3 rodadas seguidas 25/25. Achados do ensaio que viraram robustez no script: o toque
+  na foto e nos chips/botao Filtros confirma o efeito e repete ate 3x (`tapPhoto`, `tapUntil`).
+
+**Ajustes ao Plano de teste (T2):** blocos de canto e topo a 30 px da borda (`[30,30,20,20]`, `[190,30,20,20]`): a 10 px a
+Borda suave deixa alfa ~12 e a leitura do rgb perde precisao; o pixel de pagina do passo 2 e o (40,40). Passo 5 (video):
+o PNG da camada da foto e comparado com o elemento filtrado (borda alfa < 40, centro igual, bloco (60,60) igual +-4) em vez
+de "canto mais escuro que o centro" (no xadrez o centro cai numa casa escura). Passo 0 continua decidindo se a prova e do
+shader (`filterBackendIsWebGL`). Controle positivo: na base o script falha os checks 0–4, 6 e 7 (funcionalidade ausente).

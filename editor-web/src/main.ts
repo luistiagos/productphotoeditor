@@ -1,5 +1,5 @@
 import './styles.css';
-import { ActiveSelection, FabricImage, FabricObject, FabricText, Group, Shadow, Textbox } from 'fabric';
+import { ActiveSelection, FabricImage, FabricObject, FabricText, getFilterBackend, Group, Shadow, Textbox, WebGLFilterBackend } from 'fabric';
 import type { WarpStyle } from './curve';
 import { type CopyResult, parseCopy, parseVariants, REWRITE_STYLES, type RewriteStyle, rewritePayload } from './aiText';
 import { Bridge, BridgeRequestError, injectedTransport, offlineTransport } from './bridge';
@@ -21,6 +21,7 @@ import { addStop, brandGradient, evenStops, GRADIENT_PRESETS, gradientCss, type 
 import { CAP_OPTIONS, type CapStyle, type ConnectorShape, type ConnectorSpec, DASH_OPTIONS, type DashStyle, SHAPE_OPTIONS, swapEnds } from './connectors';
 import { LIST_OPTIONS, matchSnippet } from './textTools';
 import { BLEND_MODES, brandDuotone, BRAND_DUOTONE_ID, DUOTONE_PRESETS, type DuotoneSpec, isBlendMode, parseFilterAdjust } from './imageFilters';
+import { FOCUS_DEFAULTS, FocusBlur, type FocusMode, SoftEdge, Vignette } from './focusFilters';
 import { isFreehandPath, keepAlpha, PEN_MAX, PEN_MIN, PEN_PRESETS, type PenId, penWidth, withAlpha } from './freehandDraw';
 import type { FitMode } from './imageGeometry';
 import { DESIGN_FORMATS, findFormat, formatSvg, GROUP_LABELS, type MediaFormat } from './formats';
@@ -1112,7 +1113,7 @@ function imageProps(img: FabricImage): Node[] {
 }
 
 function showFilters(img: FabricImage): void {
-  const adj: Adjustments = { brightness: 0, contrast: 0, saturation: 0, blur: 0 };
+  const adj: Adjustments = { brightness: 0, contrast: 0, saturation: 0, blur: 0, vignette: 0, softEdge: 0, focus: null };
   let preset = (img.get('filterPreset') as FilterPreset | undefined) ?? 'none';
   for (const f of img.filters) {
     const o = f.toObject() as Record<string, number>;
@@ -1120,6 +1121,10 @@ function showFilters(img: FabricImage): void {
     if (f.type === 'Contrast') adj.contrast = o.contrast;
     if (f.type === 'Saturation') adj.saturation = o.saturation;
     if (f.type === 'Blur') adj.blur = o.blur;
+    // TASK-17: filtros próprios, relidos pela classe (os parâmetros voltam do rascunho pelos `defaults`)
+    if (f instanceof Vignette) adj.vignette = f.vignette;
+    if (f instanceof SoftEdge) adj.softEdge = f.softEdge;
+    if (f instanceof FocusBlur) adj.focus = f.spec();
   }
   const extra = parseFilterAdjust(img.get('filterAdjust'));
   adj.sharpen = extra.sharpen ?? 0;
@@ -1145,10 +1150,34 @@ function showFilters(img: FabricImage): void {
     apply();
     duoChips.forEach((c, i) => c.classList.toggle('primary', duoOptions[i][0] === duoActive()));
   }, `duotone-chip${id === duoActive() ? ' primary' : ''}`));
+  // Desfoque de foco (TASK-17): o modo por chips; os sliders do foco só aparecem com ele ligado (sem reabrir a folha)
+  const focusModes: [FocusMode | 'none', string][] = [['none', 'Sem foco'], ['radial', 'Foco radial'], ['linear', 'Foco linear']];
+  const focusActive = () => adj.focus?.mode ?? 'none';
+  const focusBox = h('div', { class: 'sliders' });
+  const renderFocus = () => {
+    const f = adj.focus;
+    focusBox.replaceChildren(...(!f ? [] : [
+      slider('Intensidade', 0, 1, 0.05, f.blur, (v) => { f.blur = v; apply(); }),
+      slider('Centro X', 0, 1, 0.01, f.focusX, (v) => { f.focusX = v; apply(); }),
+      slider('Centro Y', 0, 1, 0.01, f.focusY, (v) => { f.focusY = v; apply(); }),
+      slider('Raio', 0, 0.8, 0.01, f.radius, (v) => { f.radius = v; apply(); }),
+      slider('Transição', 0.02, 0.6, 0.01, f.feather, (v) => { f.feather = v; apply(); }),
+      ...(f.mode === 'linear' ? [slider('Ângulo', -90, 90, 5, f.angle, (v) => { f.angle = v; apply(); })] : []),
+    ]));
+  };
+  const focusChips = focusModes.map(([id, label]) => button(label, () => {
+    adj.focus = id === 'none' ? null : { ...(adj.focus ?? FOCUS_DEFAULTS), mode: id };
+    apply();
+    focusChips.forEach((c, i) => c.classList.toggle('primary', focusModes[i][0] === focusActive()));
+    renderFocus();
+  }, `focus-chip${id === focusActive() ? ' primary' : ''}`));
+  renderFocus();
   const reset = () => {
     adj.brightness = adj.contrast = adj.saturation = adj.blur = 0;
     adj.sharpen = adj.warmth = 0;
     adj.duotone = undefined;
+    adj.vignette = adj.softEdge = 0;
+    adj.focus = null;
     apply();
     showFilters(img);
   };
@@ -1161,8 +1190,12 @@ function showFilters(img: FabricImage): void {
       slider('Saturação', -1, 1, 0.02, adj.saturation, (v) => { adj.saturation = v; apply(); }),
       slider('Desfoque', 0, 0.5, 0.01, adj.blur, (v) => { adj.blur = v; apply(); }),
       slider('Nitidez', 0, 1, 0.05, adj.sharpen, (v) => { adj.sharpen = v; apply(); }),
-      slider('Temperatura', -1, 1, 0.05, adj.warmth, (v) => { adj.warmth = v; apply(); })),
+      slider('Temperatura', -1, 1, 0.05, adj.warmth, (v) => { adj.warmth = v; apply(); }),
+      slider('Vinheta', -1, 1, 0.05, adj.vignette ?? 0, (v) => { adj.vignette = v; apply(); }),
+      slider('Borda suave', 0, 1, 0.05, adj.softEdge ?? 0, (v) => { adj.softEdge = v; apply(); })),
     h('div', { class: 'chips duotone' }, h('span', { class: 'hint' }, 'Duotone:'), ...duoChips),
+    h('div', { class: 'chips focus' }, h('span', { class: 'hint' }, 'Foco:'), ...focusChips),
+    focusBox,
     h('div', { class: 'row' }, button('Zerar ajustes', reset))));
 }
 
@@ -2528,6 +2561,8 @@ const testHook: Record<string, unknown> = {
   last: null,
   /** Brand kit conhecido para o E2E (o mesmo formato que o Kotlin manda no `hello`/`applyBrandKit`). */
   setBrandKit: (k: unknown) => { brandKit = parseBrandKit(k); },
+  /** O backend de filtros é o WebGL (o shader dos filtros próprios roda) e não o Canvas 2D (TASK-17). */
+  filterBackendIsWebGL: () => getFilterBackend() instanceof WebGLFilterBackend,
   /** Faz um pedido ao Kotlin e guarda o resultado em ppEditor.last ({ok, payload} ou {ok:false, code}). */
   call: (type: string, payload?: unknown) => {
     testHook.last = null;

@@ -2,7 +2,7 @@
 // Puro sobre o JSON do Fabric (o editor põe as páginas no documento). Só tipos do Fabric aqui: o texto é medido por um
 // objeto vivo que quem chama revive (`enliven`) — no app, o `fabric` do navegador; no teste, o `fabric/node`.
 import { type FabricJson, walkObjects } from './document';
-import { fitSlot } from './imageGeometry';
+import { fitSlot, visibleRegion } from './imageGeometry';
 
 /** Campos do lote, na ordem em que aparecem na folha e na tabela. `foto` só vale em imagem. */
 export const MERGE_FIELDS = ['produto', 'preco_de', 'preco_por', 'desconto', 'parcelas', 'codigo', 'foto'] as const;
@@ -206,6 +206,11 @@ export function swapPhotoJson(o: Record<string, unknown>, photo: PhotoRef): Reco
   o.cropY = g.cropY;
   o.scaleX = g.scaleX * Math.sign(sx || 1);
   o.scaleY = g.scaleY * Math.sign(sy || 1);
+  // vinheta, borda suave e foco agem na parte visível: seguem o recorte da foto nova [[task-17-vinheta-borda-suave-e-desfoque-de-foco]]
+  if (Array.isArray(o.filters)) {
+    const region = visibleRegion(g, photo.width, photo.height);
+    for (const f of o.filters) if (f && typeof f === 'object' && 'x0' in f) Object.assign(f, region);
+  }
   return o;
 }
 

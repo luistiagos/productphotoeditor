@@ -187,6 +187,21 @@ describe('detectTemplateFields / mergeText / applyMergeRow', () => {
     expect(flipped.scaleX).toBeCloseTo(-1);
     expect(Number(flipped.width) * Math.abs(Number(flipped.scaleX))).toBeCloseTo(100);
   });
+
+  it('TASK-17: vinheta/borda/foco da foto passam a agir no recorte da foto nova; os outros filtros ficam como estavam', () => {
+    const o = swapPhotoJson({
+      width: 100, height: 100, scaleX: 1, scaleY: 1,
+      filters: [{ type: 'Blur', blur: 0.2 }, { type: 'SoftEdge', softEdge: 0.5, x0: 0, y0: 0, x1: 1, y1: 1 },
+        { type: 'FocusBlur', mode: 'radial', blur: 0.5, x0: 0.1, y0: 0.1, x1: 0.9, y1: 0.9 }],
+    }, { url: 'u', width: 200, height: 100 });
+    // cover num espaço quadrado: foto 200×100 recortada no centro, 100×100 a partir de x = 50
+    expect([o.cropX, o.width]).toEqual([50, 100]);
+    const fs = o.filters as Record<string, unknown>[];
+    expect(fs[0]).toEqual({ type: 'Blur', blur: 0.2 });
+    for (const f of fs.slice(1)) expect([f.x0, f.y0, f.x1, f.y1]).toEqual([0.25, 0, 0.75, 1]);
+    expect(fs[1].softEdge).toBe(0.5);
+    expect(fs[2].mode).toBe('radial');
+  });
 });
 
 describe('shrinkTextToFit', () => {
