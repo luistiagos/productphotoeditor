@@ -394,3 +394,23 @@ O plano vale; as linhas andaram e quatro detalhes de implementação foram fixad
 - O `EditorAssetsTest` não prova o `resolve` da URL `/blob/edit-…` (o `Uri.parse` é stub na JVM): a prova é o passo 6 da T2
   (a ação de IA lê a `src` retocada).
 - T3: somar `task10.mjs` (o lote passa pelo `swapPhotoJson`) aos vizinhos `task11/task14/task09`.
+
+### Teste rodada 1 — interrompida por ambiente (2026-11-06)
+Evidência: `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1318-task-18-retocar-recorte-pos-remocao-de-fundo\`
+(aparelho `emulator-5554`, `sdk_gphone64_x86_64`, já aberto antes da sessão; nenhum celular no adb).
+- **Offline:** diff `9033756...e8b9b3e` só toca arquivos reservados e cobre as Tarefas; `npx tsc --noEmit` 0;
+  `npx vitest run test/refineCutout.test.ts` 16/16; `npx vitest run` 35 arquivos / 430 testes, 0 falha.
+- **T3 (JVM, `build` do helper):** base 211 testes / 0 falha; fix 213 / 0 falha (a diferença é o `EditorAssetsTest` 2/2) —
+  `junit-base.txt` / `junit-fix.txt`.
+- **Controle positivo (APK base `9033756`, sha256 conferido no aparelho):** depois do ✨ Remover fundo, sem
+  `#props .refine-btn` e sem `originalSrcBeforeCutout` — `base-task18-guardado.txt` (3/3).
+- **Defeito do `tools/e2e/task18.mjs` (o dev precisa corrigir):** o ramo da base NÃO prova a ausência, quebra antes —
+  `__state18` chama `editor.refineInfo()`, que não existe na base: `TypeError: editor.refineInfo is not a function` no
+  passo 1 (`base-task18.txt`). O controle acima rodou com uma cópia que só troca para `editor.refineInfo?.()`
+  (`task18-basectl.mjs` na evidência; `diff --strip-trailing-cr` = essa linha e o import). Correção: a mesma troca no
+  `installHelpers` do script.
+- **T2 com o fix NÃO rodou:** `adb install -r -d -t fix-e8b9b3e.apk` → `INSTALL_FAILED_INSUFFICIENT_STORAGE` (emulador
+  com ~669 MB livres para um APK de ~300 MB; `pm trim-caches 4G` não liberou; o grosso é dado do app —
+  `files/models/qwen3-0.6b-int4` 336 MB — que não se apaga). O emulador ficou com o APK da BASE `9033756`.
+  Fechado como `ambiente`; a próxima rodada refaz tudo desde o Passo 1 (de preferência no Moto g86 ou com espaço no
+  emulador).
