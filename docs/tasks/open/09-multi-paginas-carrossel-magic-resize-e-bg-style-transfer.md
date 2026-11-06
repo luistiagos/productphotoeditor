@@ -481,3 +481,28 @@ ficou com o APK da base `713a557` instalado (antes: 0.4.0 de 2026-11-05 21:36:16
 **Para o dev (rodada 2):** corrigir só o `tools/e2e/task09.mjs` (itens 1 e 2) e rodá-lo no aparelho/emulador até passar
 de ponta a ponta; o código da funcionalidade não precisa mudar. Rascunhos de teste deixados no emulador: `E2E09_mw4a5i6r`
 e 3× "Post Facebook" das tentativas quebradas.
+
+### Rodada 1 — reprovada: o E2E `tools/e2e/task09.mjs` quebrava na montagem; correção: só o script (código intacto)
+
+Causa de cada item do relatório, aberta no código:
+1. `main.ts::showBackgrounds` não fecha a folha ao tocar num degradê de preset (só os botões que abrem outra folha
+   chamam `close()`): o toque seguinte do script caía no fundo escuro (`#sheet .scrim`, `onclick: close`). Correção:
+   `closeSheet()` depois do preset; `closeSheet` agora espera a folha sumir (`#sheet` sem `.show`).
+2. A folha não tem animação em CSS (`styles.css` §`#sheet`: só `display`). O que move o "Aplicar" é o teclado:
+   `main.ts::showEditText(t, false)` dá `field.focus()`, o WebView encolhe e a folha (presa embaixo) sobe depois de o
+   `tap` do driver já ter medido o centro. Correção no script:
+   - `stableTaps(p)` envolve o `tap` do driver (inclusive depois do `connect()` do caso 6): espera o elemento existir,
+     visível, e a caixa dele ficar igual em duas leituras seguidas (200 ms), até 8 s; só então toca;
+   - `sheetOpen(título)`/`sheetClosed()` em cada troca de folha (Texto, Imagem, Fundo, Nome do design, Camadas, Editar
+     texto, Páginas, Excluir página, Tamanho, Magic Resize, Exportar);
+   - `attempt(rótulo, passo, feito)`: editar texto e renomear são refeitos INTEIROS (até 3 vezes) até o resultado valer,
+     porque um toque perdido no fundo escuro fecha a folha sem aplicar;
+   - Magic Resize: cada formato é tocado só enquanto o checkbox não está marcado (um toque a mais desmarcaria).
+3. Achado ao reler: a espera pela foto (`o.type === 'Image'`) nunca casava (na instância do Fabric 7 é `'image'`) e
+   gastava os 20 s do timeout em toda execução. Corrigido.
+
+Nenhuma asserção mudou. Prova offline do fluxo do script (não substitui o aparelho): o próprio `task09.mjs` rodado no
+Chrome headless da máquina (`npx vite` da lane), com um `cdp.mjs` falso de mesma API (adb, galeria e Rascunhos simulados;
+pasta do job, não versionado) → 25/26; a única falha é o caso 10 (exportar), que depende da ponte do Kotlin. Com o 1º
+toque em "Aplicar" forçado no fundo escuro: `editar "Toque e segure": tentativa 1 não aplicou` e a montagem segue até o fim.
+Não rodei no aparelho/emulador: o `dev.md` deixa o ambiente E2E para o slot de teste.

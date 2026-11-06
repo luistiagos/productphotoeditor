@@ -7,11 +7,55 @@ import { adbShell, connect, launchEditor, reporter, screencap, uiTap } from './c
 const PKG = 'com.productphoto.offline';
 const out = process.argv[2] ?? '.';
 const NAME = `E2E09_${Date.now().toString(36)}`;
-let p = await launchEditor();
+
+/**
+ * Toque estável (rodada 2 do teste): o `tap` do driver mede o centro e toca na hora, e o teclado do campo de texto (ou a
+ * troca de folha) ainda está mexendo o layout — o toque caía fora do botão. Aqui: espera o elemento existir, visível, e a
+ * caixa dele ficar igual em duas leituras seguidas; só então toca. Elemento que não aparece em 8 s = erro.
+ */
+const stableTaps = (q) => {
+  const raw = q.tap;
+  const rectOf = (sel, text) => q.evaluate(`(() => {
+    const e = [...document.querySelectorAll(${JSON.stringify(sel)})]
+      .filter((x) => ${text === undefined ? 'true' : `x.textContent.includes(${JSON.stringify(text)})`})
+      .filter((x) => x.getClientRects().length > 0)[0];
+    if (!e) return null;
+    e.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const b = e.getBoundingClientRect();
+    return [b.left, b.top, b.width, b.height].map((v) => Math.round(v)).join(',');
+  })()`);
+  q.tap = async (sel, text) => {
+    await q.sleep(250);
+    const end = Date.now() + 8000;
+    let last = null;
+    for (;;) {
+      const now = await rectOf(sel, text);
+      if (now !== null && now === last) break;
+      if (Date.now() > end) {
+        if (now !== null) break;
+        throw new Error(`elemento não encontrado: ${sel}${text ? ` "${text}"` : ''}`);
+      }
+      last = now;
+      await q.sleep(200);
+    }
+    await raw(sel, text);
+  };
+  return q;
+};
+
+let p = stableTaps(await launchEditor());
 const r = reporter(`TASK-09 — páginas, Magic Resize, estilo de fundo, exportar todas (${NAME})`);
 
 const idle = () => p.waitFor(`!document.getElementById('busy').classList.contains('show')`, 30000).catch(() => {});
-const closeSheet = async () => { await p.tap('#sheet .sheet-head button'); await p.sleep(200); };
+const sheetOpen = (title) => p.waitFor(`document.getElementById('sheet').classList.contains('show')
+  && (document.querySelector('#sheet .sheet-head strong')?.textContent ?? '').includes(${JSON.stringify(title)})`, 8000);
+const sheetClosed = () => p.waitFor(`!document.getElementById('sheet').classList.contains('show')`, 8000);
+/** Fecha a folha aberta pelo ✕ e espera ela sumir (o toque seguinte não pode cair no fundo escuro). */
+const closeSheet = async () => {
+  await p.tap('#sheet .sheet-head button');
+  await sheetClosed();
+  await p.sleep(200);
+};
 const waitPages = (expr, ms = 15000) => p.waitFor(expr, ms).then(() => true, () => false);
 const state = () => p.evaluate(`(() => {
   const d = editor.toDocument();
@@ -38,14 +82,34 @@ const pickFirstPhoto = async (shot) => {
   return false;
 };
 /** Edita o texto pela UI: Camadas → o texto → ✏️ Editar texto → Aplicar. */
-const editText = async (current, next) => {
-  await p.tap('#topbar button', 'Camadas');
-  await p.tap('#sheet .layer button.grow', current);
-  await p.tap('#props button', '✏️ Editar texto');
-  await p.evaluate(`(() => { const f = document.querySelector('#sheet textarea'); f.value = ${JSON.stringify(next)}; return true; })()`);
-  await p.tap('#sheet button', 'Aplicar');
-  await p.sleep(400);
+/**
+ * Repete um passo de UI inteiro até `done` valer (até 3 vezes): um toque perdido que caia no fundo escuro fecha a folha
+ * sem aplicar, então refazer só o último toque não basta. Entre tentativas, fecha a folha que tenha ficado aberta.
+ */
+const attempt = async (label, step, done) => {
+  for (let i = 1; i <= 3; i++) {
+    try { await step(); } catch (e) { console.log(`${label}: tentativa ${i} — ${e.message}`); }
+    if (await p.waitFor(done, 8000).then(() => true, () => false)) return;
+    console.log(`${label}: tentativa ${i} não aplicou`);
+    if (await p.evaluate(`document.getElementById('sheet').classList.contains('show')`)) await closeSheet().catch(() => {});
+    await p.sleep(800);
+  }
+  throw new Error(`${label}: não aplicou em 3 tentativas`);
 };
+const editText = (current, next) => attempt(`editar "${current}"`, async () => {
+  await p.tap('#topbar button', 'Camadas');
+  await sheetOpen('Camadas');
+  await p.tap('#sheet .layer button.grow', current);
+  await sheetClosed();
+  await p.tap('#props button', '✏️ Editar texto');
+  await sheetOpen('Editar texto');
+  await p.waitFor(`Boolean(document.querySelector('#sheet textarea'))`, 8000);
+  await p.evaluate(`(() => { const f = document.querySelector('#sheet textarea'); f.value = ${JSON.stringify(next)}; return true; })()`);
+  // o campo abre o teclado e o "Aplicar" sobe junto com a folha: o toque estável espera ele parar
+  await p.tap('#sheet button', 'Aplicar');
+  await sheetClosed();
+  await p.sleep(600); // o teclado fecha e o palco volta ao tamanho
+}, `!document.getElementById('sheet').classList.contains('show') && editor.canvas.getObjects().some((o) => o.text === ${JSON.stringify(next)})`);
 /** Geometria da página no canvas: caixa de cada objeto (plano da cena) e papéis óbvios. */
 const geometry = () => p.evaluate(`(() => {
   const W = editor.width, H = editor.height;
@@ -62,22 +126,36 @@ const inside = (o, W, H) => o.l >= -1 && o.t >= -1 && o.r <= W + 1 && o.b <= H +
 
 // ---------- montagem pela UI ----------
 await p.tap('#tabs button', 'Texto');
+await sheetOpen('Texto');
 await p.tap('#sheet button', 'Adicionar título');
+await sheetClosed();
 await p.tap('#tabs button', 'Texto');
+await sheetOpen('Texto');
 await p.tap('#sheet button', 'Adicionar texto');
+await sheetClosed();
 await editText('Toque e segure', 'R$ 99,90');
 await p.tap('#tabs button', 'Imagem');
+await sheetOpen('Imagem');
 await p.tap('#sheet button', 'Escolher da galeria…');
 const picked = await pickFirstPhoto(`${out}/09-0-seletor.png`);
 await idle();
-await p.waitFor(`editor.canvas.getObjects().some((o) => o.type === 'Image')`, 20000).catch(() => {});
+// instância do Fabric 7: `type` minúsculo ('image'); no JSON é 'Image'
+await p.waitFor(`editor.canvas.getObjects().some((o) => o.type === 'image')`, 20000).catch(() => {});
 const preset = await p.evaluate(`content.backgrounds.find((b) => b.kind === 'linear')`);
 await p.tap('#tabs button', 'Fundo');
+await sheetOpen('Fundo');
 await p.tap(`#sheet .tile.swatch[title="${preset.name}"]`);
 await p.sleep(500);
-await p.tap('#topbar button.title');
-await p.evaluate(`(() => { const i = document.querySelector('#sheet input.name'); i.value = ${JSON.stringify(NAME)}; return true; })()`);
-await p.tap('#sheet button', 'Salvar');
+// o toque num degradê de preset NÃO fecha a folha "Fundo" (o app deixa experimentar vários): fecha pelo ✕
+await closeSheet();
+await attempt('renomear', async () => {
+  await p.tap('#topbar button.title');
+  await sheetOpen('Nome do design');
+  await p.waitFor(`Boolean(document.querySelector('#sheet input.name'))`, 8000);
+  await p.evaluate(`(() => { const i = document.querySelector('#sheet input.name'); i.value = ${JSON.stringify(NAME)}; return true; })()`);
+  await p.tap('#sheet button', 'Salvar');
+  await sheetClosed();
+}, `editor.name === ${JSON.stringify(NAME)} && !document.getElementById('sheet').classList.contains('show')`);
 await p.sleep(600);
 let s = await state();
 r.check('montagem: título, preço, foto da galeria e degradê de preset', picked && s.texts[0].includes('Título') && s.texts[0].includes('R$ 99,90')
@@ -136,7 +214,10 @@ r.check('…e ↷ refaz a edição na 2ª', s.texts[1].includes('Slide 2'), JSON
 // ---------- 4. reordenar: a 3ª vai para o início ----------
 const before = await state();
 await p.tap('#pages .pg-label');
+await sheetOpen('Páginas');
 await p.tap('#sheet .pg-tile[data-index="2"] .pg-move-first');
+// a folha é refeita com a ordem nova: a 1ª miniatura passa a ser a página que estava em 3º
+await p.waitFor(`document.querySelector('#sheet .pg-tile[data-index="0"]')?.dataset.id === ${JSON.stringify(before.ids[2])}`, 8000).catch(() => {});
 await p.sleep(400);
 screencap(`${out}/09-4-paginas.png`);
 await closeSheet();
@@ -147,13 +228,17 @@ r.check('4. ⇤ na 3ª → a ordem dos ids mudou e a ativa continua a mesma pág
 
 // ---------- 5. excluir; desabilitado com 1 página; undo ----------
 await p.tap('#pages .pg-del');
+await sheetOpen('Excluir página');
 await p.tap('#sheet button', 'Excluir');
 await waitPages('editor.getPageCount() === 2');
+await sheetClosed();
 s = await state();
 r.check('5. 🗑️ → 2 páginas', s.n === 2, JSON.stringify(s.ids));
 await p.tap('#pages .pg-del');
+await sheetOpen('Excluir página');
 await p.tap('#sheet button', 'Excluir');
 await waitPages('editor.getPageCount() === 1');
+await sheetClosed();
 s = await state();
 const delDisabled = await p.evaluate(`document.querySelector('#pages .pg-del').disabled`);
 r.check('5. com 1 página o 🗑️ fica desabilitado', s.n === 1 && delDisabled === true, JSON.stringify({ n: s.n, delDisabled }));
@@ -174,7 +259,7 @@ adbShell(`am start -n ${PKG}/com.productphoto.app.MainActivity`);
 await uiTap('Rascunhos');
 await new Promise((res) => setTimeout(res, 1500));
 await uiTap(NAME);
-p = await connect();
+p = stableTaps(await connect());
 await p.waitFor(`document.body.dataset.ready === 'true'`, 20000);
 await p.sleep(800);
 s = await state();
@@ -188,11 +273,21 @@ while ((await state()).active > src) { await p.tap('#pages .pg-prev'); await p.s
 while ((await state()).active < src) { await p.tap('#pages .pg-next'); await p.sleep(700); }
 const n0 = (await state()).n;
 await p.tap('#tabs button', 'Tamanho');
+await sheetOpen('Tamanho');
 await p.tap('#sheet .magic-resize-btn');
-for (const id of ['story', 'banner', 'li_square']) await p.tap(`#sheet .magic-format[data-format="${id}"]`);
+await sheetOpen('Magic Resize');
+for (const id of ['story', 'banner', 'li_square']) {
+  const checked = `document.querySelector('#sheet .magic-format[data-format="${id}"] input').checked`;
+  // um toque perdido deixa o formato desmarcado (e um toque a mais o desmarcaria): toca só enquanto não está marcado
+  for (let i = 0; i < 3 && !(await p.evaluate(checked)); i++) {
+    await p.tap(`#sheet .magic-format[data-format="${id}"]`);
+    await p.waitFor(checked, 2000).catch(() => {});
+  }
+}
 const goText = await p.evaluate(`document.querySelector('#sheet .magic-go').textContent`);
 screencap(`${out}/09-7-magic-resize.png`);
 await p.tap('#sheet .magic-go');
+await sheetClosed().catch(() => {});
 await idle();
 await waitPages(`editor.getPageCount() === ${n0 + 3}`, 30000);
 s = await state();
@@ -218,7 +313,9 @@ for (let k = 0; k < 3; k++) {
 while ((await state()).active > src) { await p.tap('#pages .pg-prev'); await p.sleep(700); }
 const bgBefore = (await state()).bgs[src]?.spec;
 await p.tap('#tabs button', 'Fundo');
+await sheetOpen('Fundo');
 await p.tap('#sheet .bg-extract-btn');
+await sheetClosed().catch(() => {});
 await p.sleep(800);
 s = await state();
 const extracted = s.bgs[src]?.spec;
@@ -243,7 +340,9 @@ screencap(`${out}/09-8-fundo-da-foto.png`);
 // ---------- 9. 🎨 aplicar em todas; um ↶ desfaz tudo ----------
 const bgsBefore = (await state()).bgs;
 await p.tap('#tabs button', 'Fundo');
+await sheetOpen('Fundo');
 await p.tap('#sheet .bg-apply-all-btn');
+await sheetClosed().catch(() => {});
 await p.sleep(600);
 s = await state();
 const same = s.bgs.every((b) => b && JSON.stringify(b.spec) === JSON.stringify(extracted));
@@ -261,8 +360,11 @@ await p.sleep(800);
 const nExp = (await state()).n;
 const activeBefore = (await state()).active;
 await p.tap('#topbar button', 'Exportar');
+await sheetOpen('Exportar');
 const allLabel = await p.evaluate(`document.querySelector('#sheet .export-all-btn')?.textContent ?? null`);
 await p.tap('#sheet .export-all-btn');
+await sheetClosed().catch(() => {});
+await p.waitFor(`document.getElementById('busy').classList.contains('show')`, 5000).catch(() => {});
 await idle();
 await p.sleep(1500);
 const files = adbShell(`content query --uri content://media/external/images/media --projection _display_name --where "_display_name LIKE '${NAME}_p%'"`);
