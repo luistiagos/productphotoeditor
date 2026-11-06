@@ -7,8 +7,8 @@ selecionada nem gerar passo de undo), pan com 2 dedos, pílula `🔍 NN%` (−, 
 fora de objetos volta ao encaixe; exportação PNG/JPG/SVG idêntica com a tela ampliada; grade Regra dos Terços e
 quadriculada 10% em "Tamanho e Guias" (só na tela, não exporta) com encaixe magnético nos terços; guias manuais com
 encaixe; "👁️ Preview" com Feed, Stories/Reels 9:16 e Busca de marketplace (card 170 px). De quebra corrige o bug lateral
-`docs/bugs/open/editor-guias-e-zonas-seguras-fora-de-escala.md` (passo I: falha na base, passa no fix — o doc dele
-ainda está em `open/`; o dono decide movê-lo).
+`docs/bugs/retest/editor-guias-e-zonas-seguras-fora-de-escala.md` (passo I: falha na base, passa no fix — o doc dele
+foi movido para `retest/` na finalização da execução).
 
 **Commits** (sobre `origin/main` @ `b35e837`): `6bf5b7f` feat(editor) TASK-13 (código + bundle), `7f61d3f` docs teste
 rodada 1 reprovado (encaixe nos terços/guia manual não engatava), `cd564f0` e `bd8a6b9` fix(editor) `snapMovingTarget`

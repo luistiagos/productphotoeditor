@@ -26,3 +26,15 @@
   "Planejamento (pipeline 20261105-1638)") precisa dessa mesma correção para a grade e o zoom/pan, e a inclui na sua
   reserva (`editor.ts`). Se a TASK-13 for aprovada, este bug fica resolvido por ela: o teste deve então só
   confirmar com a receita acima e mover para `retest/` citando o commit da task.
+
+## Correção aplicada (pela TASK-13, pipeline 20261105-1638) → `retest/`
+
+- **Commit:** `6bf5b7f` feat(editor) TASK-13 — `editor-web/src/editor.ts`, handler `after:render` passou a desenhar zona
+  segura, grade e guias sob `ctx.save(); ctx.transform(...viewportTransform)` / `ctx.restore()` com `canvas.getZoom()`
+  (complemento de snapping em `cd564f0`/`bd8a6b9`). Integrado em `origin/main` com o fechamento da task em `713a557`.
+- **Prova (receita acima, passo I do `tools/e2e/task13.mjs`):** no Moto g86, APK da base `b35e837` → zona segura fora de
+  escala (falha, `base-task13.txt`); APK do fix `bd8a6b9` → "zona segura ciano em x = 135" (passa, `fix-task13.txt`,
+  36/36). Evidência em `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-2200-task-13-r2\`.
+  Detalhes no doc da task: `docs/tasks/retest/13-zoom-pan-pinch-reguas-grade-e-simulador-preview-anuncio.md`.
+- Movido de `open/` para `retest/` na finalização da execução 20261105-1638, como o item "Relação" deste doc pedia.
+  Falta para `done/`: publicação do app com a TASK-13.
