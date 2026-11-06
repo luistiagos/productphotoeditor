@@ -298,3 +298,11 @@ button:disabled { opacity: 0.4; }
 .merge-table button.icon { min-height: 36px; min-width: 36px; padding: 2px 6px; }
 .merge-photo.has-photo { border-color: var(--accent); }
 .pdf-options { gap: 12px; }
+/* TASK-08: estúdio 📦 Mockup 3D — preview com as 4 alças por cima (touch-action: none: arrastar não rola a folha) */
+.mockup-templates .tile.primary span { color: inherit; }
+.mockup-stage { position: relative; width: 100%; max-width: 512px; margin: 8px auto; touch-action: none; user-select: none; }
+.mockup-stage canvas.mockup-preview { display: block; width: 100%; height: auto; border-radius: 8px; background: var(--chip); }
+.mockup-handle { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%;
+  border: 3px solid #fff; background: var(--accent); box-shadow: 0 1px 4px rgba(0, 0, 0, .45); touch-action: none; opacity: .9; }
+.mockup-handle.dragging { transform: scale(1.25); opacity: 1; }
+.mockup-controls .row button { flex: 1; }

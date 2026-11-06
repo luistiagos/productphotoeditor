@@ -30,6 +30,7 @@ import { AD_PREVIEW_MODES, type AdPreviewMode, buildAdPreview, previewModel } fr
 import { zoomLabel } from './viewportZoom';
 import { DOT_STYLES, type DotStyle, encodeQr, EYE_STYLES, type EyeStyle, type QrConfig, type QrEcc, qrSvg } from './qrcode';
 import { buildPayload, QR_KINDS, type QrKind, WIFI_AUTH } from './qrPayloads';
+import { openMockupStudio } from './mockup/mockupStudio';
 import {
   addColumn, addRow, columnCount, normalizeTable, removeColumn, removeRow, setCell, type TableData, TABLE_STYLES, TABLE_TEMPLATES,
   tableTemplate, type TableStyle,
@@ -1481,6 +1482,7 @@ const tabs: [string, () => void][] = [
   ['Tamanho', showSize],
   ['Marca', showBrand],
   ['🎬 Vídeo', showVideo],
+  ['📦 Mockup 3D', () => openMockupStudio({ editor, bridge, describe })],
 ];
 // trocar de aba conclui o desenho à mão (senão o objeto inserido ficaria sob o pincel, sem como tocar nele)
 document.getElementById('tabs')!.replaceChildren(...tabs.map(([label, fn]) => button(label, () => {

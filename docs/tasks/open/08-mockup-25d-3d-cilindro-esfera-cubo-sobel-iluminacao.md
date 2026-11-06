@@ -363,3 +363,101 @@ Item é task: "causa" = funcionalidade ausente. Conferência da análise herdada
 - dev: effort high, ultrathink sim — geometria (homografia, cilindro, esfera, malha) + UI de alças com pointer events
   sobre preview escalado; ~1.100–1.250 linhas novas (abaixo do teto de ~1.500).
 - teste: effort medium, ultrathink não — roteiro E2E definido; sinais numéricos por `evaluate`.
+
+### Nota do dev antes da implementação (pipeline 20261106-0749, 2026-11-06)
+Base da lane: `29ac927` (depois das TASK-16/17). Conferido de novo, só as linhas mudaram:
+- `main.ts::tabs` agora l.1471 (12 abas, termina em `['🎬 Vídeo', showVideo]`); `run`/`describe` (l.~110–135) são locais
+  do `main.ts` — o estúdio recebe `describe` por dependência (`openMockupStudio({ editor, bridge, describe })`) e usa
+  `setBusy`/`toast` do `dom.ts`.
+- `editor.ts::addImage` l.946, `active` l.1048, `renderPageCanvas` l.2285 (`try/finally`: em erro propaga),
+  `exportRaster` l.2318. `content.ts::contentUrl` l.62 (lê `document.baseURI` no módulo: só o estúdio importa, o motor não).
+- `EditorSession.kt::export` l.259: `format:'jpg'`, `action:'save'`, sem `batch` → `EditorAssets.dataUrlBytes` (exige
+  `;base64`; `toDataURL` dá) → `host.export` → `{location?}`. Sem Kotlin, confirmado.
+- `tools/gen_content.py` não escreve `content/SOURCES.md` (grep "SOURCES" vazio): a linha nova não é sobrescrita.
+- `tsconfig`: `strict`, `noUnusedLocals/Parameters`, `types: []` (sem `@types/node`): o teste lê o `mockups3d/index.json`
+  por `import()` dinâmico com caminho fora de literal, como `qrcode.test.ts` faz com `qr-reference.json`.
+Decisões de implementação (não mudam o plano):
+- Arte encaixada no rótulo **sem distorcer** (`fit: 'contain'` padrão): a proporção natural do rótulo é a do quad
+  (plano/esfera) ou a do arco desenrolado (cilindro: largura × α/sen α); o resto do rótulo fica transparente.
+- Cilindro com `tiltDepth`: `v = t + Δt(s)`; o topo e a base do rótulo curvam juntos (podem sair do quad pela altura
+  `|tilt|·(1−cos α)`): o bbox do render cresce verticalmente nessa medida.
+- Borda: cobertura analítica (distância normalizada à borda × tamanho em px + 0,5, clamp [0,1]) em vez de supersample.
+- Especular da fusão é relativo à média (`L_base > max(0,85; 1,08·L̄)`), para "base uniforme não altera a arte" valer
+  também numa base branca.
+
+## Correção (pipeline 20261106-0749, rodada 1)
+
+**O que mudou (`arquivo::simbolo`):**
+- `editor-web/src/mockup/mockupEngine.ts` (novo, puro, sem DOM):
+  - `homographyFromQuads` faz a DLT 8×8 com normalização de Hartley e Gauss com pivoteamento parcial. Devolve `null`
+    para pontos coincidentes ou 3 colineares, caso em que o sistema tem solução mas ela é singular (det relativo
+    < 1e-9).
+  - `applyH`, `invert3`, `transformPoints`, `meshFromQuad` (16 pontos sobre a homografia) e `isConvexQuad`.
+  - `sampleBilinear` devolve a cor pré-multiplicada; vizinho fora da imagem conta como transparente.
+  - `uCyl`, `cylTiltDt` e `sphereUV` seguem as fórmulas da §2.1; na esfera, `r=0` dá `sen α/α` e `r>1` dá `null`.
+  - `cylinderShade`/`sphereShade` fazem o sombreamento automático; `labelAspect` dá a proporção natural do rótulo.
+  - `lightingFactor` e `applySurfaceLighting` implementam a §2.2: L̄ pesada por α, clamp [0,50; 1,35] e especular
+    relativo à média.
+  - `renderMockup`:
+    - plano com 1 célula ou malha de 9 células (cada uma com sua homografia), cilindro com inclinação, ou esfera;
+    - percorre só o bbox, com a borda suavizada por cobertura analítica;
+    - a arte entra por `fit: 'contain'` (padrão) ou `'stretch'`, depois vêm a fusão e a composição;
+    - quad não convexo ou degenerado devolve a base, sem lançar.
+  - `parseMockup3dIndex`/`parseFlatMockupIndex` descartam entradas inválidas; os 4 planos entram como `plano_<id>`
+    com o quad do 1º slot.
+- `editor-web/src/mockup/mockupStudio.ts::openMockupStudio({ editor, bridge, describe })` (novo):
+  - Folha alta `📦 Mockup 3D` com a grade de templates (os 5 de `mockups3d/` e os 4 planos de `mockups/`, por
+    `fetch(contentUrl(...))`).
+  - Preview `canvas.mockup-preview` de lado ≤ 512, com 4 `.mockup-handle` (pointer events + `setPointerCapture`; um
+    movimento que deixaria o quad não convexo é recusado).
+  - Controles: "Forma", "Arte" (Design atual por `editor.renderPageCanvas(1600)`; Imagem selecionada por
+    `FabricImage.toCanvasElement({withoutTransform})`, que só aparece com imagem ativa), "Arco", "Inclinação" e
+    "Fusão com dobras/luz". O render roda em `requestAnimationFrame`.
+  - A malha do template acompanha o quad pela homografia quad do template → quad atual.
+  - "Inserir no design" renderiza na resolução da base, gera JPEG 0,92 e chama `editor.addImage(url,{fit:0.8})`.
+  - "Salvar na galeria" manda `bridge.request('export',{format:'jpg',action:'save',name:'mockup_<id>',data})`; o toast
+    mostra o `location`.
+  - Canvas sujo dispara `SecurityError`: o estúdio mostra um toast e cai para o design atual.
+  - Estado só de leitura para o E2E: `window.__mockupStudio.state()`/`basePreview()` e `canvas.dataset.state`.
+- `editor-web/src/main.ts::tabs` ganha a aba `['📦 Mockup 3D', () => openMockupStudio({ editor, bridge, describe })]` no
+  fim, e o import correspondente.
+- `editor-web/src/styles.css` ganha `.mockup-stage` (`touch-action: none`), `.mockup-preview`, `.mockup-handle`
+  (+ `.dragging`) e `.mockup-controls`.
+- `tools/gen_mockups.py`:
+  - `--3d <saída>` chama `main3d`, com gerador próprio (`default_rng(83)`), e gera `mug` (cilindro 110°), `jar`
+    (cilindro 140°), `ball` (esfera), `ecobag` e `tshirt` (plano com malha 4×4 e dobras conhecidas
+    `ECOBAG_FOLDS`/`TSHIRT_FOLDS`), bases de 1200².
+  - `noise(..., gen=None)` ganhou o gerador opcional; sem ele usa o `rng` de sempre.
+  - Sem a flag, o comportamento não muda.
+- `app/src/main/assets/content/mockups3d/` (novo): `index.json`, 5 bases, 5 miniaturas e `SOURCES.md`.
+  `content/SOURCES.md` ganhou a linha `mockups3d/`.
+- `editor-web/test/mockupEngine.test.ts` (novo, 24 testes) e `tools/e2e/task08.mjs` (novo).
+- Bundle `editor/src/main/assets/editor/` regerado pelo `build`.
+
+**Provas offline (comando → resultado):**
+- `npx tsc --noEmit`: sem erro.
+- `npx vitest run test/mockupEngine.test.ts`: 24/24. Cobre:
+  - homografia nos cantos (erro < 1e-6) e no centro (cruzamento das diagonais);
+  - quad degenerado e gravata-borboleta;
+  - `uCyl` (0/0,5/1, monotônica, derivada maior na borda);
+  - esfera em `r=0`, `r=1` e `r>1`;
+  - fusão: uniforme (cinza e branco), faixa escura e `f ∈ [0,50; 1,35]`;
+  - malha reta ≡ plano (±1) e malha deslocada;
+  - cilindro com arco 170 mais estreito e inclinação;
+  - o `index.json` gerado e os 4 planos.
+- `build` do helper: saiu 0. vitest 381/381; `MockupTest` 9/9 (os 4 planos continuam: o fluxo Kotlin não mudou).
+- `python tools/gen_mockups.py --3d <tmp>` rodado duas vezes deu `index.json` e os 10 `.webp` idênticos byte a byte.
+- `python tools/gen_mockups.py <tmp>` (planos) deu os 10 arquivos idênticos aos de `content/mockups/`.
+- Render do motor em Node sobre as 5 bases, arte 1080²: 28–105 ms por base de 1200² no PC; conferido visualmente.
+
+**Ajustes ao Plano de teste (T2):**
+- **Arte do E2E:** fundo azul `#1e50c8` (Fundo → Cor sólida) mais o título. Uma página branca numa caneca branca
+  quase não difere da base.
+- **Sinal 3 (fusão):** medido na faixa da **borda direita** do rótulo (s ∈ [0,82; 0,92]). A luz da base vem da
+  esquerda e o brilho fica em s ≈ 0,32: a borda esquerda é clara e não escurece.
+- **Sinal 5 (Esfera):** trocar a Forma **não mexe no quad**; o quad ajustado pelo usuário continua o mesmo. Só escolher
+  outro template volta o quad ao do template. O script confere que o hash mudou e que o quad ficou igual.
+- **Ordem:** "Salvar na galeria" (sinal 7) roda antes de "Inserir no design" (sinal 6), porque inserir fecha a folha.
+  O arquivo salvo é `Pictures/ProductPhoto/mockup_mug*.jpg`: anotar na evidência, porque o aparelho é do dono.
+- **Sinal 6:** a imagem inserida tem a resolução da base (1200×1200).
+- O script também confere a folha com os 9 templates.

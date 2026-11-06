@@ -8,6 +8,7 @@ original analisado (ARQUITETURA, restrição legal).
 | `templates/` | escritos por nós (documentos `pp-editor` v1, JSON do Fabric 7) | do projeto |
 | `stickers/` | SVG desenhados à mão no gerador | do projeto |
 | `scenes/` | cenários procedurais da fase 2 (`tools/gen_scenes.py`; ver `scenes/SOURCES.md`) | do projeto |
+| `mockups3d/` | templates 2.5D do estúdio 📦 Mockup 3D (TASK-08), procedurais: `tools/gen_mockups.py --3d` (ver `mockups3d/SOURCES.md`) | do projeto |
 | `fonts/<Família>/` | repositório `github.com/google/fonts`, pasta `ofl/<família>/`, arquivo sem modificação (baixado em 2026-10-14) | SIL OFL 1.1 — `OFL.txt` ao lado de cada fonte |
 
 Fontes: Montserrat, Inter, Open Sans, Nunito, Raleway, Oswald, Bebas Neue, Anton, Playfair Display,
