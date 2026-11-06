@@ -22,7 +22,8 @@ const rad = (RECT.deg * Math.PI) / 180;
 const RECT_TRUE = [[-RECT.a, -RECT.b], [RECT.a, -RECT.b], [RECT.a, RECT.b], [-RECT.a, RECT.b]]
   .map(([u, v]) => [RECT.cx + Math.cos(rad) * u - Math.sin(rad) * v, RECT.cy + Math.sin(rad) * u + Math.cos(rad) * v]);
 const FLAT = { w: 800, h: 600 };
-const CUT = { w: 800, h: 600, quad: [[250, 150], [550, 150], [650, 450], [150, 450]] };
+// largura diferente da lisa: a espera do passo 5 distingue a base nova da anterior
+const CUT = { w: 900, h: 600, quad: [[250, 150], [550, 150], [650, 450], [150, 450]] };
 
 const scan = () => adbShell('content call --uri content://media/ --method scan_volume --arg external_primary');
 const push = (key) => {
@@ -65,7 +66,7 @@ try {
     await p.tap('#sheet .mockup-own');
     const picked = await pickFirstPhoto(p, shot);
     await p.waitFor(`__mockupStudio.state().template === 'own' && __mockupStudio.state().baseWidth === ${width}
-      && __mockupStudio.state().renders > 0`, 20000).catch(() => {});
+      && __mockupStudio.state().detect === null && __mockupStudio.state().renders > 0`, 20000).catch(() => {});
     await p.sleep(300);
     const st = await state();
     return { picked, st };
@@ -211,11 +212,11 @@ try {
     // ---------- 5. recorte PNG com alfa → alpha; inserir mantém a transparência ----------
     push('cut');
     const o5 = await useOwnPhoto(CUT.w, `${out}/20-5-seletor.png`);
-    r.check('5a. recorte 800×600 (trapézio opaco sobre transparente) virou a base "own"', o5.picked && o5.st.template === 'own'
+    r.check('5a. recorte 900×600 (trapézio opaco sobre transparente) virou a base "own"', o5.picked && o5.st.template === 'own'
       && o5.st.baseWidth === CUT.w, JSON.stringify({ picked: o5.picked, template: o5.st.template, w: o5.st.baseWidth }));
     const d5 = await detect();
     const err5 = d5.st.quad.map((q, i) => dist(q, CUT.quad[i]));
-    r.check('5b. Detectar no recorte: método alpha e cantos a ≤ 5 % do lado maior (40 px) do trapézio',
+    r.check('5b. Detectar no recorte: método alpha e cantos a ≤ 5 % do lado maior (45 px) do trapézio',
       d5.st.detect === 'alpha' && err5.every((e) => e <= 0.05 * CUT.w),
       JSON.stringify({ detect: d5.st.detect, quad: round(d5.st.quad), erro: err5.map(Math.round) }));
     screencap(`${out}/20-5-recorte.png`);

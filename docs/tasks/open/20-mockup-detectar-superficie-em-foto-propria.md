@@ -311,10 +311,10 @@ Correções ao plano (vale esta versão):
 **Ajustes ao Plano de teste (T2, `tools/e2e/task20.mjs`):**
 - O script gera as 3 fotos no WebView depois do `launchEditor` e faz `adb push` de cada uma só antes de escolhê-la (a mais
   nova é a 1ª do seletor): `e2e_task20_rect.png` (1200×900), `e2e_task20_flat.png` (800×600), `e2e_task20_cutout.png`
-  (800×600, trapézio vermelho sobre transparente). Limpeza no `finally` (`rm -f` + `scan_volume`).
+  (900×600, trapézio vermelho sobre transparente; largura diferente da lisa para a espera do passo 5 ver a troca de base). Limpeza no `finally` (`rm -f` + `scan_volume`).
 - Arte = fundo azul `#1e50c8` + título (a receita do `task08.mjs`), para a arte se destacar da foto.
 - Arrasto da alça TL: (+40, +30) px CSS (o do `task08.mjs`); (+80, +60) chega perto de virar o quad.
 - Passo 3 (inserir): +1 imagem 1200×900 com `getSrc()` JPEG (foto opaca). Passo 5 (novo): recorte → `detect ===
-  'alpha'`, cantos ≤ 40 px do trapézio, inserir → `getSrc()` PNG e α = 0 no pixel (1,1) da imagem inserida.
+  'alpha'`, cantos ≤ 45 px do trapézio, inserir → `getSrc()` PNG e α = 0 no pixel (1,1) da imagem inserida.
 - Controle positivo: na base o script acha os botões ausentes, marca FAIL "ausentes (base sem a TASK-20)" e para.
 - T3: vitest inteiro, `task08.mjs` e `task19.mjs` (o `mockupStudio.ts` é dos dois; a Caixa 3D esconde o 🎯).
