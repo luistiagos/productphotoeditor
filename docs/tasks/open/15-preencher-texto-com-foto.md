@@ -332,3 +332,48 @@ com UMA correção: o SVG do Fabric **não** sai "de graça" (ver Causa raiz, it
   WebView e compara os pixels das letras com o editor (≥ 80% iguais, tolerância 60).
 - Resultado offline: `npx tsc --noEmit` limpo; `npx vitest run test/textImageFill.test.ts` 10/10; `npx vitest run`
   29 arquivos / 319 testes passando.
+
+---
+
+### Teste rodada 1 — reprovado
+
+**Data:** 2026-11-06 · **Aparelho:** `emulator-5554` (sdk_gphone64_x86_64, API 34; único no adb) · **Base:** `9bb7ece`
+· **Fix:** `f8816fd` (APK com sha256 conferido no aparelho) · **Evidência:**
+`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1027-task-15-preencher-texto-com-foto\`
+
+**Motivo da reprovação: o script da T2 (`tools/e2e/task15.mjs`, entregável desta task) está errado em 3 pontos.** A
+funcionalidade em si passou em tudo que testei no aparelho (abaixo), mas o script é a prova que fica no repositório e
+que o dono roda no retest: hoje ele dá **FAIL** com a funcionalidade certa, dá **PASS** num critério que não exercitou,
+e o modo base quebra.
+
+| # | Teste | Esperado | Observado | Causa (aberta e medida) |
+|---|---|---|---|---|
+| 1 | `E2E_MODE=base node tools/e2e/task15.mjs` (APK da base) | os 2 checks BASE e PASS | aborta: `TypeError: editor.textImageFillOf is not a function` em `task15.mjs:159` (`const solid = (await info('VERÃO')).fill`) | `info()` chama `editor.textImageFillOf` ANTES do `if (BASE)`. Na base a função não existe → o modo base nunca chega aos checks. (`t2-base.txt`) |
+| 2 | 9j MP4 (fix) | PASS | **FAIL** `iguais 98 de 429` | `letterPixels` filtra "dentro das letras" por alfa 255 no `editor.renderPageCanvas(1080, o => o === t)`, mas o `renderPageCanvas` desenha o `backgroundColor` do canvas (`#ffffff`) mesmo com o filtro: alfa é 255 em todo ponto (medido: canto `[255,255,255,255]`, entre linhas idem → `diag/alpha-check.txt`). Os 429 pontos = a grade inteira 39×11. Os pontos de fundo são brancos no editor e transparentes (→ preto) no `layer_0.png`, e falham. O `layer_0.png` está CERTO (`diag/diag-layer.png` × `diag/diag-only.png`). O mesmo defeito enfraquece 2b ("todo ponto ≠ cor sólida" passa pelo fundo branco), 6g/7h/8i (comparam a grade inteira, fundo incluído). |
+| 3 | 4d alça lateral (fix) | largura muda e o cover é refeito | **PASS falso**: `w0 = 971.6183`, `w = 971.6182861…`, `tr` igual a menos de ruído de float | O drag vai para DENTRO (−120 px), mas o `Textbox` não fica mais estreito que a palavra mais longa ("VERÃO" a 260 px ≈ 960 px): a largura não muda. O check `i4.w !== w0` passa pela diferença de arredondamento (o JSON do undo/rascunho guarda 4 casas). Refeito por mim: drag para FORA (+25 px de tela) → `971.6 → 1045.4`, `patternTransform` refeito, cover ainda cobre (`diag/drag2-check.txt`). |
+
+**O que o dev precisa corrigir (só `tools/e2e/task15.mjs`):**
+1. Modo base: ler `fill` sem `editor.textImageFillOf` antes do `if (BASE)` (ex.: `solid` direto de `t.fill`, ou `info()`
+   tolerante: `typeof editor.textImageFillOf === 'function' && …`).
+2. `letterPixels`: máscara das letras sem fundo. Ex.: tirar o fundo no render só do texto (salvar
+   `editor.canvas.backgroundColor`, pôr `'transparent'`, renderizar, restaurar) ou comparar com o render da cor sólida.
+   Conferir que `n` < grade inteira (os 429 pontos da grade não podem passar todos). 9j depois disso deve passar: medido com máscara
+   pelos pixels opacos do `layer_0.png` → 313/329 iguais ao editor (95%, o resto é borda), 0 na cor sólida, 8 cores
+   (`diag/mp4-check.txt`).
+3. 4d: arrastar a alça para FORA (o texto não encolhe abaixo da palavra mais longa) e exigir `|w − w0| > 20`; posição da
+   alça por `editor.docToClient` (o que usei) e não `oCoords` + `upperCanvasEl`.
+
+**Resultados desta rodada:**
+- Offline: `npx tsc --noEmit` limpo; `npx vitest run` 29 arquivos / 319 testes OK; `build` do helper (base e fix) EXIT 0,
+  lane limpa depois do build do fix (bundle commitado = fonte).
+- Controle positivo (APK base `9bb7ece`): painel do texto SEM "🖼️ Foto no texto" (Degradê presente) e
+  `typeof editor.setTextImageFill === 'undefined'` — conferido por CDP depois do crash do script (`t2-base.txt`,
+  `base/15-base-painel.png`).
+- T2 (APK fix): `t2-fix.txt` 23/24 — 2a, 2b, 2c, 3 (↶ 1 toque), 4 (texto editado), 5f (Remover foto), 6g (reaberto
+  pelo Rascunhos, mesmo `patternTransform`), 7h PNG e JPG, 8i SVG (424/429 iguais desenhado no WebView) PASS; 9j FAIL
+  (defeito 2); 4d alça PASS falso (defeito 3). Refeitos por mim com script próprio: 4d (drag para fora) PASS e 9j (máscara
+  certa) PASS → a funcionalidade atende os critérios no aparelho.
+- T3: `task12` 40/40, `task14` 50/50, `task09` 26/26; Kotlin `testDebugUnitTest` 211 testes, 0 falhas.
+- T4: `logcat-janela.txt` sem `FATAL`/`ANR`; `Seed missing signature` (WebView) e `Uncaught exception thrown by
+  finalizer` aparecem igual na janela da base (PID 12864) → ambiente, não o fix.
+- Sobras no emulador: rascunho de teste `E2E15_mw50fdpn` e a foto `/sdcard/Pictures/e2e_task15.jpg` (o script não apaga).
