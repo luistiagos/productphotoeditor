@@ -19,3 +19,16 @@
 - **Evidência:** `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-2200-task-13-r2\`
   `base-task11.txt`, `fix-task11.txt`, `fix-task12-tentativa1.txt`, `fix-task14-tentativa1.txt`,
   `fix-task11/apos-task11-estado.png`.
+
+## Causa confirmada (teste da TASK-10, pipeline 20261105-1638, 2026-11-05 23:30)
+
+- Dump do seletor aberto no Moto g86 (`uiautomator dump`): as fotos têm `content-desc="Item Foto criado em 5 de nov. de 2026 22:54"`
+  (não `Photo taken`/`Foto tirada`) e `clickable="false"`. Com a regex ampliada para `Item Foto criado`, o toque **marca** a foto
+  (aparece o contador `1`) e o seletor mostra `Visualizar` / `Concluir`: só volta ao app depois do toque em `Concluir`.
+- Atinge também `tools/e2e/task09.mjs::pickFirstPhoto` (l.70–83, o script morre esperando a folha "Fundo" na l.146 porque o
+  seletor ficou aberto) e `tools/e2e/bug-editor-galeria-svg-pickimage.mjs` (mesma regex). Mesma falha com o APK da base `2193b37`.
+- Prova de que o ajuste basta: cópias temporárias com a regex ampliada + toque em `Concluir` → `task09` 26/26 (APK da TASK-10);
+  em `task11` a troca de foto passa (as 7 falhas que sobram são de arrastar/inspetor, `e2e-arrastar-e-inspetor-moto-g86.md`).
+- Correção sugerida: regex `(Photo taken|Foto tirada|Item Foto criado)` e, depois do toque, tocar `Concluir`/`Done` se aparecer;
+  se nada casar, `KEYCODE_BACK`. Evidência: `evidencia\20261105-2330-task-10\t3\` (`task09.txt`, `_tmp_task09.mjs`,
+  `_tmp_task11.mjs`, `task09-estado.png`) e `t3-base\_tmp_task09_base.txt`.

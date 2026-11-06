@@ -1,5 +1,45 @@
 # [TASK-10] Data Merge (Geração de Anúncios em Lote por Variáveis de Catálogo) e Exportação Batch (Galeria / ZIP / WebP / PDF de Impressão)
 
+## Status (pipeline 20261105-1638 — aprovado no teste rodada 1, 2026-11-05)
+
+**Feito:** "⚡ Variável do lote" no painel do texto/imagem (`mergeField`: produto, preço De/Por, desconto, parcelas, código,
+foto); folha "⚡ Gerar em lote" (colar `;`/TAB/`|`/CSV, tabela editável com desconto calculado, 📷 por linha quando há `foto`,
+"Gerar N anúncios") que cria N páginas depois do modelo num passo do undo, com auto-ajuste da fonte (`shrinkTextToFit`, piso 65%);
+Exportar com PNG, JPG, **WebP**, SVG, **PDF** (marcas de corte, sangria), MP4, GIF e "Páginas: atual / todas (N)"; lote salvo
+na galeria (`<nome>_<ts>_01..N`), PDF de N páginas em Download/ProductPhoto, Compartilhar lote = 1 `.zip`.
+**Fora deste item:** seleção múltipla de fotos (uma por linha pelo 📷) e lote de MP4/GIF.
+
+**Commits** (sobre `origin/main` @ `2193b37`): `31e0aed` feat(editor) TASK-10 (código + bundle `index-CK5tbOIb.js`/`index--MpGjl2x.css`)
+e este commit de docs.
+
+**Aparelho:** Moto g86 5G (`adb-ZY32LMNN9B-6mRvcH._adb-tls-connect._tcp`, `E2E_FORMAT="Post Instagram"` 1080×1350). APK do fix
+`b7641da5…4825` = `sha256sum` do `base.apk` instalado; APK da base `d6e8ed70…1b31`. Ficou instalado o APK do fix (antes:
+0.4.0 de 2026-11-05 22:04).
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-2330-task-10\`):
+- Offline: diff só em arquivos reservados; `npx tsc --noEmit` 0 erros; `npx vitest run` 297/297 (27 arquivos); `build --bug`
+  exit 0 (`build-fix.log`): `BatchExportTest` 11/11, `EditorProtocolTest` 11/11, `TextPromptsTest` 3/3, `VideoRendererTest` 3/3.
+- Controle positivo (`base-2193b37.apk`, `base/t2-base.txt`): sem "⚡ Variável do lote"/"⚡ Gerar em lote", formatos
+  `png,jpg,svg,mp4,gif` (sem webp/pdf), `export` webp → `{ok:false, code:'invalid'}`.
+- **T2** (`fix-31e0aed.apk`, `fix/t2-fix.txt`, prints `fix/10-*.png`): `task10.mjs` **13/13** — marcas pelo painel; folha com 4
+  campos e 5 linhas (`-33%` na digitada); 6 páginas, Tênis `-37%`, modelo intacto; Parafusadeira 156 → 101,4 (piso 65%); ↶/↷ da
+  geração inteira; WebP todas = 6 `.webp` `RIFF…WEBP` + toast "6 anúncios salvos na galeria!"; PDF todas com marcas = 6 páginas,
+  MediaBox 1152×1422 (`fix/10-catalogo.pdf`; content stream com 8 linhas de marca por página fora da arte, `fix/pdf-marcas.txt`);
+  PNG todas + Compartilhar = seletor do Android + 1 `.zip` com 6 PNG (`fix/10-lote.zip`); WebP página atual = 1 arquivo; sem
+  exceção JS; exports de teste apagados do aparelho.
+- **T3**: `task12` 40/40; `task09` 26/26 (incl. o caso 10 reescrito) com o seletor de fotos ajustado só no ambiente (`t3/task09.txt`
+  original trava no seletor — igual na base, `t3-base/_tmp_task09_base.txt`); `task11` 18/25 e `task14` 49/50 com as MESMAS falhas
+  na base (`t3-base/`); `task04` para no seletor de áudio ("Show roots") igual na base. Nenhuma falha nova contra a base.
+  Bugs laterais (E2E/ambiente): `docs/bugs/open/e2e-task11-seletor-de-fotos-moto-g86.md` (causa confirmada),
+  `docs/bugs/open/e2e-arrastar-e-inspetor-moto-g86.md`, `docs/bugs/open/e2e-task04-seletor-de-audio-moto-g86.md`.
+- **T4**: logcat do PID 7927 (`fix/logcat-pid7927.txt`) sem `AndroidRuntime`/`FATAL`/`ANR`/`OutOfMemoryError`; buffer de crash vazio.
+
+**Observação para o dono:** com o nome longo do catálogo e o título grande do modelo (156 px), o texto chega ao piso de 65% e
+ainda transborda a caixa (encosta no preço e passa da borda de cima: `fix/10-3-parafusadeira.png`). É o comportamento
+especificado ("no piso, para; não corta texto"); se quiser outro (piso menor, quebrar/abreviar), vira item novo.
+
+**Falta para `done/`:** validação do dono no aparelho dele (gerar um lote real e abrir o PDF numa gráfica/visualizador).
+
 ## Metadados e Esforço Mensurado
 
 | Campo | Valor |
