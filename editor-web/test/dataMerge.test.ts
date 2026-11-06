@@ -188,6 +188,13 @@ describe('detectTemplateFields / mergeText / applyMergeRow', () => {
     expect(Number(flipped.width) * Math.abs(Number(flipped.scaleX))).toBeCloseTo(100);
   });
 
+  it('TASK-18: a foto nova não herda a original do recorte da foto do modelo', () => {
+    const o = swapPhotoJson({ width: 100, height: 100, scaleX: 1, scaleY: 1, src: 'blob/ai-1', originalSrcBeforeCutout: 'blob/img-1' },
+      { url: 'u', width: 100, height: 100 });
+    expect(o.src).toBe('u');
+    expect('originalSrcBeforeCutout' in o).toBe(false);
+  });
+
   it('TASK-17: vinheta/borda/foco da foto passam a agir no recorte da foto nova; os outros filtros ficam como estavam', () => {
     const o = swapPhotoJson({
       width: 100, height: 100, scaleX: 1, scaleY: 1,

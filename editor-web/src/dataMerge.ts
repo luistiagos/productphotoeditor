@@ -200,6 +200,8 @@ export function swapPhotoJson(o: Record<string, unknown>, photo: PhotoRef): Reco
   if (!(slotW > 0 && slotH > 0 && photo.width > 0 && photo.height > 0)) return o;
   const g = fitSlot(slotW, slotH, photo.width, photo.height, 'cover');
   o.src = photo.url;
+  // a foto do produto não é o recorte da foto do modelo: sem "➕ Restaurar original" dela (TASK-18)
+  delete o.originalSrcBeforeCutout;
   o.width = g.width;
   o.height = g.height;
   o.cropX = g.cropX;

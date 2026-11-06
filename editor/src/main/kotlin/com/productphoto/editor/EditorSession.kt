@@ -104,6 +104,11 @@ class EditorSession(
         handle("pickFont") { _, _ -> pickFont() }
         handle("pickAudio") { _, _ -> pickAudio() }
         handle("export") { p, progress -> export(p.obj(), progress) }
+        // TASK-18: o PNG do 🖌️ Retocar recorte vira blob (as ações de IA recusam `data:`)
+        handle("putImage") { p, _ ->
+            val bytes = withContext(Dispatchers.Default) { EditorAssets.pngFromDataUrl(p.obj().str("data")) }
+            buildJsonObject { put("url", assets.blobUrl(assets.putBytes(bytes, "png", "edit"))) }
+        }
     }
 
     private fun deliver(msg: String) {

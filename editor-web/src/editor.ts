@@ -70,6 +70,7 @@ import { compactFilterAdjust, type DuotoneSpec, duotoneMatrix, sharpenKernel, wa
 import { FocusBlur, type FocusSpec, isRegionFilter, SoftEdge, Vignette } from './focusFilters';
 import { coverPatternTransform, installPatternSvg, isTextImageFill, refitTextImageFill, type TextImageFill } from './textImageFill';
 import { type BooleanOp, booleanRegions, isBooleanShapeType, MIN_RESULT_AREA, ringsArea, ringsToPathD, shapeRegion } from './pathBoolean';
+import { applyStroke, REFINE_FEATHER, REFINE_SIZE, type RefineMode, type RefinePoint } from './refineCutout';
 
 FabricObject.customProperties = [...CUSTOM_PROPERTIES];
 installWarpRenderer(Textbox);
@@ -109,6 +110,34 @@ export type RasterFormat = 'png' | 'jpeg' | 'webp';
 
 const BACKGROUND_LAYER = 'background';
 
+/** 🖌️ Retocar recorte (TASK-18) em curso. */
+interface RefineState {
+  img: FabricImage;
+  /** Recorte em pixels (tamanho natural, sem filtros), pintado pelos traços; é a prévia (`img._element`). */
+  work: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  /** Foto antes do recorte, escalada para o tamanho de `work`; null = sem "Restaurar". */
+  orig: CanvasRenderingContext2D | null;
+  mode: RefineMode;
+  /** Diâmetro do pincel, px da página. */
+  size: number;
+  /** Suavidade da borda, 0..1. */
+  feather: number;
+  /** Pontos (cena) do traço em curso, entre o `mouse:down` e o `mouse:up`. */
+  points: RefinePoint[] | null;
+  /** Traços aplicados desde o início do modo. */
+  strokes: number;
+}
+
+export interface RefineInfo {
+  img: FabricImage;
+  mode: RefineMode;
+  size: number;
+  feather: number;
+  strokes: number;
+  canRestore: boolean;
+}
+
 /** Campos internos do Fabric 7.4.0 que o gesto de 2 dedos precisa zerar (Canvas.ts / SelectableCanvas.ts). */
 interface FabricGestureInternals {
   _groupSelector: unknown;
@@ -144,6 +173,8 @@ export class Editor {
   private suspendHistory = 0;
   private historyTimer: number | undefined;
   private maskPaths: FabricObject[] | null = null;
+  /** 🖌️ Retocar recorte em curso (TASK-18); null fora do modo. */
+  private refine: RefineState | null = null;
   /**
    * "✍️ Desenhar à mão": quantos objetos havia ao começar (null fora do modo). Os traços da sessão são os Paths "Traço à
    * mão" acima desse índice — por posição, não por referência: o ↶/↷ da barra recria os objetos pelo JSON.
@@ -236,7 +267,10 @@ export class Editor {
       if (zoomed && this.canvas.getActiveObject()) this.canvas.drawControls(ctx);
     });
     this.canvas.on('path:created', ({ path }) => {
-      if (this.maskPaths) {
+      if (this.refine) {
+        // o rastro do pincel é só visual: os carimbos saem dos pontos do traço, no `mouse:up` (que vem depois)
+        void this.withoutHistory(() => this.canvas.remove(path));
+      } else if (this.maskPaths) {
         path.set({ selectable: false, evented: false });
         this.maskPaths.push(path);
       } else if (this.freehandBase !== null) {
@@ -255,6 +289,16 @@ export class Editor {
     });
     this.canvas.on('mouse:move', ({ viewportPoint }) => longPress.move(viewportPoint.x, viewportPoint.y));
     this.canvas.on('mouse:up', () => longPress.cancel());
+    // retoque: os pontos do traço (cena) vêm dos eventos de ponteiro, que o Fabric dispara também em modo desenho
+    this.canvas.on('mouse:down', ({ scenePoint }) => { if (this.refine) this.refine.points = [{ x: scenePoint.x, y: scenePoint.y }]; });
+    this.canvas.on('mouse:move', ({ scenePoint }) => { this.refine?.points?.push({ x: scenePoint.x, y: scenePoint.y }); });
+    this.canvas.on('mouse:up', () => {
+      const s = this.refine;
+      if (!s?.points) return;
+      const points = s.points;
+      s.points = null;
+      this.applyRefineStroke(points);
+    });
     // duplo toque fora de objetos volta ao encaixe (TASK-13); o toque é medido nos listeners do palco (installGestures)
     this.canvas.on('mouse:up', ({ target }) => {
       const tap = this.lastTouchWasTap;
@@ -405,6 +449,7 @@ export class Editor {
     internals._isCurrentlyDrawing = false;
     // o `mouse:up` do touchend final chega com isClick = false: não seleciona nem conta como toque
     internals._isClick = false;
+    if (this.refine) this.refine.points = null; // a pinça não pinta o retoque
     c.clearContext(c.contextTop);
     this.longPress.cancel();
     this.activeGuides = [];
@@ -542,7 +587,7 @@ export class Editor {
   }
 
   private scheduleSnapshot(): void {
-    if (this.suspendHistory > 0 || this.maskPaths) return;
+    if (this.suspendHistory > 0 || this.brushModal) return;
     window.clearTimeout(this.historyTimer);
     this.historyTimer = window.setTimeout(() => {
       if (this.history.push(this.snapshot())) this.onChange();
@@ -558,8 +603,9 @@ export class Editor {
     }
   }
 
-  async undo(): Promise<void> { await this.restore(this.history.undo()); }
-  async redo(): Promise<void> { await this.restore(this.history.redo()); }
+  // com o retoque aberto o `restore` recarregaria o JSON sob o modo (a imagem dele viraria um objeto morto) [[task-18-retocar-recorte-pos-remocao-de-fundo]]
+  async undo(): Promise<void> { if (!this.refine) await this.restore(this.history.undo()); }
+  async redo(): Promise<void> { if (!this.refine) await this.restore(this.history.redo()); }
 
   private async restore(state: string | undefined): Promise<void> {
     if (!state) return;
@@ -649,7 +695,7 @@ export class Editor {
   /** Vai para a página `index`. Não é edição: o undo/redo fica como está (History.replace). Com a máscara aberta, recusa. */
   switchToPage(index: number): Promise<boolean> {
     return this.serial(async () => {
-      if (!Number.isInteger(index) || index < 0 || index >= this.pages.length || this.maskPaths) return false;
+      if (!Number.isInteger(index) || index < 0 || index >= this.pages.length || this.brushModal) return false;
       if (index === this.activePage) return true;
       this.flushPending();
       this.storeActivePage();
@@ -665,7 +711,7 @@ export class Editor {
    */
   addPage(opts: { duplicateCurrent?: boolean; width?: number; height?: number } = {}): Promise<boolean> {
     return this.serial(async () => {
-      if (this.pages.length >= MAX_PAGES || this.maskPaths) return false;
+      if (this.pages.length >= MAX_PAGES || this.brushModal) return false;
       this.flushPending();
       this.storeActivePage();
       const cur = this.pages[this.activePage];
@@ -700,7 +746,7 @@ export class Editor {
   /** Apaga a página `index` (padrão: a ativa); a última nunca. Apagar a ativa mostra a seguinte (ou a anterior). */
   deletePage(index: number = this.activePage): Promise<boolean> {
     return this.serial(async () => {
-      if (this.pages.length <= 1 || !Number.isInteger(index) || index < 0 || index >= this.pages.length || this.maskPaths) return false;
+      if (this.pages.length <= 1 || !Number.isInteger(index) || index < 0 || index >= this.pages.length || this.brushModal) return false;
       this.flushPending();
       if (index === this.activePage) {
         this.pages.splice(index, 1);
@@ -731,7 +777,7 @@ export class Editor {
       const list = formats
         .filter((f) => f.width >= 16 && f.height >= 16 && f.width <= 8000 && f.height <= 8000)
         .slice(0, MAX_PAGES - this.pages.length);
-      if (list.length === 0 || this.maskPaths) return 0;
+      if (list.length === 0 || this.brushModal) return 0;
       this.flushPending();
       this.storeActivePage();
       const source = this.pages[this.activePage];
@@ -847,7 +893,7 @@ export class Editor {
     return this.serial(async () => {
       const room = Math.max(0, MAX_PAGES - this.pages.length);
       const list = rows.slice(0, room);
-      if (list.length === 0 || this.maskPaths) return { created: 0, skipped: rows.length };
+      if (list.length === 0 || this.brushModal) return { created: 0, skipped: rows.length };
       this.flushPending();
       this.storeActivePage();
       const source = this.pages[this.activePage];
@@ -2103,7 +2149,8 @@ export class Editor {
     await img.setSrc(url);
     const { width: nw, height: nh } = img.getOriginalSize();
     if (nw > 0 && nh > 0) img.set(fitSlot(slotW, slotH, nw, nh, fitMode));
-    img.set({ ...keep, brandLogo: opts.brandLogo ? true : undefined, filterPreset: img.get('filterPreset') });
+    // a foto nova não é o recorte da antiga: o "➕ Restaurar original" do retoque não vale mais (TASK-18)
+    img.set({ ...keep, brandLogo: opts.brandLogo ? true : undefined, filterPreset: img.get('filterPreset'), originalSrcBeforeCutout: undefined });
     img.setPositionByOrigin(center, 'center', 'center');
     img.filters = keepFilters;
     this.refreshFilterRegion(img); // `cover` recorta: vinheta/borda/foco seguem a parte visível nova
@@ -2188,13 +2235,151 @@ export class Editor {
     return out;
   }
 
+  // ---------- 🖌️ retocar recorte (TASK-18) ----------
+
+  /** Máscara do "Remover objeto" ou retoque abertos: o pincel do canvas é deles (histórico, páginas e desenho esperam). */
+  private get brushModal(): boolean { return this.maskPaths !== null || this.refine !== null; }
+
+  get isRefining(): boolean { return this.refine !== null; }
+
+  /** Estado do retoque para a barra e o E2E; undefined fora do modo. */
+  refineInfo(): RefineInfo | undefined {
+    const s = this.refine;
+    return s ? { img: s.img, mode: s.mode, size: s.size, feather: s.feather, strokes: s.strokes, canRestore: s.orig !== null } : undefined;
+  }
+
+  /**
+   * Abre o retoque na imagem: os traços pintam um canvas de trabalho no tamanho natural (o recorte SEM filtros), que só
+   * entra no `_element` — a prévia ao vivo. `_originalElement` fica: `getSrc`/`toObject` (rascunho, undo, autosave)
+   * continuam com a URL do recorte, e o retoque só vale no Concluir. `origSrc` = a foto antes do "✨ Remover fundo",
+   * escalada para o tamanho do recorte atual (o upscale ×2/×4 muda o tamanho natural); sem ela, só o Apagar.
+   */
+  async startRefine(img: FabricImage, origSrc?: string): Promise<boolean> {
+    if (this.brushModal || this.freehandBase !== null) return false;
+    const el = img._originalElement as HTMLImageElement | HTMLCanvasElement | undefined;
+    const w = (el as HTMLImageElement | undefined)?.naturalWidth || el?.width || 0;
+    const h = (el as HTMLImageElement | undefined)?.naturalHeight || el?.height || 0;
+    if (!el || !w || !h) return false;
+    const work = document.createElement('canvas');
+    work.width = w;
+    work.height = h;
+    const ctx = work.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return false;
+    ctx.drawImage(el, 0, 0);
+    let orig: CanvasRenderingContext2D | null = null;
+    if (origSrc) {
+      try {
+        const o = await util.loadImage(origSrc);
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        orig = c.getContext('2d', { willReadFrequently: true });
+        orig?.drawImage(o, 0, 0, w, h);
+      } catch (e) {
+        console.warn('retoque: foto original indisponível', e);
+        orig = null;
+      }
+    }
+    // a foto carregou de forma assíncrona: outra ação pode ter tomado o pincel ou tirado a imagem do canvas
+    if (this.brushModal || this.freehandBase !== null || !this.canvas.getObjects().includes(img)) return false;
+    // antes do estado: o `selection:cleared` conclui um recorte aberto, cujo instantâneo não pode ser barrado pelo modo
+    this.canvas.discardActiveObject();
+    this.refine = {
+      img, work, ctx, orig, mode: 'erase', size: REFINE_SIZE.initial, feather: REFINE_FEATHER.initial / 100, points: null, strokes: 0,
+    };
+    this.showRefinePreview(img, work);
+    const brush = new PencilBrush(this.canvas);
+    brush.strokeLineCap = 'round';
+    brush.strokeLineJoin = 'round';
+    this.canvas.freeDrawingBrush = brush;
+    this.syncRefineBrush();
+    this.canvas.isDrawingMode = true;
+    this.canvas.requestRenderAll();
+    return true;
+  }
+
+  /** Modo (Restaurar só com a original), diâmetro do pincel (px da página) e suavidade (0..1). */
+  setRefineBrush(opts: { mode?: RefineMode; size?: number; feather?: number }): void {
+    const s = this.refine;
+    if (!s) return;
+    if (opts.mode && (opts.mode === 'erase' || s.orig)) s.mode = opts.mode;
+    if (opts.size !== undefined && Number.isFinite(opts.size)) s.size = Math.min(REFINE_SIZE.max, Math.max(REFINE_SIZE.min, opts.size));
+    if (opts.feather !== undefined && Number.isFinite(opts.feather)) s.feather = Math.min(1, Math.max(0, opts.feather));
+    this.syncRefineBrush();
+  }
+
+  /** Rastro do traço: vermelho = apagar, verde = restaurar; a largura é o diâmetro do carimbo. */
+  private syncRefineBrush(): void {
+    const s = this.refine;
+    const b = this.canvas.freeDrawingBrush;
+    if (!s || !b) return;
+    b.color = s.mode === 'erase' ? 'rgba(255, 64, 64, 0.45)' : 'rgba(40, 190, 110, 0.45)';
+    b.width = s.size;
+  }
+
+  /** Um traço (pontos da cena) vira carimbos nos pixels da imagem, pelo mesmo mapeamento do `endMask`. */
+  private applyRefineStroke(points: RefinePoint[]): void {
+    const s = this.refine;
+    if (!s || points.length === 0) return;
+    const img = s.img;
+    const toPixels = util.multiplyTransformMatrices([1, 0, 0, 1, img.width / 2 + img.cropX, img.height / 2 + img.cropY],
+      util.invertTransform(img.calcTransformMatrix()));
+    // px da imagem por px da página (média dos dois eixos: escala não uniforme ainda dá um carimbo redondo)
+    const k = (Math.hypot(toPixels[0], toPixels[1]) + Math.hypot(toPixels[2], toPixels[3])) / 2;
+    const px = points.map((p) => util.transformPoint(new Point(p.x, p.y), toPixels));
+    const orig = s.orig;
+    let data: ImageData | undefined;
+    const done = applyStroke(px, (s.size / 2) * k, s.feather, s.mode, s.work.width, s.work.height,
+      (b) => (data = s.ctx.getImageData(b.x, b.y, b.w, b.h)).data,
+      orig ? (b) => orig.getImageData(b.x, b.y, b.w, b.h).data : null);
+    if (!done || !data) return;
+    s.ctx.putImageData(data, done.box.x, done.box.y);
+    s.strokes++;
+    img.dirty = true;
+    this.canvas.requestRenderAll();
+  }
+
+  /**
+   * Fecha o retoque. Com `apply` e algum traço, devolve o PNG (dataURL) do canvas de trabalho, ainda na prévia: quem
+   * chama grava o blob (`putImage`) e faz o `replaceImage` — o único passo do undo — ou, se falhar, `dropRefinePreview`.
+   * Sem traço, cancelado ou com a imagem fora do canvas: a imagem volta ao recorte e devolve null.
+   */
+  endRefine(apply: boolean): string | null {
+    const s = this.refine;
+    if (!s) return null;
+    this.refine = null;
+    this.canvas.isDrawingMode = false;
+    this.canvas.clearContext(this.canvas.contextTop);
+    const out = apply && s.strokes > 0 && this.canvas.getObjects().includes(s.img) ? s.work.toDataURL('image/png') : null;
+    if (!out) this.dropRefinePreview(s.img);
+    this.canvas.requestRenderAll();
+    return out;
+  }
+
+  /** Tira a prévia do retoque: a imagem volta ao `_originalElement` com os filtros dela refeitos. */
+  dropRefinePreview(img: FabricImage): void {
+    // antes do applyFilters: com filtros e `_element` ≠ original sem `_filteredEl`, o Fabric filtraria PARA o canvas de trabalho
+    img._element = img._originalElement;
+    img.applyFilters();
+    this.canvas.requestRenderAll();
+  }
+
+  private showRefinePreview(img: FabricImage, work: HTMLCanvasElement): void {
+    img._element = work;
+    // `_renderFill` escala a origem por `_filterScalingX/Y` (fabric Image.ts): o canvas de trabalho tem o tamanho natural
+    const scaling = img as unknown as { _filterScalingX: number; _filterScalingY: number };
+    scaling._filterScalingX = 1;
+    scaling._filterScalingY = 1;
+    img.dirty = true;
+  }
+
   // ---------- desenho à mão livre (TASK-14) ----------
 
   get isFreehandDrawing(): boolean { return this.freehandBase !== null; }
 
   /** Liga o pincel permanente: cada traço vira um Path "Traço à mão" (camada normal, com undo). */
   startFreehandDraw(color: string, width: number): void {
-    if (this.maskPaths) return; // a máscara do "Remover objeto" usa o mesmo pincel do canvas
+    if (this.brushModal) return; // a máscara do "Remover objeto" e o retoque usam o mesmo pincel do canvas
     this.canvas.discardActiveObject();
     this.freehandBase = this.canvas.getObjects().length;
     const brush = new PencilBrush(this.canvas);
@@ -2330,7 +2515,7 @@ export class Editor {
   /** Grava já o instantâneo que estava no debounce; true se o documento mudou. */
   flushPending(): boolean {
     window.clearTimeout(this.historyTimer);
-    if (this.suspendHistory > 0 || this.maskPaths) return false;
+    if (this.suspendHistory > 0 || this.brushModal) return false;
     const changed = this.history.push(this.snapshot());
     if (changed) this.onChange();
     return changed;

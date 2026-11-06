@@ -35,7 +35,10 @@ import {
   addColumn, addRow, columnCount, normalizeTable, removeColumn, removeRow, setCell, type TableData, TABLE_STYLES, TABLE_TEMPLATES,
   tableTemplate, type TableStyle,
 } from './table';
-import type { AudioRef, BlobResult, ExportPayload, ExportResult, FontRef, SaveDraftPayload, TextBox } from './protocol';
+import type {
+  AudioRef, BlobResult, ExportPayload, ExportResult, FontRef, PutImagePayload, PutImageResult, SaveDraftPayload, TextBox,
+} from './protocol';
+import { REFINE_FEATHER, REFINE_SIZE } from './refineCutout';
 import {
   type CatalogRow, detectTemplateFields, discountLabel, isTextMergeField, MAX_CATALOG_ROWS, MERGE_FIELD_LABELS, parseCatalogText,
   TEXT_MERGE_FIELDS, type TextMergeField,
@@ -181,15 +184,16 @@ async function openTemplate(entry: TemplateEntry): Promise<void> {
 const topbar = document.getElementById('topbar')!;
 function updateTopbar(): void {
   topbar.replaceChildren(
-    button('↶', () => void editor.undo(), 'icon' + (editor.history.canUndo ? '' : ' off')),
-    button('↷', () => void editor.redo(), 'icon' + (editor.history.canRedo ? '' : ' off')),
+    button('↶', () => { if (!refineBusy()) void editor.undo(); }, 'icon' + (editor.history.canUndo ? '' : ' off')),
+    button('↷', () => { if (!refineBusy()) void editor.redo(); }, 'icon' + (editor.history.canRedo ? '' : ' off')),
     h('button', { class: 'title', type: 'button', title: 'Renomear', onclick: showRename }, editor.name),
-    button('Camadas', showLayers),
+    button('Camadas', () => { if (!refineBusy()) showLayers(); }),
     button('Salvar', () => void saveDraft().then(() => toast(transport ? 'Rascunho salvo' : 'Sem app nativo'))),
     // o rótulo some em tela estreita (styles.css): a barra não pode passar da largura do celular
     h('button', { type: 'button', class: 'preview', title: 'Preview do anúncio', 'aria-label': 'Preview', onclick: showAdPreview },
       '👁️', h('span', { class: 'lbl' }, ' Preview')),
-    button('Exportar', showExport, 'primary'),
+    // exportar todas as páginas recarrega o canvas: com o retoque aberto, espera (TASK-18)
+    button('Exportar', () => { if (!refineBusy()) showExport(); }, 'primary'),
   );
 }
 
@@ -264,6 +268,8 @@ editor.onEditText = (t) => showEditText(t, true);
 
 function renderProps(o: FabricObject | undefined): void {
   if (maskImage) return renderMaskProps();
+  // o toque no canvas em modo pincel descarta a seleção: a barra do retoque fica até Concluir/Cancelar (TASK-18)
+  if (editor.isRefining) return renderRefineProps();
   // o toque no canvas em modo desenho descarta a seleção: a barra do desenho fica até o "Concluir"
   if (editor.isFreehandDrawing) return renderFreehandProps();
   if (!o) { props.replaceChildren(); props.classList.remove('show'); return; }
@@ -944,6 +950,7 @@ const pageMin = (): number => Math.min(editor.width, editor.height);
 
 function startFreehand(): void {
   if (maskImage) { toast('Conclua o pincel do "Remover objeto" antes'); return; }
+  if (refineBusy()) return;
   editor.startFreehandDraw(pen.color, penWidth(pen.size, pageMin()));
   renderFreehandProps();
   toast('Desenhe com o dedo · Concluir para mover os traços');
@@ -1106,6 +1113,7 @@ function imageProps(img: FabricImage): Node[] {
       })())),
     h('div', { class: 'row scroll ai' },
       button('✨ Remover fundo', () => void aiRemoveBg(img)),
+      canRefine(img) ? button('🖌️ Retocar recorte', () => void startRefine(img), 'refine-btn') : null,
       button('✨ Remover objeto', () => startMask(img)),
       button('✨ Remover texto', () => void aiRemoveText(img)),
       button('✨ Vetorizar (SVG)', () => void aiVectorize(img)),
@@ -1203,8 +1211,123 @@ function showFilters(img: FabricImage): void {
 // ---------- IA (ponte) ----------
 
 async function aiRemoveBg(img: FabricImage): Promise<void> {
-  const r = await run('Removendo fundo', (p, sig) => bridge.request<BlobResult>('ai.removeBg', { src: editor.imageSrc(img) }, p, sig), true);
-  if (r) { await editor.replaceImage(img, r.url); toast(served('Fundo removido', r)); }
+  const before = editor.imageSrc(img);
+  const r = await run('Removendo fundo', (p, sig) => bridge.request<BlobResult>('ai.removeBg', { src: before }, p, sig), true);
+  if (!r) return;
+  // a foto com fundo, para o "➕ Restaurar original" do retoque; recortar de novo não troca o original pelo recorte. Antes
+  // do replaceImage: o commit dele leva a propriedade no instantâneo (TASK-18)
+  if (!img.get('originalSrcBeforeCutout')) img.set('originalSrcBeforeCutout', before);
+  await editor.replaceImage(img, r.url);
+  // o painel foi montado antes do recorte: refaz para mostrar o "🖌️ Retocar recorte"
+  if (editor.active === img) renderProps(img);
+  toast(served('Fundo removido', r));
+}
+
+// ---------- 🖌️ retocar recorte (TASK-18) ----------
+
+/** Com o retoque aberto, as outras ações esperam (o pincel e a imagem são dele). */
+function refineBusy(): boolean {
+  if (!editor.isRefining) return false;
+  toast('Conclua ou cancele o retoque antes');
+  return true;
+}
+
+const alphaCache = new WeakMap<object, boolean>();
+
+/** Imagem com alguma transparência (amostra 64×64, guardada por elemento): um PNG recortado fora do app também retoca. */
+function hasTransparency(img: FabricImage): boolean {
+  const el = img._originalElement as HTMLImageElement | HTMLCanvasElement | undefined;
+  if (!el) return false;
+  const hit = alphaCache.get(el);
+  if (hit !== undefined) return hit;
+  let found = false;
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (ctx) {
+      ctx.drawImage(el, 0, 0, 64, 64);
+      const d = ctx.getImageData(0, 0, 64, 64).data;
+      for (let i = 3; i < d.length; i += 4) if (d[i] < 255) { found = true; break; }
+    }
+  } catch (e) {
+    console.warn('retoque: amostra de alfa', e);
+  }
+  alphaCache.set(el, found);
+  return found;
+}
+
+function canRefine(img: FabricImage): boolean {
+  return Boolean(img.get('originalSrcBeforeCutout')) || hasTransparency(img);
+}
+
+async function startRefine(img: FabricImage): Promise<void> {
+  if (maskImage || editor.isRefining) return;
+  if (editor.isFreehandDrawing) finishFreehand();
+  const orig = img.get('originalSrcBeforeCutout') as string | undefined;
+  const ok = await run('Preparando retoque', () => editor.startRefine(img, orig));
+  if (!ok) { toast('Não foi possível abrir o retoque'); return; }
+  renderRefineProps();
+  const info = editor.refineInfo();
+  toast(orig && !info?.canRestore ? 'Foto original indisponível: só dá para apagar' : 'Pinte sobre a imagem · Concluir aplica');
+}
+
+function renderRefineProps(): void {
+  const info = editor.refineInfo();
+  if (!info) { renderProps(editor.active); return; }
+  const mode = (m: 'erase' | 'restore', label: string, cls: string) =>
+    button(label, () => { editor.setRefineBrush({ mode: m }); renderRefineProps(); }, cls + (info.mode === m ? ' primary' : ''));
+  const restore = mode('restore', '➕ Restaurar original', 'refine-restore');
+  restore.disabled = !info.canRestore;
+  const size = slider('Tamanho do pincel', REFINE_SIZE.min, REFINE_SIZE.max, 1, info.size, (v) => editor.setRefineBrush({ size: v }));
+  size.classList.add('refine-size');
+  const feather = slider('Suavidade da borda', REFINE_FEATHER.min, REFINE_FEATHER.max, 5, Math.round(info.feather * 100),
+    (v) => editor.setRefineBrush({ feather: v / 100 }));
+  feather.classList.add('refine-feather');
+  props.replaceChildren(
+    h('div', { class: 'row' }, h('span', { class: 'hint' }, info.canRestore
+      ? 'Apagar tira a sobra do fundo; Restaurar devolve a foto original'
+      : 'Pinte a sobra do fundo (sem a foto original, só apagar)')),
+    h('div', { class: 'row scroll' }, mode('erase', '➖ Apagar sobra', 'refine-erase'), restore),
+    h('div', { class: 'row' }, size),
+    h('div', { class: 'row' }, feather),
+    h('div', { class: 'row' },
+      button('Cancelar', () => cancelRefine(), 'refine-cancel'),
+      button('Concluir', () => void finishRefine(), 'primary refine-done')));
+  props.classList.add('show');
+}
+
+function reselect(img: FabricImage): void {
+  if (editor.canvas.getObjects().includes(img)) editor.selectMultiple([img]);
+  else renderProps(editor.active);
+}
+
+function cancelRefine(): void {
+  const img = editor.refineInfo()?.img;
+  editor.endRefine(false);
+  if (img) reselect(img); else renderProps(editor.active);
+}
+
+/**
+ * Concluir: o PNG do retoque vira blob do editor (`putImage`, nunca `data:` — as ações de IA só leem `/blob|/assets`) e
+ * entra pelo `replaceImage` (1 passo do undo). Falhou: a imagem volta ao recorte de antes.
+ */
+async function finishRefine(): Promise<void> {
+  const img = editor.refineInfo()?.img;
+  const data = editor.endRefine(true);
+  renderProps(undefined);
+  if (!img) return;
+  if (!data) { reselect(img); toast('Nada retocado'); return; }
+  if (!transport) { editor.dropRefinePreview(img); reselect(img); toast('Sem app nativo'); return; }
+  const payload: PutImagePayload = { data };
+  const ok = await run('Salvando retoque', async () => {
+    const r = await bridge.request<PutImageResult>('putImage', payload);
+    await editor.replaceImage(img, r.url);
+    return true;
+  });
+  if (!ok) editor.dropRefinePreview(img);
+  reselect(img);
+  if (ok) toast('Retoque aplicado');
 }
 
 function startMask(img: FabricImage): void {
@@ -1292,6 +1415,7 @@ const pageBar = document.getElementById('pages')!;
 function pageOp(fn: () => Promise<unknown>): void {
   if (editor.isFreehandDrawing) finishFreehand();
   if (maskImage) { toast('Conclua ou cancele a máscara antes'); return; }
+  if (refineBusy()) return;
   void fn().catch((e: unknown) => toast(describe(e)));
 }
 
@@ -1365,6 +1489,7 @@ const MERGE_SHORT: Record<TextMergeField, string> = {
 function showMergeSheet(): void {
   if (editor.isFreehandDrawing) finishFreehand();
   if (maskImage) { toast('Conclua ou cancele a máscara antes'); return; }
+  if (refineBusy()) return;
   editor.flushPending();
   const fields = detectTemplateFields(editor.toDocument().fabric);
   if (fields.length === 0) {
@@ -1486,6 +1611,7 @@ const tabs: [string, () => void][] = [
 ];
 // trocar de aba conclui o desenho à mão (senão o objeto inserido ficaria sob o pincel, sem como tocar nele)
 document.getElementById('tabs')!.replaceChildren(...tabs.map(([label, fn]) => button(label, () => {
+  if (refineBusy()) return;
   if (editor.isFreehandDrawing) finishFreehand();
   fn();
 })));

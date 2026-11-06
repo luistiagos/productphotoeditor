@@ -200,6 +200,17 @@ export interface AudioRef {
   url: string;
   name: string;
 }
+/**
+ * `putImage` (TASK-18): grava um PNG do editor (o 🖌️ Retocar recorte) como blob e devolve a URL `/blob/edit-…` —
+ * as ações de IA só aceitam imagem servida pelo asset loader, nunca `data:`.
+ */
+export interface PutImagePayload {
+  /** `data:image/png;base64,…` */
+  data: string;
+}
+export interface PutImageResult {
+  url: string;
+}
 export interface SaveDraftPayload {
   id?: string;
   name: string;

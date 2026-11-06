@@ -123,6 +123,8 @@ export const CUSTOM_PROPERTIES = [
   'filterAdjust',
   // TASK-15: texto preenchido com foto ({ src, fallback }); o Pattern em si vai no `fill`
   'textImageFill',
+  // TASK-18: URL da foto antes do "✨ Remover fundo" (o "➕ Restaurar original" do 🖌️ Retocar recorte); o 🔄 Substituir limpa
+  'originalSrcBeforeCutout',
 ] as const;
 
 export const MAX_SIDE = 8000;

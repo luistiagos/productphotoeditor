@@ -343,3 +343,54 @@ O plano vale; as linhas andaram e quatro detalhes de implementação foram fixad
 - **Guardas a mais:** `undo/redo` do `Editor` não fazem nada com o retoque aberto (o `restore` recarregaria o JSON sob o
   modo); as abas (L1488) recusam com toast, como a máscara já faz nas páginas/lote.
 - **Teste do `CUSTOM_PROPERTIES`:** vai em `test/refineCutout.test.ts` (reservado), não em `document.test.ts`.
+
+## Correcao (pipeline 20261106-0749, rodada 1)
+
+**O que mudou (`arquivo::simbolo`) e por quê**
+- `editor-web/src/refineCutout.ts` (novo) — funções puras sobre RGBA não pré-multiplicado: `featherAlpha` (1 até
+  `r·(1−feather)`, smoothstep até 0 em `r`), `strokeStamps` (carimbos a cada `r/4` ao longo do traço, com o 1º e o
+  último), `strokeBounds` (janela recortada na imagem), `strokeCoverage` (MÁXIMO dos carimbos por pixel: sobreposição não
+  acumula, a borda suave tem a mesma largura com qualquer espaçamento), `applyCoverage` (`erase` α←α·(1−s); `restore`
+  mistura pesada por alfa com a original — s=1 dá o pixel original exato, inclusive sobre α=0 com RGB 0) e `applyStroke`
+  (o traço inteiro numa janela só). `REFINE_SIZE` 5–120 (padrão 40, px da página), `REFINE_FEATHER` 0–100 % (padrão 50).
+- `editor-web/src/editor.ts` — estado `refine` (`RefineState`): `startRefine(img, origSrc?)` desenha o
+  `_originalElement` (sem filtros) num canvas de trabalho no tamanho natural e o põe SÓ em `img._element` (prévia ao vivo;
+  `_filterScalingX/Y = 1`); a original (`origSrc`) é carregada e escalada para o tamanho atual do recorte (sem ela, só
+  Apagar). Pontos do traço pelos `mouse:down/move/up` (`scenePoint`) e carimbos no `mouse:up` pelo mesmo mapeamento
+  página→pixels do `endMask`; o path do `PencilBrush` (rastro vermelho/verde) é removido no `path:created`; a pinça zera o
+  traço. `setRefineBrush`, `refineInfo`, `endRefine(apply)` (PNG do canvas de trabalho ou volta ao recorte) e
+  `dropRefinePreview` (`_element = _originalElement` antes do `applyFilters`). Guardas: `brushModal` (máscara OU retoque)
+  em `scheduleSnapshot`, `flushPending`, `switchToPage/addPage/deletePage/magicResize/insertMergedPages`,
+  `startFreehandDraw`; `undo/redo` não fazem nada com o retoque aberto. `swapImage` apaga `originalSrcBeforeCutout`.
+- `editor-web/src/main.ts` — `aiRemoveBg` lê a `src` antes do pedido e grava `originalSrcBeforeCutout` só se ausente,
+  antes do `replaceImage` (o instantâneo já leva a propriedade), e refaz o painel (o botão aparece logo). `imageProps`
+  ganha `🖌️ Retocar recorte` (`.refine-btn`) quando há original ou transparência (`hasTransparency`: amostra 64×64 do
+  `_originalElement`, cache por elemento). Barra `renderRefineProps`: `➖ Apagar sobra` (`.refine-erase`) /
+  `➕ Restaurar original` (`.refine-restore`, desabilitado sem original), sliders `Tamanho do pincel` (`.refine-size`) e
+  `Suavidade da borda` (`.refine-feather`), `Cancelar` (`.refine-cancel`), `Concluir` (`.refine-done`). `finishRefine`:
+  `putImage` → `replaceImage` (1 passo do undo); erro → volta ao recorte. `refineBusy()` recusa ↶/↷, Camadas, Exportar
+  (o exportar de todas as páginas recarrega o canvas), abas, páginas, lote e desenho à mão com o retoque aberto.
+- `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `'originalSrcBeforeCutout'`.
+- `editor-web/src/protocol.ts` — `PutImagePayload {data}` / `PutImageResult {url}`.
+- `editor-web/src/dataMerge.ts::swapPhotoJson` (reserva pedida com `claim` nesta rodada) — o ⚡ Gerar em lote troca a foto
+  no JSON sem passar pelo `swapImage`: apaga `originalSrcBeforeCutout` (senão o Restaurar da página gerada pintaria a foto
+  do modelo). Teste em `test/dataMerge.test.ts`.
+- `editor/.../EditorAssets.kt::pngFromDataUrl` — `data:image/png;base64,` + `java.util.Base64` + assinatura PNG; o resto
+  → `BridgeException(INVALID)`. `EditorSession.kt` — `handle("putImage")` grava os bytes como estão (`putBytes(…, "png",
+  "edit")`) e devolve `{url: /blob/edit-<uuid>.png}` (casa com `EditorAssets.NAME`, logo o `resolve` das ações de IA aceita).
+- Bundle regerado em `editor/src/main/assets/editor/`.
+
+**Provas offline (rodadas nesta sessão)**
+- `npx tsc --noEmit` → sem erro; `node --check tools/e2e/task18.mjs` → ok (o E2E roda no slot de teste).
+- `npx vitest run test/refineCutout.test.ts` → 16/16; `npx vitest run` → 35 arquivos, 430 testes, 0 falha.
+- `build --bug` do helper → exit 0 (`npm run build` + vitest 430/430 + `:app:assembleDebug testDebugUnitTest`: 41 suítes JVM, 0 falha; `EditorAssetsTest` 2/2). Bundle novo `assets/index-eo1AX5-l.js` (contém `putImage`, `refine-btn`, `originalSrcBeforeCutout`); o CSS só mudou em fim de linha e foi devolvido.
+
+**Ajustes ao Plano de teste**
+- T2 passo 4: a borda suave é medida a **0,8·raio** do traço (não 0,9): o toque CDP tem ±0,5 px CSS ≈ ±1,6 px da imagem,
+  e a 0,9 a faixa encosta no raio (α arredonda para 0).
+- T2 passo 8: o 🔄 Substituir usa o caminho `Logo do brand kit` da mesma folha (`ppEditor.setBrandKit({logoUrl: cena 2})` →
+  `.swap-btn` → `.swap-logo`), sem depender de foto na galeria; o `.swap-gallery` continua coberto pelo `task11.mjs`.
+- T2 passo 6: sem upscale no aparelho (ou entrada > 1 MP), o script cai no ✨ Remover fundo e anota o toast do upscale.
+- O `EditorAssetsTest` não prova o `resolve` da URL `/blob/edit-…` (o `Uri.parse` é stub na JVM): a prova é o passo 6 da T2
+  (a ação de IA lê a `src` retocada).
+- T3: somar `task10.mjs` (o lote passa pelo `swapPhotoJson`) aos vizinhos `task11/task14/task09`.

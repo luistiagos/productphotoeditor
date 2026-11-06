@@ -106,5 +106,26 @@ class EditorAssets(private val context: Context) {
             }
             return android.util.Base64.decode(dataUrl.substring(comma + 1), android.util.Base64.DEFAULT)
         }
+
+        private const val PNG_DATA_URL = "data:image/png;base64,"
+        private val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+        /**
+         * `putImage` (TASK-18): "data:image/png;base64,…" → bytes do PNG, gravados como estão (sem re-decodificar nem
+         * reduzir a 4096). Puro JVM (`java.util.Base64`, minSdk 28): o `android.util.Base64` do `dataUrlBytes` é stub
+         * nos testes de unidade. Outro tipo, base64 inválido ou bytes sem a assinatura PNG → INVALID.
+         */
+        fun pngFromDataUrl(dataUrl: String): ByteArray {
+            if (!dataUrl.startsWith(PNG_DATA_URL)) throw BridgeException(ErrorCode.INVALID, "putImage aceita só data:image/png;base64")
+            val bytes = try {
+                java.util.Base64.getDecoder().decode(dataUrl.substring(PNG_DATA_URL.length))
+            } catch (e: IllegalArgumentException) {
+                throw BridgeException(ErrorCode.INVALID, "base64 inválido")
+            }
+            if (bytes.size < PNG_SIGNATURE.size || !PNG_SIGNATURE.indices.all { bytes[it] == PNG_SIGNATURE[it] }) {
+                throw BridgeException(ErrorCode.INVALID, "não é PNG")
+            }
+            return bytes
+        }
     }
 }
