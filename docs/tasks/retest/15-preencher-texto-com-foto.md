@@ -1,5 +1,35 @@
 # [TASK-15] Preencher Texto com Foto (Text Image Fill)
 
+## Status (pipeline 20261106-0749 — aprovado no teste rodada 2, 2026-11-06)
+
+**Feito:** no painel do texto, **🖼️ Foto no texto** (foto da galeria por `pickImage`) preenche as letras com um `Pattern`
+em *cover* (`textImageFill.ts::coverPatternTransform`), refeito quando a caixa muda (editar, alça lateral, fonte/tamanho:
+ramo novo no `refreshGradient`); **Remover foto** volta à cor sólida de antes (marca `textImageFill = { src, fallback }`);
+↶ desfaz a aplicação com 1 toque; sobrevive a salvar/reabrir o rascunho; PNG, JPG, SVG (patch do `Pattern.toSVG` com
+`patternTransform` em `userSpaceOnUse`) e a camada do vídeo MP4 saem com a foto. Rodada 1 reprovada só pelo script E2E
+(modo base, máscara das letras com o fundo, alça arrastada para dentro); corrigido na rodada 2, código da funcionalidade igual.
+
+**Commits** (sobre `origin/main` @ `9bb7ece`): `f8816fd` feat(editor) TASK-15 (código + bundle `index-DZlddecC.js`),
+`80cde91` docs (rodada 1 reprovada), `37a6a99` feat(editor) correção do `tools/e2e/task15.mjs`, e este commit de docs.
+
+**Aparelho:** emulador `emulator-5554` (sdk_gphone64_x86_64, API 34; único no adb). APK do fix `f7cce1a7…71af` = `sha256sum`
+do `base.apk` instalado; APK da base `0a4f0086…3de9`. Ficou instalado o APK do fix.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1045-task-15-preencher-texto-com-foto-r2\`):
+- Offline: `npx tsc --noEmit` limpo; `npx vitest run` 29 arquivos / 319 testes; `build` do helper base e fix EXIT 0, lane limpa.
+- Controle positivo (APK base): `E2E_MODE=base node tools/e2e/task15.mjs` **3/3** — botão "Foto no texto" ausente e
+  `editor.setTextImageFill` indefinido (`t2-base.txt`, `base/`).
+- T2 (APK fix): `node tools/e2e/task15.mjs` **25/25** (`t2-fix.txt`, prints em `fix/`): máscara 161 de 429 pontos da grade
+  (só letras), foto nas letras com 7 cores, cover, ↶, texto editado, alça para fora (971,6 → 1063,0, `patternTransform`
+  refeito), Remover foto, rascunho reaberto (mesmo `patternTransform`, pixels iguais), PNG, JPG, SVG (90/95), MP4 camada (90/95).
+- T3: `task12` 40/40, `task14` 50/50, `task09` 26/26 (`t3-*.txt`); Kotlin `testDebugUnitTest` 211 testes, 0 falhas.
+- T4: `logcat-janela.txt` sem `FATAL`/`ANR` nem erro de console do WebView; só `Seed missing signature` e
+  `Uncaught exception thrown by finalizer`, iguais na base (rodada 1) → ambiente.
+
+**Falta para `done/`:** validação do dono no celular dele (foto real da galeria em título grande; exportar MP4 de verdade
+pelo FFmpeg, que o teste conferiu só pela camada `layer_N.png` do pacote). Sobras no emulador: rascunhos `E2E15_*` e
+`/sdcard/Pictures/e2e_task15.jpg`.
+
 > **Origem:** dividida da TASK-06 pelo dono em 2026-11-05 (§2.2 original "Preenchimento de Texto com Imagem"). A
 > TASK-06 ficou com as molduras de recorte e a [TASK-16](16-pathfinder-operacoes-booleanas-de-formas.md) com o
 > Pathfinder. **Independente** das duas: não usa nada delas. Doc original:
