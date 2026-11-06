@@ -436,3 +436,48 @@ Tamanho: ~1.450 linhas novas (src ~880, testes ~290, E2E 283), dentro do teto. N
 - O `↷` depois do undo cruzado volta ao instantâneo que lembra a página onde o usuário estava (a 1ª), com a edição de
   volta na 2ª: o E2E confere a edição em `pages[1]`, não a página ativa.
 - O script deixa o rascunho `E2E09_<id>` (apagar pelo Rascunhos) e apaga os PNG exportados no fim.
+
+### Teste rodada 1 — reprovado
+
+**Motivo:** o E2E entregue `tools/e2e/task09.mjs` (a prova T2 declarada no Plano de teste) **não roda**: quebra
+sempre na montagem, antes do caso 1, com o APK do fix e com o da base. A funcionalidade em si foi aprovada em tudo o que
+o script confere (26/26, com uma cópia do script corrigida só no harness — ver abaixo), mas o artefato de prova
+versionado fica quebrado para o dono e para os próximos testes; o testador não corrige código.
+
+**Falha (esperado x observado), APK do fix `254cb99` no emulador `pp_api34`:**
+1. `task09.mjs:76–79`: depois do toque no degradê (`#sheet .tile.swatch`), a folha "Fundo" **continua aberta** (comportamento
+   do app, igual na base: `showBackgrounds` não fecha a folha). O toque seguinte em `#topbar button.title` só fecha a folha
+   (toque no fundo escuro), a folha "Renomear" não abre e a L79 quebra:
+   `JS: TypeError: Cannot set properties of null (setting 'value')`. Reproduzido 2x no fix e 1x na base (determinístico).
+   Esperado: a montagem segue para o caso 1. Correção sugerida: `await closeSheet()` depois do toque no degradê.
+2. Corrigido só o item 1, a montagem quebrou em `task09.mjs:70` (`elemento não encontrado: #sheet button "Escolher da
+   galeria…"`) 2x seguidas: o estado na hora era a folha "Editar texto" ainda aberta — o toque em "Aplicar" de `editText`
+   (L46) caiu enquanto a folha ainda entrava (animação) e não pegou. Corrigido no harness com 400 ms antes de cada toque +
+   repetição até 5 s quando o elemento não existe, o script passou inteiro. Correção sugerida: esperar a folha assentar
+   antes de tocar (ex.: `waitFor` do botão visível e estável) em `editText` e nas trocas de folha.
+
+**O que passou (evidência em `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-2202-task-09-multi-paginas-carrossel-magic-resize-e-bg-style-transfer\`):**
+- Offline: `npx tsc --noEmit` 0 erros; `npx vitest run` 26 arquivos / 279 testes ok; diff só em arquivos reservados.
+- Build do helper (fix): vitest 279/279, `testDebugUnitTest` 199 testes, 0 falhas; APK com o bundle `index-BxKdazMA.js`;
+  sha256 no aparelho = APK da lane (`d6e8ed70…1b31`, `hash-fix.txt`).
+- Controle positivo (APK da base `713a557`, sha256 `a7797074…0717`): `base-emu/controle-positivo.txt` —
+  `editor.getPageCount` undefined, sem `#pages`, `toDocument()` sem `pages`, Tamanho sem ✨ Magic Resize, Fundo sem
+  "Extrair fundo da foto"/"todas as páginas", Exportar sem "todas as páginas". Funcionalidade ausente: confirmado.
+- T2 com o harness corrigido (`task09-patched.mjs`; diff contra o versionado: import absoluto do `cdp.mjs`, `closeSheet()`
+  depois do degradê, `tap` com 400 ms + repetição; **nenhuma asserção mudou**): `fix-patched3/e2e.txt` **26/26 ok** — casos
+  1–10, undo cruzado, persistência pelo Rascunhos, Magic Resize (9:16, 16:9, 1200²), extrair da foto (contraste 3,17 e
+  3,22), aplicar em todas + um ↶, exportar 6 PNG (apagados no fim). Prints no mesmo diretório.
+- T3: `task12` 40/40, `task11` 25/25, `task14` 50/50, `task03` 19/19 (`t3-fix-*`); rascunho antigo `E2E13_1793915014648`
+  (salvo antes do fix) abre sem `pages`/`activePageIndex`, "📄 Página 1/1", Tamanho mantém "Ajustar o conteúdo"
+  (`t3-rascunho-antigo/`).
+- T4: logcat da janela (`fix-patched3/logcat-janela.txt`): só `Receiver not registered` (finalizer) e WebView `Seed missing
+  signature`, que aparecem igual nas execuções com o APK da base (PID 4901). Nenhum `FATAL`/ANR/exceção JS.
+
+**Ambiente:** o moto g86 (`ZY32LMNN9B`) estava com bloqueio seguro (`isKeyguardShowing=true`, bouncer) e o
+`launchEditor` não achou "Novo design"; o teste rodou no emulador `pp_api34` (aberto e fechado por esta sessão). O moto
+ficou com o APK da base `713a557` instalado (antes: 0.4.0 de 2026-11-05 21:36:16). Galeria do emulador e do moto:
+`/sdcard/Pictures/e2e_swap.jpg` regravado a partir de `docs/fase2_amostras/entrada/mug.jpg`.
+
+**Para o dev (rodada 2):** corrigir só o `tools/e2e/task09.mjs` (itens 1 e 2) e rodá-lo no aparelho/emulador até passar
+de ponta a ponta; o código da funcionalidade não precisa mudar. Rascunhos de teste deixados no emulador: `E2E09_mw4a5i6r`
+e 3× "Post Facebook" das tentativas quebradas.
