@@ -282,3 +282,19 @@ button:disabled { opacity: 0.4; }
 .magic-format { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .magic-format input { position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; margin: 0; }
 .magic-format:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+
+/* TASK-10: folha "Gerar em lote" (colagem, tabela editavel) e opcoes do PDF na folha Exportar */
+.merge-fields { gap: 6px; }
+.merge-fields .chip { padding: 4px 10px; font-size: 12px; border-radius: 16px; background: var(--chip); border: 1px solid var(--line); }
+.merge-input { min-height: 96px; font-size: 14px; }
+.merge-table-wrap { overflow-x: auto; max-width: 100%; }
+.merge-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.merge-table th { text-align: left; font-weight: 600; color: var(--muted); padding: 4px; white-space: nowrap; }
+.merge-table td { padding: 2px; vertical-align: middle; }
+.merge-table td.num { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; padding-right: 6px; }
+.merge-table input.merge-cell { width: 100%; min-width: 88px; min-height: 36px; box-sizing: border-box; padding: 4px 6px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.merge-table td:nth-child(2) input.merge-cell { min-width: 150px; }
+.merge-table button.icon { min-height: 36px; min-width: 36px; padding: 2px 6px; }
+.merge-photo.has-photo { border-color: var(--accent); }
+.pdf-options { gap: 12px; }

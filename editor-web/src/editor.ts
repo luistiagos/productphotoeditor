@@ -31,6 +31,7 @@ import {
   MAX_PAGES, parseDocument, type VideoSettings,
 } from './document';
 import { type ReflowItem, smartReflowLayout } from './magicResize';
+import { type CatalogRow, generateMergedPages, type LiveText, mergedPageName } from './dataMerge';
 import { History } from './history';
 import { fitSlot, type FitMode, rescaledGeometry } from './imageGeometry';
 export interface ShadowOptions {
@@ -88,6 +89,8 @@ export const SWAP_KINDS: ShapeKind[] = ['rect', 'rounded', 'pill', 'circle', 'tr
 export type CalloutKind = 'pin' | 'dimension' | 'zoom' | 'curved-arrow';
 export type FilterPreset = 'none' | 'grayscale' | 'sepia' | 'vintage' | 'polaroid' | 'kodachrome' | 'invert';
 export interface Adjustments { brightness: number; contrast: number; saturation: number; blur: number }
+/** Formatos de raster do `toDataURL` do Fabric 7.4 (`ImageFormat`). */
+export type RasterFormat = 'png' | 'jpeg' | 'webp';
 
 const BACKGROUND_LAYER = 'background';
 
@@ -791,11 +794,11 @@ export class Editor {
   }
 
   /**
-   * Rasteriza todas as páginas, na ordem, e entrega cada uma a `each` antes de renderizar a seguinte (um dataURL por vez
-   * na memória). Volta à página de antes, sem passo no undo.
+   * Põe cada página no canvas, na ordem, e entrega o que `render` produz dela a `each` antes de passar à seguinte (um
+   * arquivo por vez na memória). Volta à página de antes, sem passo no undo. O lote da TASK-10 (PNG/JPG/WebP/SVG/PDF) e o
+   * "Todas as páginas" da TASK-09 passam por aqui.
    */
-  exportAllPagesRaster(format: 'png' | 'jpeg', scale: number, quality: number,
-    each: (index: number, data: string) => Promise<void>): Promise<number> {
+  exportEachPage(render: () => Promise<string>, each: (index: number, data: string) => Promise<void>): Promise<number> {
     return this.serial(async () => {
       this.flushPending();
       const back = this.activePage;
@@ -806,7 +809,7 @@ export class Editor {
             this.storeActivePage();
             await this.showPage(i);
           }
-          await each(i, await this.exportRaster(format, scale, quality));
+          await each(i, await render());
           n++;
         }
       } finally {
@@ -817,6 +820,35 @@ export class Editor {
         this.history.replace(this.snapshot());
       }
       return n;
+    });
+  }
+
+  /**
+   * ⚡ Gerar em lote (TASK-10): uma página por linha do catálogo, a partir da página ativa (o modelo, que fica como está),
+   * inseridas logo depois dela com o nome do produto; os textos longos encolhem até caber na caixa do modelo. Um passo do
+   * undo; mostra a 1ª gerada. Respeita `MAX_PAGES`: `skipped` = linhas que não couberam.
+   */
+  insertMergedPages(rows: CatalogRow[]): Promise<{ created: number; skipped: number }> {
+    return this.serial(async () => {
+      const room = Math.max(0, MAX_PAGES - this.pages.length);
+      const list = rows.slice(0, room);
+      if (list.length === 0 || this.maskPaths) return { created: 0, skipped: rows.length };
+      this.flushPending();
+      this.storeActivePage();
+      const source = this.pages[this.activePage];
+      // o texto é medido na fonte dele: sem ela carregada, a largura sairia da fonte de reserva
+      await ensureFonts(fabricFontsUsed(source.fabric));
+      const fabrics = await generateMergedPages(source.fabric, list, {
+        enliven: async (o) => (await util.enlivenObjects<FabricObject>([o]))[0] as unknown as LiveText,
+      });
+      const created: EditorPage[] = [];
+      fabrics.forEach((fabric, i) => {
+        created.push({ id: newPageId([...this.pages, ...created]), name: mergedPageName(list[i], i), width: source.width, height: source.height, fabric });
+      });
+      this.pages.splice(this.activePage + 1, 0, ...created);
+      await this.showPage(this.activePage + 1);
+      this.pushEdit();
+      return { created: created.length, skipped: rows.length - created.length };
     });
   }
 
@@ -2082,15 +2114,27 @@ export class Editor {
    * Renderiza a página inteira com viewport identidade: multiplier = escala exata sobre o tamanho do
    * documento (com o zoom da tela, o tamanho arredondado do elemento vazava para a exportação).
    */
-  private renderPage(scale: number, format: 'png' | 'jpeg', quality: number): string {
+  private renderPage(scale: number, format: RasterFormat, quality: number, bleed = 0): string {
     // sem discardActiveObject: o toDataURL já não desenha as alças, e descartar aqui tirava a seleção (e o modo de
     // recorte) a cada miniatura do rascunho automático (§29, defeito 5)
     const vpt = this.canvas.viewportTransform;
     this.canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
     this.isExporting = true;
+    // sangria (PDF de impressão, TASK-10): o retângulo de saída passa `bleed` da página em cada lado. A cor de fundo do
+    // canvas já cobre a saída inteira; a camada de fundo (degradê/imagem) cobre só a página, então cresce no render (o
+    // centro dela é o da página) e volta no finally
+    const bg = bleed > 0 ? this.backgroundLayer() : undefined;
+    const saved = bg ? { scaleX: bg.scaleX, scaleY: bg.scaleY } : undefined;
     try {
-      return this.canvas.toDataURL({ format, quality, multiplier: scale, left: 0, top: 0, width: this.docWidth, height: this.docHeight });
+      if (bg) {
+        const k = Math.max((this.docWidth + 2 * bleed) / this.docWidth, (this.docHeight + 2 * bleed) / this.docHeight);
+        bg.set({ scaleX: bg.scaleX * k, scaleY: bg.scaleY * k });
+      }
+      return this.canvas.toDataURL({
+        format, quality, multiplier: scale, left: -bleed, top: -bleed, width: this.docWidth + 2 * bleed, height: this.docHeight + 2 * bleed,
+      });
     } finally {
+      if (bg && saved) bg.set(saved);
       this.isExporting = false;
       this.canvas.setViewportTransform(vpt);
     }
@@ -2132,11 +2176,12 @@ export class Editor {
     return { x: p.x + r.left, y: p.y + r.top };
   }
 
-  /** Raster da página em `scale` × o tamanho do documento (lado maior até 8192 px). */
-  async exportRaster(format: 'png' | 'jpeg', scale: number, quality: number): Promise<string> {
-    const max = 8192 / Math.max(this.docWidth, this.docHeight);
+  /** Raster da página em `scale` × o tamanho do documento (lado maior até 8192 px), com `bleed` px de sangria em volta. */
+  async exportRaster(format: RasterFormat, scale: number, quality: number, bleed = 0): Promise<string> {
+    const b = Math.max(0, bleed);
+    const max = 8192 / Math.max(this.docWidth + 2 * b, this.docHeight + 2 * b);
     this.canvas.discardActiveObject();
-    return this.renderPage(Math.min(scale, max), format, quality);
+    return this.renderPage(Math.min(scale, max), format, quality, b);
   }
 
   /** Miniatura pequena para rascunhos/templates. */

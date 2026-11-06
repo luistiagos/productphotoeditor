@@ -24,8 +24,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.put
 import java.io.File
 
@@ -48,11 +51,18 @@ interface EditorHost {
     suspend fun pickAudio(): Uri? = null
     suspend fun export(format: ExportFormat, action: ExportAction, name: String, bytes: ByteArray): String?
     suspend fun exportVideo(action: ExportAction, name: String, videoFile: File): String? = null
+    /**
+     * Arquivo já montado em `cacheDir/exports` (PDF ou ZIP do lote, TASK-10): SAVE grava em Download/ProductPhoto e devolve o
+     * caminho; SHARE abre o compartilhar. Sem implementação, o pedido falha com `unsupported`.
+     */
+    suspend fun exportFile(format: ExportFormat, action: ExportAction, file: File): String? =
+        throw BridgeException(ErrorCode.UNSUPPORTED, "exportar ${format.ext} não suportado aqui")
 }
 
+/** `ZIP` é só saída do lote (o JS nunca manda `format: 'zip'`). */
 enum class ExportFormat(val ext: String, val mime: String) {
-    PNG("png", "image/png"), JPG("jpg", "image/jpeg"), SVG("svg", "image/svg+xml"), MP4("mp4", "video/mp4"),
-    GIF("gif", "image/gif");
+    PNG("png", "image/png"), JPG("jpg", "image/jpeg"), WEBP("webp", "image/webp"), SVG("svg", "image/svg+xml"),
+    PDF("pdf", "application/pdf"), MP4("mp4", "video/mp4"), GIF("gif", "image/gif"), ZIP("zip", "application/zip");
 
     companion object {
         fun of(s: String) = entries.firstOrNull { it.ext == s } ?: throw BridgeException(ErrorCode.INVALID, "format $s")
@@ -254,6 +264,9 @@ class EditorSession(
             "mockup" -> ExportAction.MOCKUP
             else -> throw BridgeException(ErrorCode.INVALID, "action")
         }
+        if (format == ExportFormat.ZIP) throw BridgeException(ErrorCode.INVALID, "format zip")
+        val batch = p["batch"] as? JsonObject
+        if (batch != null || format == ExportFormat.PDF) return exportBatch(h, format, action, p, batch)
 
         if (format == ExportFormat.MP4 || format == ExportFormat.GIF) {
             if (action == ExportAction.PRINT) throw BridgeException(ErrorCode.UNSUPPORTED, "não é possível imprimir vídeo")
@@ -288,6 +301,59 @@ class EditorSession(
         }
         val location = h.export(format, action, exportName(p.strOrNull("name")), bytes)
         return buildJsonObject { location?.let { put("location", it) } }
+    }
+
+    /**
+     * Lote (TASK-10): cada pedido traz uma página; as do meio ficam em `cacheDir/batch/<id>/` e respondem `{staged}`. Na
+     * última: N imagens na galeria (pelo `host.export` de sempre, `<nome>_01`…), um `.zip` ou um `.pdf` (`host.exportFile`);
+     * a pasta do lote é apagada no `finally`, com sucesso ou erro. PDF sem `batch` = lote de uma página.
+     */
+    private suspend fun exportBatch(h: EditorHost, format: ExportFormat, action: ExportAction, p: JsonObject, batch: JsonObject?): JsonElement {
+        val output = BatchExport.outputOf(format, action)
+        val spec = if (batch == null) BatchExport.single() else BatchExport.spec(batch.str("id"), batch.num("index").toInt(), batch.num("count").toInt())
+        val print = (p["printOptions"] as? JsonObject).let { o ->
+            PrintOptions(
+                cropMarks = (o?.get("cropMarks") as? JsonPrimitive)?.booleanOrNull ?: false,
+                bleedPx = (o?.get("bleedPx") as? JsonPrimitive)?.doubleOrNull?.coerceIn(0.0, 500.0) ?: 0.0,
+                scale = (o?.get("scale") as? JsonPrimitive)?.doubleOrNull?.takeIf { it > 0 } ?: 1.0,
+            )
+        }
+        val data = p.str("data")
+        val bytes = withContext(Dispatchers.Default) {
+            if (format == ExportFormat.SVG) data.encodeToByteArray() else EditorAssets.dataUrlBytes(data)
+        }
+        val root = File(context.cacheDir, "batch")
+        val files = withContext(Dispatchers.IO) {
+            BatchExport.stage(root, spec, BatchExport.stagedExt(format), bytes, if (format == ExportFormat.PDF) print.scale else null)
+        } ?: return buildJsonObject { put("staged", spec.index) }
+        try {
+            val name = exportName(p.strOrNull("name"))
+            val location = when (output) {
+                BatchOutput.GALLERY_IMAGES -> {
+                    var last: String? = null
+                    BatchExport.batchNames(name, files.size).forEachIndexed { i, n ->
+                        last = h.export(format, ExportAction.SAVE, n, withContext(Dispatchers.IO) { files[i].readBytes() })
+                    }
+                    if (files.size > 1) "Pictures/ProductPhoto (${files.size} arquivos)" else last
+                }
+                BatchOutput.ZIP -> {
+                    val out = EditorExports.freshExportFile(context, "$name.zip")
+                    withContext(Dispatchers.IO) { BatchExport.zip(BatchExport.batchNames(name, files.size, format.ext).zip(files), out) }
+                    h.exportFile(ExportFormat.ZIP, action, out)
+                }
+                BatchOutput.PDF -> {
+                    val out = EditorExports.freshExportFile(context, "$name.pdf")
+                    withContext(Dispatchers.Default) { EditorExports.writePdf(files.map { it to BatchExport.stagedScale(it) }, print, out) }
+                    h.exportFile(ExportFormat.PDF, action, out)
+                }
+            }
+            return buildJsonObject {
+                location?.let { put("location", it) }
+                put("count", files.size)
+            }
+        } finally {
+            withContext(Dispatchers.IO) { files.first().parentFile?.deleteRecursively() }
+        }
     }
 
     companion object {

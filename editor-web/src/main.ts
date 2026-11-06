@@ -31,7 +31,11 @@ import {
   addColumn, addRow, columnCount, normalizeTable, removeColumn, removeRow, setCell, type TableData, TABLE_STYLES, TABLE_TEMPLATES,
   tableTemplate, type TableStyle,
 } from './table';
-import type { AudioRef, BlobResult, ExportPayload, FontRef, SaveDraftPayload, TextBox } from './protocol';
+import type { AudioRef, BlobResult, ExportPayload, ExportResult, FontRef, SaveDraftPayload, TextBox } from './protocol';
+import {
+  type CatalogRow, detectTemplateFields, discountLabel, isTextMergeField, MAX_CATALOG_ROWS, MERGE_FIELD_LABELS, parseCatalogText,
+  TEXT_MERGE_FIELDS, type TextMergeField,
+} from './dataMerge';
 
 // ---------- estado ----------
 
@@ -304,9 +308,25 @@ function renderProps(o: FabricObject | undefined): void {
     });
     if (chips) rows.push(chips);
   }
+  const merge = isSelection ? null : mergeFieldRow(o);
+  if (merge) rows.push(merge);
   rows.push(h('div', { class: 'row' }, slider('Opacidade', 0, 1, 0.05, o.opacity ?? 1, (v) => editor.set({ opacity: v }))));
   props.replaceChildren(...rows);
   props.classList.add('show');
+}
+
+/** "⚡ Variável do lote" (TASK-10): o texto (ou a foto) que cada linha do ⚡ Gerar em lote substitui. */
+function mergeFieldRow(o: FabricObject): HTMLElement | null {
+  const isText = o instanceof FabricText;
+  if (!isText && !(o instanceof FabricImage)) return null;
+  const fields = isText ? TEXT_MERGE_FIELDS : (['foto'] as const);
+  const current = String(o.get('mergeField') ?? '');
+  return h('div', { class: 'row scroll merge-row' },
+    select('⚡ Variável do lote', [['', '— nenhuma —'], ...fields.map((f): [string, string] => [f, MERGE_FIELD_LABELS[f]])], current, (v) => {
+      editor.set({ mergeField: v || undefined });
+      renderProps(editor.active);
+    }),
+    current ? button('⚡ Gerar em lote', () => showMergeSheet(), 'merge-open') : null);
 }
 
 /** Inspetor numérico: X/Y da caixa, largura/altura (com proporção) e ângulo; cada mudança vira uma entrada de undo. */
@@ -1231,8 +1251,124 @@ function showPages(): void {
   });
   const close = openSheet(`📄 Páginas (${list.length})`, h('div', {},
     h('div', { class: 'row' }, button('＋ Nova página', () => { close(); addPageOp(false); }, 'pg-add'),
-      button('⧉ Duplicar página', () => { close(); addPageOp(true); }, 'pg-dup')),
+      button('⧉ Duplicar página', () => { close(); addPageOp(true); }, 'pg-dup'),
+      button('⚡ Gerar em lote', () => { close(); showMergeSheet(); }, 'merge-open')),
     h('div', { class: 'grid pages-grid' }, ...tiles)), { tall: true });
+}
+
+// ---------- ⚡ gerar em lote (TASK-10) ----------
+
+const MERGE_SHORT: Record<TextMergeField, string> = {
+  produto: 'Produto', preco_de: 'De', preco_por: 'Por', desconto: 'Desc.', parcelas: 'Parcelas', codigo: 'Código',
+};
+
+/**
+ * ⚡ Gerar em lote: os campos do modelo (página ativa), a lista colada (WhatsApp/Excel/CSV), a tabela editável (📷 foto
+ * por linha quando o modelo tem a camada `foto`) e "Gerar N anúncios" → uma página por produto depois do modelo.
+ */
+function showMergeSheet(): void {
+  if (editor.isFreehandDrawing) finishFreehand();
+  if (maskImage) { toast('Conclua ou cancele a máscara antes'); return; }
+  editor.flushPending();
+  const fields = detectTemplateFields(editor.toDocument().fabric);
+  if (fields.length === 0) {
+    openSheet('⚡ Gerar em lote', h('div', { class: 'merge-empty' },
+      h('p', {}, 'Este modelo ainda não tem variáveis do lote.'),
+      h('p', { class: 'hint' }, 'Selecione um texto (ou a foto do produto) e escolha "⚡ Variável do lote" no painel: Nome do produto, '
+        + 'Preço antigo (De), Preço oferta (Por)… Ou digite no texto {{produto}}, {{preco_de}}, {{preco_por}}, {{desconto}}, '
+        + '{{parcelas}} ou {{codigo}}.')));
+    return;
+  }
+  const textFields = fields.filter(isTextMergeField);
+  // o desconto sai de De e Por: com {{desconto}} no modelo, as duas colunas aparecem mesmo sem camada própria
+  const cols = TEXT_MERGE_FIELDS.filter((f) => textFields.includes(f)
+    || ((f === 'preco_de' || f === 'preco_por') && textFields.includes('desconto')));
+  const hasPhoto = fields.includes('foto');
+  // a colagem é a fonte das linhas lidas (colar de novo as refaz); as do "＋ Linha" ficam
+  let pasted: CatalogRow[] = [];
+  const typed: CatalogRow[] = [];
+  const all = () => [...pasted, ...typed];
+  const area = h('textarea', {
+    rows: 4, class: 'merge-input', enterkeyhint: 'enter',
+    placeholder: 'Um produto por linha: nome; preço De; preço Por\nTênis Corrida Pro; R$ 299,90; R$ 189,90\nCamiseta Dry Fit; R$ 89,90; R$ 49,90',
+  });
+  const status = h('p', { class: 'hint merge-status' });
+  const table = h('div', { class: 'merge-table-wrap' });
+  const go = button('', () => void generate(), 'primary merge-go');
+  const isFilled = (r: CatalogRow) => cols.some((f) => r[f]?.trim()) || Boolean(r.photo);
+  const refresh = () => {
+    const n = all().filter(isFilled).length;
+    go.textContent = `Gerar ${plural(n, 'anúncio', 'anúncios')}`;
+    go.disabled = n === 0;
+    go.dataset.count = String(n);
+  };
+  const renderTable = () => {
+    const rows = all();
+    const head = h('tr', {}, h('th', {}, '#'), ...cols.map((f) => h('th', {}, MERGE_SHORT[f])), hasPhoto ? h('th', {}, 'Foto') : null,
+      h('th', {}, ''));
+    const body = rows.map((r, i) => {
+      const cells = cols.map((f) => {
+        const input = h('input', { type: 'text', class: 'merge-cell', 'data-row': i, 'data-field': f, value: r[f] ?? '', enterkeyhint: 'next' });
+        input.addEventListener('input', () => {
+          r[f] = input.value;
+          if (f === 'preco_de' || f === 'preco_por') {
+            r.desconto = discountLabel(r.preco_de, r.preco_por) ?? '';
+            const d = table.querySelector<HTMLInputElement>(`input[data-row="${i}"][data-field="desconto"]`);
+            if (d) d.value = r.desconto;
+          }
+          refresh();
+        });
+        return h('td', {}, input);
+      });
+      const photo = hasPhoto ? h('td', {}, button(r.photo ? '✓📷' : '📷', () => void (async () => {
+        const b = await run('Abrindo imagem', () => bridge.request<BlobResult>('pickImage'));
+        if (b) { r.photo = { url: b.url, width: b.width, height: b.height }; renderTable(); refresh(); }
+      })(), r.photo ? 'icon merge-photo has-photo' : 'icon merge-photo')) : null;
+      const del = h('td', {}, button('✕', () => {
+        const k = pasted.indexOf(r);
+        if (k >= 0) pasted.splice(k, 1); else typed.splice(typed.indexOf(r), 1);
+        renderTable();
+        refresh();
+      }, 'icon merge-del'));
+      return h('tr', { class: 'merge-line', 'data-row': i }, h('td', { class: 'num' }, String(i + 1)), ...cells, photo, del);
+    });
+    table.replaceChildren(h('table', { class: 'merge-table' }, h('thead', {}, head), h('tbody', {}, ...body)));
+  };
+  area.addEventListener('input', () => {
+    const r = parseCatalogText(area.value);
+    pasted = r.rows;
+    status.textContent = area.value.trim()
+      ? `${plural(r.rows.length, 'produto lido', 'produtos lidos')}${r.dropped ? ` — ${r.dropped} além de ${MAX_CATALOG_ROWS} ficaram de fora` : ''}`
+      : '';
+    renderTable();
+    refresh();
+  });
+  const addRow = button('＋ Linha', () => {
+    typed.push({});
+    renderTable();
+    refresh();
+    table.querySelector<HTMLInputElement>(`input[data-row="${all().length - 1}"]`)?.focus();
+  }, 'merge-add');
+  const generate = async () => {
+    const list = all().filter(isFilled);
+    if (!list.length) return;
+    close();
+    const res = await run(`Gerando ${plural(list.length, 'anúncio', 'anúncios')}`, () => editor.insertMergedPages(list));
+    if (!res) return;
+    if (res.created === 0) toast(editor.getPageCount() >= MAX_PAGES ? `Limite de ${MAX_PAGES} páginas` : 'Conclua ou cancele a máscara antes');
+    else toast(`${plural(res.created, 'anúncio gerado', 'anúncios gerados')}${res.skipped ? ` — ${res.skipped} fora (limite de ${MAX_PAGES} páginas)` : ''}`);
+  };
+  renderTable();
+  refresh();
+  const close = openSheet('⚡ Gerar em lote', h('div', { class: 'merge-sheet' },
+    h('p', { class: 'hint' }, 'Variáveis deste modelo:'),
+    h('div', { class: 'row merge-fields' }, ...fields.map((f) => h('span', { class: 'chip', 'data-field': f }, MERGE_FIELD_LABELS[f]))),
+    area,
+    status,
+    table,
+    h('div', { class: 'row' }, addRow, go),
+    h('p', { class: 'hint' }, 'Cada produto vira uma página logo depois desta (o modelo fica como está). Nomes longos diminuem a fonte '
+      + 'até caber, no mínimo 65% do tamanho do modelo. O desconto sai de De e Por.')), { tall: true });
 }
 
 // ---------- abas ----------
@@ -1291,6 +1427,7 @@ function showText(): void {
     h('button', { class: 'big', type: 'button', style: `font-family:'${bodyFont}'`, onclick: () => add('body', bodyFont) }, 'Adicionar texto'),
     button('✨ Gerar textos com IA', () => { close(); showGenerateCopy(); }),
     button('🔍 Localizar e substituir…', () => { close(); showFindReplace(); }, 'find-replace-btn'),
+    button('⚡ Gerar em lote (catálogo)', () => { close(); showMergeSheet(); }, 'merge-open'),
     button('Carregar fonte do aparelho…', () => void (async () => {
       const f = await run('Carregando fonte', () => bridge.request<FontRef>('pickFont'));
       if (f) { registerFont(f.family, f.url); toast(`Fonte ${f.family} adicionada`); }
@@ -2168,40 +2305,62 @@ function showExport(initial: ExportPayload['format'] = 'png'): void {
   let format: ExportPayload['format'] = initial;
   let scale = 1;
   let quality = 0.92;
+  let pages: 'current' | 'all' = 'current';
+  let cropMarks = true;
+  let bleed = 0;
   const name = (editor.name || 'design').replace(/[^\p{L}\p{N}_-]+/gu, '_');
+  const pageCount = editor.getPageCount();
+  const isVideo = () => format === 'mp4' || format === 'gif';
+  /** O arquivo de uma página: SVG, ou raster (no PDF, PNG com a sangria; o Kotlin monta as páginas do PDF). */
+  const renderOne = (): Promise<string> => {
+    if (format === 'svg') return editor.exportSvg();
+    if (format === 'pdf') return editor.exportRaster('png', scale, 1, bleed);
+    return editor.exportRaster(format === 'jpg' ? 'jpeg' : format === 'webp' ? 'webp' : 'png', scale, quality);
+  };
+  /**
+   * Lote (TASK-10): uma página por mensagem com o mesmo `batch.id`; o Kotlin junta no fim (N na galeria, `.zip` ou `.pdf`).
+   * O PDF vai sempre por aqui, mesmo com uma página (`count: 1`).
+   */
+  const goBatch = async (action: ExportPayload['action'], all: boolean) => {
+    const count = all ? pageCount : 1;
+    const batchId = `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const printOptions = format === 'pdf' ? { cropMarks, bleedPx: bleed, scale } : undefined;
+    await run('Exportando', async (progress) => {
+      let r: ExportResult = {};
+      const send = async (index: number, data: string) => {
+        progress(null, `${index + 1}/${count}`);
+        const payload: ExportPayload = { format, action, name, data, batch: { id: batchId, index, count }, printOptions };
+        r = await bridge.request<ExportResult>('export', payload);
+      };
+      if (all) await editor.exportEachPage(renderOne, send);
+      else await send(0, await renderOne());
+      const n = r.count ?? count;
+      const gallery = action === 'save' && (format === 'png' || format === 'jpg' || format === 'webp') && n > 1;
+      toast(gallery ? `${n} anúncios salvos na galeria!` : r.location ? `Salvo em ${r.location}` : 'Pronto');
+    });
+  };
   const go = (action: ExportPayload['action']) => void (async () => {
     close();
+    const all = pages === 'all' && pageCount > 1 && !isVideo() && (action === 'save' || action === 'share');
+    if (all || format === 'pdf') { await goBatch(action, all); return; }
     await run(format === 'mp4' ? 'Gerando vídeo MP4' : format === 'gif' ? 'Gerando GIF animado' : 'Exportando', async () => {
-      let data = '';
-      if (format === 'mp4' || format === 'gif') {
-        const bundle = await editor.exportVideoBundle(format);
-        data = JSON.stringify(bundle);
-      } else if (format === 'svg') {
-        data = await editor.exportSvg();
-      } else {
-        data = await editor.exportRaster(format === 'png' ? 'png' : 'jpeg', scale, quality);
-      }
+      const data = format === 'mp4' || format === 'gif' ? JSON.stringify(await editor.exportVideoBundle(format)) : await renderOne();
       const payload: ExportPayload = { format, action, name, data };
-      const r = await bridge.request<{ location?: string }>('export', payload);
+      const r = await bridge.request<ExportResult>('export', payload);
       toast(r.location ? `Salvo em ${r.location}` : 'Pronto');
     });
   })();
-  // TASK-09: uma imagem por página, salvas na galeria como `<nome>_p1`, `<nome>_p2`... (o Kotlin acrescenta data e hora)
-  const pageCount = editor.getPageCount();
-  const goAll = () => void (async () => {
-    close();
-    await run('Exportando páginas', async (progress) => {
-      let location = '';
-      const n = await editor.exportAllPagesRaster(format === 'png' ? 'png' : 'jpeg', scale, quality, async (i, data) => {
-        progress(i / pageCount, `página ${i + 1} de ${pageCount}`);
-        const payload: ExportPayload = { format, action: 'save', name: `${name}_p${i + 1}`, data };
-        const r = await bridge.request<{ location?: string }>('export', payload);
-        location = r.location ?? location;
-      });
-      toast(`${plural(n, 'página salva', 'páginas salvas')}${location ? ` em ${location}` : ''}`);
-    });
-  })();
-  const allBtn = button(`Exportar todas as páginas (${pageCount})`, goAll, 'export-all-btn');
+  // TASK-09/10: com 2+ páginas, "Todas as páginas" (PNG/JPG/WebP → N na galeria ou um .zip; SVG → .zip; PDF → um arquivo)
+  const pagesRow = select('Páginas', [['current', 'Página atual'], ['all', `Todas as páginas (${pageCount})`]], pages, (v) => {
+    pages = v as typeof pages;
+    syncRows();
+  });
+  pagesRow.classList.add('export-pages');
+  const cropCheck = h('input', { type: 'checkbox', checked: cropMarks, class: 'crop-marks' });
+  cropCheck.addEventListener('change', () => { cropMarks = cropCheck.checked; });
+  const bleedRow = select('Sangria', [['0', 'Sem sangria'], ['18', '18 px'], ['36', '36 px']], String(bleed), (v) => { bleed = Number(v); });
+  bleedRow.classList.add('export-bleed');
+  const pdfRow = h('div', { class: 'row pdf-options' }, h('label', { class: 'check' }, cropCheck, h('span', {}, '✂️ Marcas de corte')), bleedRow);
   const toMockup = () => void (async () => {
     close();
     await run('Preparando o mockup', async () => {
@@ -2209,32 +2368,36 @@ function showExport(initial: ExportPayload['format'] = 'png'): void {
       await bridge.request('export', { format: 'png', action: 'mockup', name, data } satisfies ExportPayload);
     });
   })();
-  // a qualidade só vale para JPG (§29)
-  const qualityRow = slider('Qualidade JPG', 0.5, 1, 0.01, quality, (v) => { quality = v; });
+  // a qualidade vale para JPG e WebP (§29; o PNG é sem perda)
+  const qualityRow = slider('Qualidade (JPG/WebP)', 0.5, 1, 0.01, quality, (v) => { quality = v; });
   qualityRow.hidden = true;
   // o SVG é vetor: a resolução não vale para ele (§31)
   const scaleRow = select('Resolução', [['1', `1× (${editor.width}×${editor.height})`], ['2', '2×'], ['3', '3×']], '1', (v) => { scale = Number(v); });
-  const printBtn = button('Imprimir', () => go('print'));
-  const mockupBtn = button('Ver em mockup', toMockup);
+  const printBtn = button('Imprimir', () => go('print'), 'print-btn');
+  const mockupBtn = button('Ver em mockup', toMockup, 'mockup-btn');
   const syncRows = () => {
-    const video = format === 'mp4' || format === 'gif';
-    qualityRow.hidden = format !== 'jpg';
+    const video = isVideo();
+    const all = pages === 'all' && pageCount > 1;
+    qualityRow.hidden = format !== 'jpg' && format !== 'webp';
     scaleRow.hidden = format === 'svg' || video;
-    printBtn.hidden = video;
-    mockupBtn.hidden = video;
-    allBtn.hidden = pageCount < 2 || !(format === 'png' || format === 'jpg');
+    // vídeo não tem lote (cada um é um render do FFmpeg); imprimir e mockup são da página atual
+    pagesRow.hidden = pageCount < 2 || video;
+    pdfRow.hidden = format !== 'pdf';
+    printBtn.hidden = video || format === 'pdf' || format === 'svg' || all;
+    mockupBtn.hidden = video || format === 'pdf' || all;
   };
   const close = openSheet('Exportar', h('div', {},
-    select('Formato', [['png', 'PNG'], ['jpg', 'JPG'], ['svg', 'SVG (vetor)'], ['mp4', '🎬 Vídeo MP4 (com animações)'],
-      ['gif', '🎞️ GIF Animado (WhatsApp)']], format, (v) => {
+    select('Formato', [['png', 'PNG'], ['jpg', 'JPG'], ['webp', 'WebP (leve, para lojas online)'], ['svg', 'SVG (vetor)'],
+      ['pdf', '📄 PDF (impressão)'], ['mp4', '🎬 Vídeo MP4 (com animações)'], ['gif', '🎞️ GIF Animado (WhatsApp)']], format, (v) => {
       format = v as typeof format;
       syncRows();
     }),
+    pagesRow,
     scaleRow,
     qualityRow,
-    h('div', { class: 'row' }, button('Salvar na galeria', () => go('save'), 'primary'), button('Compartilhar', () => go('share')),
+    pdfRow,
+    h('div', { class: 'row' }, button('Salvar na galeria', () => go('save'), 'primary save-btn'), button('Compartilhar', () => go('share'), 'share-btn'),
       printBtn),
-    h('div', { class: 'row' }, allBtn),
     h('div', { class: 'row' }, mockupBtn)));
   syncRows();
 }

@@ -157,6 +157,23 @@ class EditorProtocolTest {
     }
 
     @Test
+    fun `export format aceita webp, pdf e zip (TASK-10), com extensao e MIME`() {
+        assertEquals(ExportFormat.WEBP, ExportFormat.of("webp"))
+        assertEquals(ExportFormat.PDF, ExportFormat.of("pdf"))
+        assertEquals(ExportFormat.ZIP, ExportFormat.of("zip"))
+        assertEquals("image/webp", ExportFormat.WEBP.mime)
+        assertEquals("application/pdf", ExportFormat.PDF.mime)
+        assertEquals("application/zip", ExportFormat.ZIP.mime)
+        assertEquals(listOf("png", "jpg", "webp", "svg", "pdf", "mp4", "gif", "zip"), ExportFormat.entries.map { it.ext })
+        try {
+            ExportFormat.of("tiff")
+            fail("formato desconhecido deveria falhar")
+        } catch (e: BridgeException) {
+            assertEquals(ErrorCode.INVALID, e.code)
+        }
+    }
+
+    @Test
     fun `export format supports mp4 and video bundle deserialization`() {
         assertEquals(ExportFormat.MP4, ExportFormat.of("mp4"))
         assertEquals("video/mp4", ExportFormat.MP4.mime)

@@ -145,11 +145,36 @@ export interface BlobResult {
   servedBy?: string;
 }
 export interface ExportPayload {
-  format: 'png' | 'jpg' | 'svg' | 'mp4' | 'gif';
+  format: 'png' | 'jpg' | 'webp' | 'svg' | 'pdf' | 'mp4' | 'gif';
   action: 'save' | 'share' | 'print' | 'mockup';
   name: string;
-  /** dataURL (png/jpg), texto SVG ou JSON serializado de ExportVideoBundle. */
+  /** dataURL (png/jpg/webp; no pdf, o PNG da página), texto SVG ou JSON serializado de ExportVideoBundle. */
   data: string;
+  /**
+   * Lote (TASK-10): uma página por mensagem, `count` mensagens com o mesmo `id`, em ordem, cada uma esperando a resposta.
+   * O Kotlin guarda as páginas no cache (`{staged: index}`) e, na última, grava N imagens na galeria, um `.zip` ou um `.pdf`
+   * (`{location, count}`). PDF sempre vai por aqui (página única = `count: 1`). Vídeo, imprimir e mockup não têm lote.
+   */
+  batch?: ExportBatch;
+  /** Só no pdf: marcas de corte (margem de 36 pt) e sangria (px do documento, já renderizada no PNG; 1 px = 1 pt). */
+  printOptions?: PrintOptions;
+}
+export interface ExportBatch {
+  id: string;
+  index: number;
+  count: number;
+}
+export interface PrintOptions {
+  cropMarks?: boolean;
+  bleedPx?: number;
+  /** Escala do raster (px da imagem por px do documento). */
+  scale?: number;
+}
+/** Resposta do `export`: `staged` nas páginas intermediárias do lote; `location`/`count` no fim. */
+export interface ExportResult {
+  location?: string;
+  count?: number;
+  staged?: number;
 }
 
 /** `data` do export de 'mp4'/'gif': o Kotlin grava `files`, resolve `audioUrl` (blob/asset do editor) em `audioFile`

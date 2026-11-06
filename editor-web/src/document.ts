@@ -117,6 +117,8 @@ export const CUSTOM_PROPERTIES = [
   // TASK-05: QR Code e tabela reeditáveis (dados do formulário; sem campo `type`, que o fromObject reviveria)
   'qrConfig',
   'tableData',
+  // TASK-10: camada que recebe um campo do lote (⚡ Gerar em lote): 'produto', 'preco_de', …, 'foto'
+  'mergeField',
 ] as const;
 
 export const MAX_SIDE = 8000;

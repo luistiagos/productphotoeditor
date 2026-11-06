@@ -361,21 +361,30 @@ const nExp = (await state()).n;
 const activeBefore = (await state()).active;
 await p.tap('#topbar button', 'Exportar');
 await sheetOpen('Exportar');
-const allLabel = await p.evaluate(`document.querySelector('#sheet .export-all-btn')?.textContent ?? null`);
-await p.tap('#sheet .export-all-btn');
+// TASK-10: "Todas as páginas (N)" passou a ser o seletor "Páginas" da folha (lote numa mensagem por página); o Kotlin
+// grava `<nome>_<data>_<hora>_01.png`… [[task-10-data-merge-geracao-em-lote-catalogo-e-exportacao-batch]]
+const allLabel = await p.evaluate(`(() => {
+  const sel = document.querySelector('#sheet .export-pages select');
+  if (!sel) return null;
+  sel.value = 'all';
+  sel.dispatchEvent(new Event('change'));
+  return sel.selectedOptions[0]?.textContent ?? null;
+})()`);
+await p.tap('#sheet button', 'Salvar na galeria');
 await sheetClosed().catch(() => {});
 await p.waitFor(`document.getElementById('busy').classList.contains('show')`, 5000).catch(() => {});
 await idle();
 await p.sleep(1500);
-const files = adbShell(`content query --uri content://media/external/images/media --projection _display_name --where "_display_name LIKE '${NAME}_p%'"`);
+const files = adbShell(`content query --uri content://media/external/images/media --projection _display_name --where "_display_name LIKE '${NAME}_%'"`);
 const names = [...files.matchAll(/_display_name=([^\s,]+)/g)].map((m) => m[1]);
 s = await state();
-r.check(`10. "Exportar todas as páginas (${nExp})" grava ${nExp} PNG ${NAME}_p1..p${nExp}_*.png na galeria`, allLabel?.includes(`(${nExp})`)
-  && names.length === nExp && Array.from({ length: nExp }, (_, i) => names.some((n) => n.startsWith(`${NAME}_p${i + 1}_`) && n.endsWith('.png'))).every(Boolean),
+const seq = (i) => new RegExp(`^${NAME}_\\d{8}_\\d{6}_${String(i + 1).padStart(2, '0')}\\.png$`);
+r.check(`10. "Todas as páginas (${nExp})" grava ${nExp} PNG ${NAME}_<data>_<hora>_01..${String(nExp).padStart(2, '0')}.png na galeria`,
+  allLabel?.includes(`(${nExp})`) && names.length === nExp && Array.from({ length: nExp }, (_, i) => names.some((n) => seq(i).test(n))).every(Boolean),
   JSON.stringify({ allLabel, names }));
 r.check('10. depois de exportar, a página ativa é a mesma de antes', s.active === activeBefore, `${activeBefore} → ${s.active}`);
 try {
-  adbShell(`content delete --uri content://media/external/images/media --where "_display_name LIKE '${NAME}_p%'"`);
+  adbShell(`content delete --uri content://media/external/images/media --where "_display_name LIKE '${NAME}_%'"`);
   console.log('exports de teste apagados');
 } catch (e) { console.log(`limpeza falhou: ${e.message}`); }
 

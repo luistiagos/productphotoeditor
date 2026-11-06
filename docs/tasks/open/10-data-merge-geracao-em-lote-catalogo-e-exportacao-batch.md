@@ -101,6 +101,11 @@ Inspirado na rotina `dataMerge` (`Uwt` em `module-create-DxNmnX1s.js` L25400–L
 | [`editor/src/main/kotlin/com/productphoto/editor/EditorExports.kt`](file:///c:/projects/sandbox/product_photo_offline/editor/src/main/kotlin/com/productphoto/editor/EditorExports.kt) | **Modificar** | Suportar salvamento/compartilhamento de `webp`, geração de `pdf` via `PdfDocument` (com marcas de corte opcionais) e salvamento em lote (`pages[]` / `.zip`). |
 | [`editor-web/test/dataMerge.test.ts`](file:///c:/projects/sandbox/product_photo_offline/editor-web/test/dataMerge.test.ts) | **Criar** | Testes unitários validando `parseCatalogText`, cálculo automático de porcentagem de desconto (`De R$ 100 por R$ 70` $\to$ `-30%`), substituição de variáveis e `shrinkTextToFit`. |
 
+> **Arquivos reais (pipeline 20261105-1638):** além dos acima, `editor-web/src/styles.css` (folha do lote), `editor/.../EditorSession.kt`
+> (`ExportFormat` WEBP/PDF/ZIP, `EditorHost.exportFile`, `exportBatch`), `editor/.../EditorScreen.kt` (host), `editor/.../BatchExport.kt` +
+> `BatchExportTest.kt` (novos), `EditorProtocolTest.kt`, `tools/e2e/task10.mjs` (novo) e `tools/e2e/task09.mjs` (caso 10 no caminho
+> novo). **Fora deste item:** seleção múltipla de fotos (uma foto por linha pelo 📷 da tabela) e lote de MP4/GIF.
+
 ---
 
 ## 4. Critérios de Aceite e Verificação
@@ -207,19 +212,19 @@ Item = task: a "causa" é o que falta no código hoje, conferido contra o doc (q
 
 ### Tarefas
 
-- [ ] `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `+ 'mergeField'` — vitest: `toObject()` de um Textbox com `mergeField` mantém o campo.
-- [ ] `editor-web/src/dataMerge.ts::parseCatalogText` / `parsePriceBR` / `discountLabel` — `dataMerge.test.ts`: as 3 linhas do §2.1.2 (`;`) -> 3 linhas com `produto`/`preco_de`/`preco_por` e `desconto` `-37%`/`-44%`/`-51%`; TSV com cabeçalho; `De R$ 100 por R$ 70` -> `-30%`; "R$ 1.299,90" -> 1299.9; vírgula decimal não quebra coluna; linha vazia ignorada; 60 linhas -> 50.
-- [ ] `editor-web/src/dataMerge.ts::detectTemplateFields` / `applyMergeRow` / `swapPhotoJson` — teste: `{{produto}}` inline e `mergeField` inteiro substituídos; `{{company}}` intacto; `styles` zerado só quando o texto mudou; campos dentro de Group; foto: `src`, `width/height` da foto nova e escala `cover` = espaço do modelo, centro preservado; o JSON de entrada não muda (clone).
-- [ ] `editor-web/src/dataMerge.ts::shrinkTextToFit` — teste com `Textbox` de `fabric/node`: o nome longo do §2.1.3 reduz `fontSize` e cabe na altura do modelo; nome curto não muda; nunca abaixo de 65%.
-- [ ] `editor-web/src/dataMerge.ts::generateMergedPages` — teste: modelo + 5 linhas -> 5 `FabricJson` com textos e descontos certos; modelo intacto.
-- [ ] `editor-web/src/protocol.ts::ExportPayload` — `'webp'|'pdf'`, `batch?`, `printOptions?` — `npx tsc --noEmit`.
-- [ ] `editor-web/src/editor.ts` — `'webp'` em `renderPage`/`exportRaster`; sangria; render de cada página sem perder a ativa; inserir as páginas geradas (1 undo) — E2E T2 (lido por CDP) + `tsc`.
-- [ ] `editor-web/src/main.ts::renderProps` (seletor Variável), folha "⚡ Gerar em lote", `showExport` (WebP, PDF + marcas/sangria, Página atual/Todas, progresso i/N, Imprimir escondido onde não vale) — E2E T2.
-- [ ] `editor/.../BatchExport.kt` — `batchNames`, staging (`stage(id, index, count, bytes)`, último, limpeza), `zip(files, out)`, `PrintLayout.of(wPx, hPx, bleedPx, cropMarks)` — `BatchExportTest.kt`: nomes `_01.._05`; ZIP relido com `ZipInputStream` tem 5 entradas com os bytes certos; layout sem marcas = página do tamanho da imagem; com marcas = +72 pt por eixo e 8 linhas fora do retângulo de corte; lote com `id` novo apaga o velho.
-- [ ] `editor/.../EditorSession.kt::ExportFormat` + `export` (batch/printOptions/PDF; PRINT+PDF recusado) — `EditorProtocolTest.kt`: `of("webp")`/`of("pdf")`/`of("zip")` e MIME `image/webp`, `application/pdf`, `application/zip`.
-- [ ] `editor/.../EditorExports.kt` (WebP em `isImage`, PDF, salvar N, ZIP) + `EditorScreen.kt` (host) — T2 no aparelho (arquivos lidos por adb).
-- [ ] `tools/e2e/task10.mjs` — a T2 abaixo.
-- [ ] Doc: atualizar a tabela do §3 com os arquivos reais e o que ficou fora (seleção múltipla de fotos; lote de vídeo).
+- [x] `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `+ 'mergeField'` — vitest: `toObject()` de um Textbox com `mergeField` mantém o campo.
+- [x] `editor-web/src/dataMerge.ts::parseCatalogText` / `parsePriceBR` / `discountLabel` — `dataMerge.test.ts`: as 3 linhas do §2.1.2 (`;`) -> 3 linhas com `produto`/`preco_de`/`preco_por` e `desconto` `-37%`/`-44%`/`-51%`; TSV com cabeçalho; `De R$ 100 por R$ 70` -> `-30%`; "R$ 1.299,90" -> 1299.9; vírgula decimal não quebra coluna; linha vazia ignorada; 60 linhas -> 50.
+- [x] `editor-web/src/dataMerge.ts::detectTemplateFields` / `applyMergeRow` / `swapPhotoJson` — teste: `{{produto}}` inline e `mergeField` inteiro substituídos; `{{company}}` intacto; `styles` zerado só quando o texto mudou; campos dentro de Group; foto: `src`, `width/height` da foto nova e escala `cover` = espaço do modelo, centro preservado; o JSON de entrada não muda (clone).
+- [x] `editor-web/src/dataMerge.ts::shrinkTextToFit` — teste com `Textbox` de `fabric/node`: o nome longo do §2.1.3 reduz `fontSize` e cabe na altura do modelo; nome curto não muda; nunca abaixo de 65%.
+- [x] `editor-web/src/dataMerge.ts::generateMergedPages` — teste: modelo + 5 linhas -> 5 `FabricJson` com textos e descontos certos; modelo intacto.
+- [x] `editor-web/src/protocol.ts::ExportPayload` — `'webp'|'pdf'`, `batch?`, `printOptions?` — `npx tsc --noEmit`.
+- [x] `editor-web/src/editor.ts` — `'webp'` em `renderPage`/`exportRaster`; sangria; render de cada página sem perder a ativa; inserir as páginas geradas (1 undo) — E2E T2 (lido por CDP) + `tsc`.
+- [x] `editor-web/src/main.ts::renderProps` (seletor Variável), folha "⚡ Gerar em lote", `showExport` (WebP, PDF + marcas/sangria, Página atual/Todas, progresso i/N, Imprimir escondido onde não vale) — E2E T2.
+- [x] `editor/.../BatchExport.kt` — `batchNames`, staging (`stage(id, index, count, bytes)`, último, limpeza), `zip(files, out)`, `PrintLayout.of(wPx, hPx, bleedPx, cropMarks)` — `BatchExportTest.kt`: nomes `_01.._05`; ZIP relido com `ZipInputStream` tem 5 entradas com os bytes certos; layout sem marcas = página do tamanho da imagem; com marcas = +72 pt por eixo e 8 linhas fora do retângulo de corte; lote com `id` novo apaga o velho.
+- [x] `editor/.../EditorSession.kt::ExportFormat` + `export` (batch/printOptions/PDF; PRINT+PDF recusado) — `EditorProtocolTest.kt`: `of("webp")`/`of("pdf")`/`of("zip")` e MIME `image/webp`, `application/pdf`, `application/zip`.
+- [x] `editor/.../EditorExports.kt` (WebP em `isImage`, PDF, salvar N, ZIP) + `EditorScreen.kt` (host) — T2 no aparelho (arquivos lidos por adb).
+- [x] `tools/e2e/task10.mjs` — a T2 abaixo.
+- [x] Doc: atualizar a tabela do §3 com os arquivos reais e o que ficou fora (seleção múltipla de fotos; lote de vídeo).
 
 ### Plano de teste
 
@@ -238,7 +243,115 @@ Item = task: a "causa" é o que falta no código hoje, conferido contra o doc (q
 - **T3 regressão direcionada:** vitest completo + testes de unidade do `build` (`EditorProtocolTest`, `TextPromptsTest`, `VideoRendererTest`); E2E vizinhos dos arquivos tocados (`main.ts`/`editor.ts`/`EditorSession.kt`): `task11.mjs` (troca de foto/camadas/inspetor — `renderProps`), `task14.mjs` (texto/localizar), `task12.mjs` (painel de forma), o E2E da TASK-09 (páginas) se existir e `task04.mjs` (GIF/MP4 pela folha Exportar mexida; o encode `task04_encode.mjs` só no moto/arm64). PNG/JPG/SVG de página única, "Ver em mockup" e "Imprimir" PNG continuam (passo 8 + Imprimir abre o diálogo do sistema; `BACK`).
 - **T4:** logcat do PID sem `AndroidRuntime`/`FATAL`/`OutOfMemoryError` durante os exports em lote; console do WebView sem erro.
 
+### Nota do dev (2026-11-05, antes da 1ª edição; base `2193b37` = main com a TASK-09)
+
+Símbolos abertos no código mergeado (o que confirma ou corrige o desenho acima):
+- `editor.ts::Editor` (TASK-09) — `pages: EditorPage[]`, `activePage`, `serial()` (fila das operações de página),
+  `storeActivePage()`, `showPage(i)` (fora do histórico), `pushEdit()` (um passo do undo), `addPage`, `magicResize` (molde
+  para inserir N páginas: monta, `pages.push`, `showPage`, `pushEdit`), `exportAllPagesRaster(format, scale, quality, each)`
+  (uma página por vez, volta à de antes, `history.replace` no `finally`). `MAX_PAGES = 30` (`document.ts`).
+- `main.ts::showExport` (TASK-09) — "Exportar todas as páginas (N)" (`.export-all-btn`, só PNG/JPG) manda N `export`
+  `save` soltos com `name_p1..pN`. **O protocolo `batch` substitui isso** (desenho §0); `tools/e2e/task09.mjs` caso 10 lê
+  `.export-all-btn` e os nomes `_pN_` → **`claim` de `tools/e2e/task09.mjs`** e ajuste do caso 10 para o caminho novo.
+- `editor.ts::renderPage` — `toDataURL({format, quality, multiplier, left, top, width, height})`; o fundo-cor do canvas
+  (`backgroundColor`) é pintado no retângulo de saída inteiro, mas a camada de fundo (degradê/imagem, `coverPage`) cobre só a
+  página → para a sangria, a camada de fundo é ampliada no render (centro na página) e restaurada no `finally`.
+- `main.ts::renderProps/textProps/imageProps`, `showText`, `showPages`, `run(label, fn(progress))`, `dom.ts::{h, button,
+  select, slider, openSheet, toast}`; `main.ts::showSwapImage` usa `bridge.request<BlobResult>('pickImage')`.
+- `EditorSession.kt::export` (lê `format`/`action`/`name`/`data`; `exportName` acrescenta `_yyyyMMdd_HHmmss`),
+  `EditorHost`, `EditorExports.kt::{save, share, print}`, `EditorScreen.kt` (host real), `EditorBridge.kt::{obj, str,
+  strOrNull, num, BridgeException, ErrorCode}`, `EditorAssets.dataUrlBytes` (usa `android.util.Base64`: na JVM é stub → o
+  staging recebe bytes já decodificados).
+- Testes: `fabric` (pacote) resolve para o build de navegador no vitest (`exports` sem condição `node`) — cria objetos mas
+  não mede texto sem DOM; `fabric/node` mede. Por isso `dataMerge.ts` só importa TIPOS do Fabric e recebe a função que
+  revive o JSON (`enliven`); o editor passa a do `fabric`, o teste a do `fabric/node`.
+
+Correções ao desenho (valem sobre o texto acima):
+- Desconto de `R$ 39,90 → R$ 19,90` = `-50%` (20/39,9 = 0,501), não `-51%` como na Tarefa 2.
+- `parseCatalogText(raw)` devolve `{ rows, dropped }` (o `dropped` alimenta o aviso das linhas além de 50).
+- Gerar respeita `MAX_PAGES`: cria até `30 − páginas atuais`; o toast diz quantas ficaram de fora.
+- `shrinkTextToFit` é síncrono num texto vivo; `generateMergedPages` é assíncrono (revive cada texto mudado pelo `enliven`).
+- Foto `cover`: a caixa visual nova é exatamente a do espaço (`width·scale = slotW`), então `left/top/angle/origin` ficam
+  como estão — não há centro a recalcular.
+- "Todas as páginas" exporta TODAS as páginas, inclusive o modelo (o mesmo que a TASK-09 fazia; o lojista apaga o modelo se
+  não o quiser). O toast diz "N anúncios salvos na galeria!" com N = páginas exportadas.
+- "Imprimir" com WebP fica (o `BitmapFactory` decodifica WebP); com PDF e vídeo, escondido; PRINT/MOCKUP com PDF ou lote no
+  Kotlin = `UNSUPPORTED`.
+- `ExportFormat.ZIP` existe para a saída do lote (MIME/extensão); `export` com `format: 'zip'` vindo do JS = `INVALID`.
+
 ### Sessões seguintes
 
 - dev: effort high, ultrathink sim — ponte WebView <-> Kotlin com protocolo novo (staging do lote), `PdfDocument` com geometria de impressão, medição de texto no Fabric e integração com o modelo de páginas da TASK-09, que ainda vai ser mergeado (ler e adaptar o plano).
 - teste: effort medium, ultrathink não — receita longa mas objetiva (sinais por CDP e arquivos por adb); o cuidado é limpar os exports no aparelho do dono.
+
+## Correcao (pipeline 20261105-1638, rodada 1)
+
+Tamanho: ~1.710 linhas novas (src ~720, Kotlin ~325, testes ~480, E2E ~320), dentro do teto; nada cortado. Sem dependência nova.
+
+**O que mudou (`arquivo::simbolo`):**
+- `editor-web/src/dataMerge.ts` (novo) — `MERGE_FIELDS`/`MERGE_FIELD_LABELS`; `detectTemplateFields` (marcas `mergeField` +
+  `{{campo}}` com a regex própria `[a-z_]+`, em grupos por `walkObjects`); `mergeText` (campo do lote sem valor = vazio; `{{company}}`
+  etc. intactos); `parsePriceBR`, `discountLabel`, `withDiscount`; `parseCatalogText` → `{rows, dropped}` (TAB/`;`/`|`/CSV com aspas,
+  cabeçalho por nome com acento, posicional, 50 linhas); `swapPhotoJson` (`fitSlot` `cover`); `applyMergeRow` (clone; texto mudado
+  perde `styles`); `shrinkTextToFit` (passos de 2%, piso 65%, Textbox volta à largura do modelo a cada passo); `generateMergedPages`
+  (revive cada texto mudado pelo `enliven` injetado e grava só o `fontSize`); `mergedPageName`.
+- `document.ts::CUSTOM_PROPERTIES` + `'mergeField'`.
+- `protocol.ts::ExportPayload` — `format` + `'webp' | 'pdf'`; `batch?: ExportBatch {id, index, count}`; `printOptions?: PrintOptions
+  {cropMarks, bleedPx, scale}`; `ExportResult {location, count, staged}`.
+- `editor.ts` — `RasterFormat` (`png|jpeg|webp`); `renderPage(…, bleed)` (retângulo `-b…W+2b`; a camada de fundo cresce no render
+  e volta no `finally`); `exportRaster(…, bleed)`; `exportAllPagesRaster` → **`exportEachPage(render, each)`** (qualquer formato; a
+  TASK-09 usava só aqui); **`insertMergedPages(rows)`** (fila `serial`, `ensureFonts`, `util.enlivenObjects` como `enliven`, N
+  páginas depois do modelo, `showPage` da 1ª gerada, um `pushEdit`; respeita `MAX_PAGES`, devolve `{created, skipped}`).
+- `main.ts` — `mergeFieldRow` no `renderProps` ("⚡ Variável do lote" em texto e imagem, + atalho "⚡ Gerar em lote" quando marcado);
+  `showMergeSheet` (chips dos campos, `textarea` da colagem, tabela editável com desconto recalculado ao mudar De/Por, 📷 por linha
+  quando há `foto`, "＋ Linha", "Gerar N anúncios", toast); entradas na folha Texto e na folha 📄 Páginas; `showExport` reescrito:
+  formatos + WebP e 📄 PDF, seletor "Páginas" (Página atual / Todas (N)), qualidade para JPG/WebP, "✂️ Marcas de corte" e "Sangria"
+  (0/18/36 px) no PDF, `goBatch` (uma mensagem por página com o mesmo `batch.id`, progresso `i/N`, toast "N anúncios salvos na
+  galeria!"); "Imprimir" escondido para PDF/SVG/vídeo/Todas, "Ver em mockup" para PDF/vídeo/Todas, "Páginas" para vídeo.
+- `styles.css` — folha do lote e opções do PDF.
+- `EditorSession.kt` — `ExportFormat` + `WEBP`, `PDF`, `ZIP`; `EditorHost.exportFile(format, action, file)` (default lança
+  `UNSUPPORTED`: o fake do teste instrumentado não quebra); `export` recusa `format: zip` e manda `batch`/PDF para `exportBatch`:
+  staging → `{staged}`; na última, `GALLERY_IMAGES` (`host.export` por página, `<nome>_<ts>_01`…, `location` "Pictures/ProductPhoto
+  (N arquivos)"), `ZIP` (`cacheDir/exports/<nome>_<ts>.zip`) ou `PDF`; `{location, count}`; pasta do lote apagada no `finally`.
+- `EditorExports.kt` — `save` passa por `store(…, write)` (WebP em `isImage` → Pictures); `saveFile` (stream, para PDF/ZIP em
+  Download/ProductPhoto); `freshExportFile`; `shareFile`; `writePdf` (`PdfDocument`, página do `PrintLayout`, bitmap decodificado
+  na hora e reciclado depois do `finishPage`, marcas `Paint` preto 0,5 pt; erro apaga o arquivo parcial).
+- `EditorScreen.kt` — host real de `exportFile` (SAVE → `saveFile` e apaga o do cache; SHARE → `shareFile`).
+- `BatchExport.kt` (novo, sem Android) — `BatchSpec`, `PrintOptions`, `BatchOutput`, `BatchExport.{spec, single, outputOf,
+  stagedExt, stage, stagedScale, batchNames, zip}`, `Box`, `Line`, `PrintLayout.of` (margem 36 pt, marcas de 18 pt alinhadas ao corte,
+  começando 6 pt fora da arte com a sangria).
+- `tools/e2e/task09.mjs` caso 10 — "Todas as páginas" pelo seletor novo e nomes `<nome>_<ts>_01..0N.png`.
+
+**Provas offline (comando → resultado):**
+- `npx tsc --noEmit` (editor-web) → 0 erros. `npx vitest run test/dataMerge.test.ts` → 18/18.
+- Mutação em `dataMerge.ts` (cópia restaurada, `diff -q` igual): sem o reset de largura do Textbox → 1 falha; `Math.ceil` no
+  desconto → 5 falhas.
+- `python <helper> build --bug task-10-…` → exit 0: vitest 27 arquivos / 297 testes; `BatchExportTest` 11/11; `EditorProtocolTest`
+  11/11; `:app:assembleDebug` ok.
+- Smoke do `Editor` real (Fabric 7.4 do navegador) servido por `npx vite`, Chrome headless, ponte `AppBridge` falsa que registra o
+  `export` e responde como o Kotlin (script descartável `smoke10.mjs` na pasta do job): 32/33 — o único FAIL era expectativa errada do
+  próprio smoke (SVG começa com `<?xml`). Provou: marcar pelo seletor, `mergeField` no JSON, folha com 4 campos, tabela 5 linhas
+  (`-33%` na digitada), 6 páginas, nome da página, modelo intacto, Tênis `-37%`, **nome longo medido pelo Fabric real: modelo
+  `fontSize` 156 / altura 176 → 101,4 (= 65%, piso) com 4 linhas**, outra página no piso ou acima, ↶ volta a 1 página e ↷ a 6, WebP
+  todas = 6 mensagens `data:image/webp` com o mesmo `batch.id` e índices 0..5 + toast "6 anúncios salvos na galeria!" + volta à página
+  de antes, PDF todas = 6 PNG com `printOptions {cropMarks, bleedPx: 36, scale: 1}` e PNG 1152×1152 (1080 + 2·36), PDF página atual
+  = lote de 1, PNG/WebP página atual = mensagem sem `batch`, SVG todas = 6 mensagens, vídeo sem "Páginas", sangria com degradê
+  vermelho = canto (2,2) vermelho e a camada de fundo volta à escala 1, sem exceção JS.
+
+**Hipóteses descartadas na implementação:**
+- **Medir o auto-ajuste no vitest com `fabric/node`** (o Planejamento supunha "node-canvas instalado") — o pacote `canvas` existe em
+  `node_modules`, mas sem o binário (`node -e "require('canvas')"` → `Cannot find module '../build/Release/canvas.node'`, na lane e na
+  árvore principal): o Fabric não mede texto no vitest. O teste usa um texto falso de medida determinística (a função é duck-typed) e a
+  medida real fica provada no smoke do Chrome acima e no passo 4 da T2.
+- **Um sidecar de metadados por página** além da escala — só a escala é guardada (`<index>.scale`); o tamanho em pt sai dos pixels
+  ÷ escala, então páginas de tamanhos diferentes (Magic Resize) saem cada uma no seu tamanho.
+
+**Ajustes ao Plano de teste:**
+- T2 = `node tools/e2e/task10.mjs <pasta>` (casos 1–8 + limpeza; o passo 6 compara o MediaBox com `editor.width/height + 72`). O
+  PDF vai para a pasta de prints (`10-catalogo.pdf`) e o ZIP (`10-lote.zip`) para o testador renderizar/abrir no PC.
+- Passo 5: N = TODAS as páginas (6: o modelo entra, decisão da nota do dev).
+- Passo 2: o 4º texto é editado pela folha "✏️ Editar texto"; as posições dos títulos são ajustadas por CDP (layout, não é o que se
+  testa).
+- Na base, o script para no passo 2 e faz o controle positivo (sem "⚡ Variável do lote"/"⚡ Gerar em lote", sem `webp`/`pdf` nas
+  opções, `ppEditor.call('export', {format: 'webp'…})` → `{ok: false, code: 'invalid'}`).
+- T3: `task09.mjs` caso 10 mudou com o caminho novo; rodar o `task09.mjs` inteiro com o APK do fix.

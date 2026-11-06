@@ -79,6 +79,14 @@ fun EditorScreen(session: EditorSession, onMockup: (ByteArray) -> Unit = {}, onC
                     ExportAction.MOCKUP -> { withContext(Dispatchers.Main) { onMockup(bytes) }; null }
                 }
 
+            // PDF/ZIP do lote (TASK-10), já em cacheDir/exports: salvar copia para Download/ProductPhoto e apaga o do cache
+            override suspend fun exportFile(format: ExportFormat, action: ExportAction, file: java.io.File): String? =
+                when (action) {
+                    ExportAction.SAVE -> EditorExports.saveFile(activity, format, file).also { withContext(Dispatchers.IO) { file.delete() } }
+                    ExportAction.SHARE -> { EditorExports.shareFile(activity, format, file); null }
+                    else -> throw BridgeException(ErrorCode.UNSUPPORTED, "${format.ext} só salva ou compartilha")
+                }
+
             override suspend fun exportVideo(action: ExportAction, name: String, videoFile: java.io.File): String? =
                 when (action) {
                     ExportAction.SAVE -> EditorExports.saveVideo(activity, name, videoFile)
