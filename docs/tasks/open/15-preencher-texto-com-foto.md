@@ -82,7 +82,9 @@ como preencher as letras com uma imagem.
   (cover) quando a caixa do texto muda**, no mesmo ponto do `refreshGradient` (`editor.ts` L120–121, eventos
   `object:modified`/`text:changed`; `refreshGradient` L837).
 - Export SVG: `FabricObjectSVGExportMixin.ts::_createBaseSVGMarkup` (L195–257) já emite `fill` de Pattern/Gradient
-  (`isFiller`) → o SVG do texto com foto vem de graça. PNG/JPG e vídeo desenham pelo canvas do Fabric.
+  (`isFiller`) → o SVG do texto com foto vem de graça.
+  > **Corrigido (dev, pipeline 20261106-0749):** não vem de graça — `Pattern.toSVG` ignora o `patternTransform`; ver
+  > Planejamento, Causa raiz item 3, e o `installPatternSvg` da Correção. PNG/JPG e vídeo desenham pelo canvas do Fabric.
 - `editor-web/src/document.ts::CUSTOM_PROPERTIES` (L76) → `FabricObject.customProperties` (`editor.ts` L54): o que
   entrar ali vai no `toObject()`, no snapshot e no undo. Lição da TASK-12: spec gravada no objeto **não pode ter
   campo `type`** com nome de classe do Fabric (o revive a transforma).
@@ -279,3 +281,54 @@ com UMA correção: o SVG do Fabric **não** sai "de graça" (ver Causa raiz, it
   para geometria no Fabric), mas as fórmulas, os pontos de integração e o patch estão especificados acima.
 - teste: effort medium, ultrathink não — E2E no molde do `task12`/`task09`; o único passo sutil é o seletor de fotos
   (já resolvido por `pickFirstPhoto`).
+
+---
+
+## Correção (pipeline 20261106-0749, rodada 1)
+
+**O que mudou (`arquivo::simbolo`):**
+- `editor-web/src/textImageFill.ts` (novo) — `coverPatternTransform(imgW, imgH, boxW, boxH)` (escala = max das razões,
+  centrada); `isTextImageFill` (marca `{ src, fallback }`, recusa objeto com `type`); `patternSourceSize` (natural do
+  `<img>` ou tamanho do canvas; `null` sem pixels); `refitTextImageFill(o)` (refaz o `patternTransform` na caixa atual
+  e marca `dirty`, porque o cache do Fabric não vê a mudança dentro do `fill`); `installPatternSvg(PatternClass)` (patch
+  do `Pattern.prototype.toSVG`: com `patternTransform` + `no-repeat` emite `<pattern patternUnits="userSpaceOnUse"
+  x=-w/2 y=-h/2 width=w height=h>` com a `<image>` no tamanho natural e `transform="matrix(...)"`; senão, o original).
+  Sem import de runtime do Fabric (as classes chegam por parâmetro), como `curve.ts::installWarpRenderer`.
+- `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `'textImageFill'`.
+- `editor-web/src/editor.ts` — import de `Pattern`; `installPatternSvg(Pattern)` ao lado de `installWarpRenderer`;
+  `textImageFillOf(o)` (marca válida E `fill instanceof Pattern`); `async setTextImageFill(url | null, target)`:
+  `util.loadImage(url)` ANTES do `set` (erro de carga rejeita sem tocar no texto; o `run` do main mostra o toast),
+  `new Pattern({ source, repeat: 'no-repeat', patternTransform: cover })`, marca com `fallback` = cor sólida atual (ou
+  a da marca anterior, ou a 1ª parada do degradê), zera `customGradient`/`brandColor`, 1 `commit()` (= 1 passo do undo);
+  `null` → `fill = fallback`, marca `undefined`. `refreshGradient` — ramo novo no topo: texto com a marca →
+  `refitTextImageFill` (cobre todos os call-sites já existentes: `object:modified`, `text:changed`, `set`,
+  `setTextContent`...). `set` com `fill` string zera `textImageFill` (como já zerava `customGradient`);
+  `setObjectGradient` zera `textImageFill` nos dois ramos.
+- `editor-web/src/main.ts::textProps` — `🖼️ Foto no texto` (`text-photo-btn`, `primary` quando aplicada) →
+  `pickTextPhoto(t)` (`pickImage` por `run`, depois `editor.setTextImageFill(r.url, t)` por `run`, `renderProps`); `Remover
+  foto` (`text-photo-remove`, só com a marca). `colorInput('Cor')` recebe `'#000000'` quando o `fill` não é string
+  (antes mostraria `[object Object]` com degradê/foto).
+- `editor-web/test/textImageFill.test.ts` (novo, 10 testes) — cover em 3 proporções (4 cantos dentro da foto, centrado,
+  escala mínima); marca sem `type`; refit ao mudar a caixa; round-trip `toObject → JSON → fromObject` (Pattern, mesmo
+  `patternTransform`, `no-repeat`, marca); `toSVG` com o patch (userSpaceOnUse, `x=-w/2`, `matrix(...)`, tamanho
+  natural, `fill: url(#SVGID_…)`) e sem `patternTransform` (saída original do Fabric).
+- `tools/e2e/task15.mjs` (novo) — a T2 do Plano de teste, passos 1–9 (= sinais a–j) e modo `E2E_MODE=base`.
+
+**Ajustes ao Plano de teste / ao planejamento (o código desmentiu duas premissas):**
+- O vitest daqui NÃO tem o `canvas` nativo (`node_modules/canvas/build/Release` não existe; `util.createCanvasElement()
+  .getContext('2d')` → `null` e o `util.loadImage(dataURL)` do `fabric/node` nunca resolve — medido com `node -e`, saiu
+  `timeout`). Por isso o teste usa um "`<img>` carregado" falso (`{src, naturalWidth, naturalHeight, complete}`) e
+  `src` vazio no round-trip (`loadImage('')` resolve na hora), e a caixa é um `Rect` 400×136 em vez de `Textbox` (o
+  `Textbox` não mede texto sem canvas: `_setTextStyles` → `null.textBaseline`; mesma limitação anotada no
+  `textTools.test.ts`). O `patternTransform`, a marca, o JSON e o referencial centrado do SVG são os mesmos; o texto
+  de verdade e os pixels ficam com o E2E.
+- T2 — uso do script: `ANDROID_SERIAL=<serial> node tools/e2e/task15.mjs <pasta>` (fix) e o mesmo com
+  `E2E_MODE=base` no APK da base (PASS = botão ausente e `setTextImageFill` indefinido). O script gera o JPG de listras
+  (1200×800, 6 cores) no próprio WebView, faz `adb push` para `/sdcard/Pictures/e2e_task15.jpg` + broadcast do media
+  scanner e escolhe a 1ª foto do seletor (`pickFirstPhoto`); imprime o tamanho da foto escolhida. Reabrir o rascunho é
+  por **Rascunhos** (como o `task09`), não "Meus designs". (j) MP4: confere o `layer_<i>.png` do pacote do FFmpeg
+  (`exportVideoBundle('mp4')`, o mesmo que o botão manda ao Kotlin); o pacote não lista as camadas, então o offset é a
+  caixa do texto − margem 2 (fórmula do `exportVideoBundle`). (i) SVG: além das strings, desenha o SVG num `<img>` do
+  WebView e compara os pixels das letras com o editor (≥ 80% iguais, tolerância 60).
+- Resultado offline: `npx tsc --noEmit` limpo; `npx vitest run test/textImageFill.test.ts` 10/10; `npx vitest run`
+  29 arquivos / 319 testes passando.

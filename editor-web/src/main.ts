@@ -640,7 +640,8 @@ function textProps(t: FabricText): Node[] {
     h('div', { class: 'row scroll' },
       button('✏️ Editar texto', () => showEditText(t, false), 'primary'),
       select('Fonte', families.map((f) => [f, f]), t.fontFamily, (v) => { editor.set({ fontFamily: v, brandFont: undefined }); }),
-      colorInput('Cor', String(t.fill), (v) => editor.set({ fill: v, brandColor: undefined })),
+      // degradê/foto no fill: o seletor de cor mostraria "[object Object]"
+      colorInput('Cor', typeof t.fill === 'string' ? t.fill : '#000000', (v) => editor.set({ fill: v, brandColor: undefined })),
       button('N', () => editor.set({ fontWeight: Number(t.fontWeight) >= 600 || t.fontWeight === 'bold' ? 400 : 700 }), 'icon b'),
       button('I', () => editor.set({ fontStyle: t.fontStyle === 'italic' ? 'normal' : 'italic' }), 'icon i'),
       button('S̶', () => { editor.set({ linethrough: !t.linethrough }); renderProps(t); }, t.linethrough ? 'icon b primary' : 'icon b'),
@@ -653,6 +654,11 @@ function textProps(t: FabricText): Node[] {
       }),
       button('✨ Sombra / Brilho', () => showShadowSheet(t)),
       button('🌈 Degradê', () => showGradientSheet(t), 'gradient-btn'),
+      button('🖼️ Foto no texto', () => void pickTextPhoto(t), editor.textImageFillOf(t) ? 'primary text-photo-btn' : 'text-photo-btn'),
+      editor.textImageFillOf(t) ? button('Remover foto', () => void run('Removendo foto', async () => {
+        await editor.setTextImageFill(null, t);
+        renderProps(t);
+      }), 'text-photo-remove') : null,
     ),
     contrastRow(t),
     ...(chips ? [chips] : []),
@@ -678,6 +684,14 @@ function textProps(t: FabricText): Node[] {
       t instanceof Textbox ? slider('Curva', -100, 100, 1, Number(t.get('warpBend') ?? t.get('curve') ?? 0), (v) => editor.setCurve(v)) : null),
     h('div', { class: 'row scroll ai' }, button('✨ Reescrever', () => showRewrite(t))),
   ];
+}
+
+/** Foto da galeria dentro das letras, em *cover* (TASK-15). */
+async function pickTextPhoto(t: FabricText): Promise<void> {
+  const r = await run('Abrindo imagem', () => bridge.request<BlobResult>('pickImage'));
+  if (!r) return;
+  await run('Aplicando foto no texto', () => editor.setTextImageFill(r.url, t));
+  renderProps(t);
 }
 
 function showShadowSheet(o: FabricObject): void {

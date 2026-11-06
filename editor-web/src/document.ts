@@ -121,6 +121,8 @@ export const CUSTOM_PROPERTIES = [
   'mergeField',
   // TASK-07: nitidez, temperatura e duotone (chip + cores) que a folha Filtros relê; os filtros ficam em `filters`
   'filterAdjust',
+  // TASK-15: texto preenchido com foto ({ src, fallback }); o Pattern em si vai no `fill`
+  'textImageFill',
 ] as const;
 
 export const MAX_SIDE = 8000;

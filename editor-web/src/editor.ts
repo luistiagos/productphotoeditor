@@ -13,6 +13,7 @@ import {
   loadSVGFromString,
   loadSVGFromURL,
   Path,
+  Pattern,
   PencilBrush,
   Point,
   Polygon,
@@ -65,9 +66,11 @@ import { FREEHAND_DECIMATE, FREEHAND_LAYER, isFreehandPath } from './freehandDra
 import { encodeQr, isQrConfig, type QrConfig, qrLayout, qrSvg } from './qrcode';
 import { buildTable, isTableData, type Measure, type TableData } from './table';
 import { compactFilterAdjust, type DuotoneSpec, duotoneMatrix, sharpenKernel, warmthMatrix } from './imageFilters';
+import { coverPatternTransform, installPatternSvg, isTextImageFill, refitTextImageFill, type TextImageFill } from './textImageFill';
 
 FabricObject.customProperties = [...CUSTOM_PROPERTIES];
 installWarpRenderer(Textbox);
+installPatternSvg(Pattern);
 // alvos maiores para toque
 InteractiveFabricObject.ownDefaults = {
   ...InteractiveFabricObject.ownDefaults,
@@ -1360,6 +1363,8 @@ export class Editor {
     if (!o) return;
     // cor sólida escolhida: o degradê do usuário deixa de valer (senão o refresh o traria de volta)
     if (typeof props.fill === 'string' && !('customGradient' in props)) props = { ...props, customGradient: undefined };
+    // idem a foto no texto (TASK-15): a marca órfã faria o "Remover foto" voltar a uma cor velha
+    if (typeof props.fill === 'string' && !('textImageFill' in props)) props = { ...props, textImageFill: undefined };
     o.set(props);
     // tracejado acompanha a espessura (TASK-12)
     const dash = o.get('strokeDashStyle');
@@ -1411,18 +1416,59 @@ export class Editor {
     if (!target || !canHoldGradient(target)) return;
     if (spec) {
       const box = gradientBox(target);
-      target.set({ fill: buildFabricGradient(spec, box.width, box.height), customGradient: spec, brandColor: undefined });
+      target.set({
+        fill: buildFabricGradient(spec, box.width, box.height), customGradient: spec, brandColor: undefined, textImageFill: undefined,
+      });
     } else {
       const current = target.get('customGradient');
       const color = fallback ?? (isGradientSpec(current) ? current.stops[0]?.color : undefined) ?? '#000000';
-      target.set({ fill: color, customGradient: undefined });
+      target.set({ fill: color, customGradient: undefined, textImageFill: undefined });
     }
+    target.setCoords();
+    this.commit();
+  }
+
+  // ---------- foto no texto (TASK-15) ----------
+
+  /** A marca da foto no texto, se o preenchimento ainda for o padrão dela. */
+  textImageFillOf(o: FabricObject | undefined = this.active): TextImageFill | undefined {
+    const mark = o?.get('textImageFill');
+    return o && isTextImageFill(mark) && o.fill instanceof Pattern ? mark : undefined;
+  }
+
+  /**
+   * Preenche o texto com a foto `url` em *cover* (`null` volta à cor sólida de antes). Espera a foto carregar antes do
+   * `set` (o `Pattern.toLive` sem pixels some com o texto) e faz 1 passo do undo. Erro de carga rejeita sem mexer no texto.
+   */
+  async setTextImageFill(url: string | null, target: FabricObject | undefined = this.active): Promise<void> {
+    if (!(target instanceof FabricText)) return;
+    if (url === null) {
+      const mark = this.textImageFillOf(target) ?? target.get('textImageFill');
+      if (!isTextImageFill(mark) && !(target.fill instanceof Pattern)) return;
+      target.set({ fill: isTextImageFill(mark) ? mark.fallback : '#000000', textImageFill: undefined });
+      target.setCoords();
+      this.commit();
+      return;
+    }
+    const img = await util.loadImage(url);
+    const box = gradientBox(target);
+    const before = this.textImageFillOf(target);
+    const spec = this.gradientOf(target);
+    const fallback = before?.fallback ?? (typeof target.fill === 'string' ? target.fill : spec?.stops[0]?.color) ?? '#000000';
+    const fill = new Pattern({
+      source: img, repeat: 'no-repeat',
+      patternTransform: coverPatternTransform(img.naturalWidth || img.width, img.naturalHeight || img.height, box.width, box.height),
+    });
+    const mark: TextImageFill = { src: url, fallback };
+    target.set({ fill, textImageFill: mark, customGradient: undefined, brandColor: undefined });
     target.setCoords();
     this.commit();
   }
 
   /** Refaz as coordenadas do degradê do usuário quando a caixa local do objeto muda (texto, fundo, formato). */
   refreshGradient(o: FabricObject | undefined): void {
+    // foto no texto: refaz o cover na caixa nova (TASK-15)
+    if (o && this.textImageFillOf(o)) { refitTextImageFill(o); return; }
     if (!o || !(o.fill instanceof Gradient)) return;
     const spec = o.get('customGradient');
     if (!isGradientSpec(spec)) return;
