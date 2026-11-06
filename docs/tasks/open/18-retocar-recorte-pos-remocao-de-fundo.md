@@ -325,3 +325,21 @@ Item é TASK: "sintoma" = a funcionalidade ausente. Conferência da análise her
 - dev: effort high, ultrathink sim — geometria página→pixels, prévia ao vivo mexendo no `_element` do Fabric sem
   quebrar serialização/undo, guardas em vários fluxos e a mensagem nova na ponte.
 - teste: effort medium, ultrathink não — E2E com receita fechada; a sutileza é escolher P_t/P_s pelo recorte real.
+
+### Nota do dev (2026-11-06) — plano conferido contra a base `9033756`
+O plano vale; as linhas andaram e quatro detalhes de implementação foram fixados (abertos no código antes de editar):
+- **Linhas atuais:** `main.ts::imageProps` L1091–1114, `aiRemoveBg` L1205–1208, guardas da máscara L946 (`startFreehand`),
+  L1294 (`pageOp`), L1367 (`showMergeSheet`), abas L1488; `editor.ts::path:created` L238, `scheduleSnapshot` L544,
+  `undo/redo` L561–562, ops de página L652/668/703/734/850, `replaceImage` L2078, `swapImage` L2097 (`img.set` L2106),
+  `startMask/endMask` L2145–2189, `flushPending` L2331.
+- **`_filterScalingX/Y`:** `Image._renderFill` (fabric `Image.ts` L634–660) escala a origem por `_filterScalingX/Y`; ao pôr o
+  canvas de trabalho em `_element` o modo zera os dois para 1. No Cancelar/erro, `_element = _originalElement` ANTES do
+  `applyFilters()` (fabric `Image.ts` L531–592: com filtros e `_element !== _originalElement` sem `_filteredEl`, o filtro
+  escreveria no canvas de trabalho).
+- **Pontos do traço:** `mouse:down/move/up` em modo desenho chegam com `scenePoint` (`Canvas.ts` L978–1024 →
+  `_handleEvent` L945, `getEventPoints`). O `path:created` (PencilBrush L275–300) sai ANTES do `mouse:up` e não sai num
+  toque parado (`isEmptySVGPath`): o modo remove o path no `path:created` e aplica os carimbos no `mouse:up` (toque
+  parado = 1 carimbo). Pinça (`abortFabricGesture`) zera os pontos pendentes.
+- **Guardas a mais:** `undo/redo` do `Editor` não fazem nada com o retoque aberto (o `restore` recarregaria o JSON sob o
+  modo); as abas (L1488) recusam com toast, como a máscara já faz nas páginas/lote.
+- **Teste do `CUSTOM_PROPERTIES`:** vai em `test/refineCutout.test.ts` (reservado), não em `document.test.ts`.
