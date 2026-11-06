@@ -326,3 +326,48 @@ O plano vale; as linhas andaram e o desenho foi fixado com o código aberto (Fab
   `build/Release`), não há `new Editor` em nenhum teste: a lógica de geometria/regeração fica em `clipFrames.ts` com as
   classes por parâmetro (padrão do `textImageFill.ts`) e o teste usa `FabricImage`/`Path` do `fabric/node`; o pixel
   fica para o E2E.
+
+## Implementação (2026-11-06)
+
+**O que mudou (`arquivo::simbolo`) e por quê**
+- `editor-web/src/clipFrames.ts` (novo) — `ClipShapeKind` (`none` + 14: circle, rounded-sm/lg, pill, leaf-tr/tl, star,
+  starburst-12/20, hexagon, diamond, shield, arch, heart) e rótulos; `clipPathCommands(kind, W, H)` em px da página, só
+  M/L/C/Z, bbox = caixa (cúbicas com controles dentro da caixa; polígonos esticados pela bbox); `clipPathJson` (puro, p/
+  o lote) e `buildClipPath` (Path vivo, `left/top` = `pathOffset`·escala); `frameSpecOf`/`frameProps` (spec ↔ 6
+  propriedades, valores presos: zoom 1–3, posição −1..1, aro 0–40); `framedGeometry`/`framingOf` (zoom/posição ↔
+  recorte, caixa na página constante); `refreshFrame` (só regera se há `clipShape` — `clipPath` alheio fica);
+  `applyFraming`, `currentFraming`; aro `drawFrameRim` (clip pela forma + traço 2w em px da página) e `frameRimSvg`;
+  `installFrameRenderer(FabricImage)` envolve `drawObject` (aro depois, não em `forClipping`) e `_toSVG` (aro dentro do
+  `<g clip-path>`), e põe `frameStroke/frameStrokeWidth/clipShape` nas `cacheProperties`.
+- `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `clipShape`, `clipScale`, `clipOffsetX`, `clipOffsetY`, `frameStroke`,
+  `frameStrokeWidth`.
+- `editor-web/src/editor.ts` — `installFrameRenderer(FabricImage)` no topo; `frameOf(img)` (spec com zoom/posição relidos
+  da geometria); `setImageFrame(img, patch)` (forma/aro regeram o `clipPath`; zoom/posição mexem no recorte e na região
+  dos filtros da TASK-17; `kind: 'none'` tira tudo; 1 `commit`); `refreshFrameOf` em `object:modified`,
+  `object:scaling` e `object:CROPPING` (moldura acompanha alça e arraste do recorte); `replaceImage` e `swapImage`
+  regeram no fim; `swapImage` com moldura usa `framedGeometry` com o zoom/posição atuais (caixa igual) em vez do
+  `fitSlot`; `endCrop` regera e grava zoom/posição relidos do recorte.
+- `editor-web/src/dataMerge.ts::swapPhotoJson` — foto emoldurada: `framedGeometry` (zoom 1 centrado = o mesmo cover) e
+  `o.clipPath = clipPathJson(...)` para a caixa nova.
+- `editor-web/src/main.ts` — `🖼️ Moldura` (`.frame-btn`) em `imageProps`; `showFrameSheet`: grade `.frame-cell[data-kind]`
+  com miniatura SVG, e com moldura: cor e espessura do aro, Zoom, Posição X/Y. `showSwapImage`: foto emoldurada não
+  mostra "Encaixe" (preenche a moldura). `styles.css`: grade `.frame-shapes`.
+- `tools/e2e/task06.mjs` (novo) — T2 + `E2E_MODE=base`. Bundle regerado (`index-qRU-Pdrc.js`, `index-BGP87N9R.css`).
+- Desvio do plano: a forma `star` (5 pontas) entrou porque o critério de aceite cita "Estrela" separada do "Selo explosão".
+
+**Provas (comando → resultado)**
+- `npx tsc --noEmit` → sem erro. `npx vitest run test/clipFrames.test.ts` → **31/31** (bbox de cada forma pelo `Path`
+  do Fabric em 3 proporções; round-trip JSON; clipPath × escala = caixa na aplicação, após upscale ×2 — e o controle de
+  que SEM regerar ficaria com metade — e após troca com zoom 2; lote; aro no canvas por contexto gravador; SVG com
+  `<clipPath>` e `<path ... stroke="#ff0000" stroke-width="24">`). `npx vitest run` → **36 arquivos, 461/461**.
+  `npm run build` → ok; `./gradlew :app:assembleDebug` → ok (Kotlin não mudou; `testDebugUnitTest` não rodado).
+- Controle positivo (emulador `pp_api34`, APK da base `5ed950b`, bundle `index-eo1AX5-l.js`):
+  `E2E_MODE=base node tools/e2e/task06.mjs` → **3/3** (sem `.frame-btn`, `editor.setImageFrame` indefinido).
+- T2 (mesmo emulador, APK novo): `node tools/e2e/task06.mjs` → **24/24**: caixa 756×504 constante em todas as etapas;
+  render: canto `[255,255,255]`, aro a 6 px da borda (topo e esquerda) `[255,0,0]`, miolo azul/verde; Substituir pela
+  galeria (900×1200) mantém círculo, aro, zoom 2 e caixa, miolo roxo; ↶ volta a foto 600×400 com a moldura; PNG e SVG
+  exportados (SVG também rasterizado no WebView) com os mesmos pixels; "Sem moldura" limpa tudo; sem exceção JS.
+- T3: `task11` **25/25**, `task12` **40/40**, `task10` **13/13**. `task03` 5 FAIL + aborto em `[data-e2e=pal]` — os
+  mesmos da base registrados no bug aberto `docs/bugs/open/e2e-task03-lupa-conta-gotas-emulador.md` (TASK-17 T3): não
+  pertinente.
+- Não rodado no Moto g86: estava com a tela bloqueada (bloqueio seguro, `adb` não desbloqueia).
