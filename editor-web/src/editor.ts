@@ -67,6 +67,7 @@ import { encodeQr, isQrConfig, type QrConfig, qrLayout, qrSvg } from './qrcode';
 import { buildTable, isTableData, type Measure, type TableData } from './table';
 import { compactFilterAdjust, type DuotoneSpec, duotoneMatrix, sharpenKernel, warmthMatrix } from './imageFilters';
 import { coverPatternTransform, installPatternSvg, isTextImageFill, refitTextImageFill, type TextImageFill } from './textImageFill';
+import { type BooleanOp, booleanRegions, isBooleanShapeType, MIN_RESULT_AREA, ringsArea, ringsToPathD, shapeRegion } from './pathBoolean';
 
 FabricObject.customProperties = [...CUSTOM_PROPERTIES];
 installWarpRenderer(Textbox);
@@ -1571,6 +1572,50 @@ export class Editor {
     this.canvas.insertAt(Math.max(0, index), n);
   }
 
+  // ---------- Pathfinder: operações booleanas de formas (TASK-16) ----------
+
+  /** Formas da seleção múltipla que o Pathfinder combina, na ordem da pilha: a 1ª (a mais de baixo) é a base. */
+  booleanCandidates(sel: FabricObject | undefined = this.active): FabricObject[] {
+    if (!(sel instanceof ActiveSelection)) return [];
+    const all = this.canvas.getObjects();
+    return sel.getObjects().filter(isBooleanCandidate).sort((a, b) => all.indexOf(a) - all.indexOf(b));
+  }
+
+  /**
+   * Combina as formas da seleção (≥ 2) num só `Path` vetorial com `fillRule: 'evenodd'`: `union`, `subtract` (base −
+   * as demais), `intersect` e `exclude` (vazado/XOR). O resultado é calculado ANTES de mexer no canvas: exceção ou
+   * resultado vazio deixam a página intacta (vazio devolve `undefined`). O `Path` herda o estilo da base e entra no
+   * lugar dela na pilha; o debounce do instantâneo junta remover + inserir num passo só do undo.
+   */
+  applyBooleanOp(op: BooleanOp): Path | undefined {
+    const objs = this.booleanCandidates();
+    if (objs.length < 2) return undefined;
+    // seleção ainda ativa: o calcTransformMatrix de cada forma inclui a matriz da ActiveSelection (página)
+    const rings = booleanRegions(objs.map((o) => shapeRegion(o)), op);
+    if (rings.length === 0 || ringsArea(rings) < MIN_RESULT_AREA) return undefined;
+    const base = objs[0];
+    // sem left/top e com origem center, o Path se posiciona pelo próprio pathOffset: desenha nas coordenadas de página
+    const n = new Path(ringsToPathD(rings), { originX: 'center', originY: 'center', fillRule: 'evenodd' });
+    const copy: Record<string, unknown> = {};
+    // a lista do swapShape, sem angle/flip (o resultado já está na página) + a mesclagem (TASK-07)
+    for (const k of ['opacity', 'shadow', 'stroke', 'strokeWidth', 'strokeDashArray', 'strokeLineCap', 'strokeDashStyle', 'brandColor',
+      'brandStroke', 'animation', 'visible', 'globalCompositeOperation']) copy[k] = base.get(k);
+    n.set({ ...copy, layerName: 'Forma combinada' });
+    const spec = this.gradientOf(base);
+    if (spec) {
+      const box = gradientBox(n);
+      n.set({ fill: buildFabricGradient(spec, box.width, box.height), customGradient: spec });
+    } else n.set({ fill: base.fill });
+    n.setCoords();
+    const index = this.canvas.getObjects().indexOf(base);
+    this.canvas.discardActiveObject();
+    for (const o of objs) this.canvas.remove(o);
+    this.canvas.insertAt(Math.max(0, index), n);
+    this.canvas.setActiveObject(n);
+    this.commit();
+    return n;
+  }
+
   // ---------- conectores e infográfico "Raio-X" (TASK-12) ----------
 
   connectorOf(o: FabricObject | undefined = this.active): ConnectorSpec | undefined {
@@ -2494,6 +2539,19 @@ function hexPoints(r: number): { x: number; y: number }[] {
 /** Objetos cujo `fill` aceita degradê (formas e textos; não imagem, grupo, linha). */
 function canHoldGradient(o: FabricObject): boolean {
   return !(o instanceof FabricImage || o instanceof Group || o instanceof Line);
+}
+
+/**
+ * Forma fechada e preenchida que o Pathfinder aceita (TASK-16): Rect, Circle, Ellipse, Triangle, Polygon ou Path,
+ * visível, fora da camada de fundo, com preenchimento. Linha, conector/QR/tabela (Group), texto, imagem e traço à mão
+ * (Path sem preenchimento) ficam de fora.
+ */
+function isBooleanCandidate(o: FabricObject): boolean {
+  if (!isBooleanShapeType(o) || o instanceof Group || o.visible === false) return false;
+  if (o.get('layerName') === BACKGROUND_LAYER || isFreehandPath(o)) return false;
+  const f = o.fill;
+  if (f === null || f === undefined || f === '') return false;
+  return !(typeof f === 'string' && ['transparent', 'none'].includes(f.trim().toLowerCase()));
 }
 
 /** Group de Paths de um conector, com os pontos deslocados por `at` (coordenadas da página). */

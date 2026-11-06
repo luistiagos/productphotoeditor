@@ -16,6 +16,7 @@ import { averageColor, composite, contrastRatio, formatRatio, LOW_CONTRAST, pars
 import { pickColorFromCanvas } from './eyedropper';
 import { collectColors, type ColorSource, dominantColors, RecentColors } from './palette';
 import { type Adjustments, type CalloutKind, Editor, type FilterPreset, renderThumbnail, type ShapeKind, SWAP_KINDS } from './editor';
+import type { BooleanOp } from './pathBoolean';
 import { addStop, brandGradient, evenStops, GRADIENT_PRESETS, gradientCss, type GradientSpec, MAX_STOPS, removeStop, reverseStops } from './gradients';
 import { CAP_OPTIONS, type CapStyle, type ConnectorShape, type ConnectorSpec, DASH_OPTIONS, type DashStyle, SHAPE_OPTIONS, swapEnds } from './connectors';
 import { LIST_OPTIONS, matchSnippet } from './textTools';
@@ -290,6 +291,7 @@ function renderProps(o: FabricObject | undefined): void {
     button('📐 Alinhar', () => showAlignSheet()),
     button('📏 Posição / Tamanho', () => showPositionSheet(o), 'geometry-btn'),
   ));
+  if (isSelection && editor.booleanCandidates(o).length >= 2) rows.push(pathfinderRow());
   if (o instanceof FabricText) rows.push(...textProps(o));
   else if (o instanceof FabricImage) rows.push(...imageProps(o));
   else if (editor.connectorOf(o)) rows.push(...connectorProps());
@@ -317,6 +319,26 @@ function renderProps(o: FabricObject | undefined): void {
       (v) => editor.set({ globalCompositeOperation: v }))));
   props.replaceChildren(...rows);
   props.classList.add('show');
+}
+
+/** Pathfinder (TASK-16): as formas da seleção múltipla viram uma forma vetorial só (base = a mais de baixo). */
+const PATHFINDER_OPS: [BooleanOp, string][] = [
+  ['union', '➕ Unir'], ['subtract', '➖ Subtrair'], ['intersect', '✖️ Interseção'], ['exclude', '➗ Vazado'],
+];
+
+function pathfinderRow(): HTMLElement {
+  return h('div', { class: 'row scroll pathfinder' }, ...PATHFINDER_OPS.map(([op, label]) => button(label, () => {
+    let result;
+    try {
+      result = editor.applyBooleanOp(op);
+    } catch (e) {
+      toast(describe(e)); // calculado antes de mexer no canvas: as formas continuam lá
+      return;
+    }
+    if (!result) { toast(op === 'intersect' ? 'As formas não se sobrepõem' : 'O resultado ficaria vazio'); return; }
+    toast('Forma combinada — ↶ desfaz');
+    renderProps(editor.active);
+  }, `bool-${op}`)));
 }
 
 /** "⚡ Variável do lote" (TASK-10): o texto (ou a foto) que cada linha do ⚡ Gerar em lote substitui. */

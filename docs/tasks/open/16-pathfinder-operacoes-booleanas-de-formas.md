@@ -272,3 +272,68 @@ Não há defeito: a funcionalidade não existe (`applyBooleanOp`/`.bool-*` ausen
 - Operações com N formas: `union` = alguma; `intersect` = todas; `subtract` = base e nenhuma das demais; `exclude` =
   nº ímpar (XOR). Base = a mais de baixo na pilha; o resultado herda dela (lista do `swapShape` +
   `globalCompositeOperation`) e entra no índice dela. Resultado com área < 0,5 px² = vazio (nada muda; toast).
+
+## Correção (pipeline 20261106-0749, rodada 1)
+
+**O que mudou (`arquivo::simbolo` — o quê / por quê):**
+- `editor-web/src/pathBoolean.ts` (NOVO, 443 linhas) — motor próprio, sem dependência e sem valor importado do
+  `fabric` (só `import type`):
+  - `shapeToPolygonRings(obj)` — Rect (com rx/ry: o mesmo traçado de linhas + cúbicas `kRect` do `Rect._render`),
+    Circle (com `startAngle`/`endAngle`/`counterClockwise`, varredura como o `ctx.arc`; arco parcial fecha na corda),
+    Ellipse, Triangle, Polygon (− `pathOffset`) e Path (M/L/C/Q/Z − `pathOffset`, vários subcaminhos) → anéis em
+    coordenadas de página pela `calcTransformMatrix()`; curvas achatadas com erro ≤ 0,25 px (`FLATTEN_TOLERANCE`;
+    o doc pede ≤ 0,5). Tipo não suportado → `[]`. `shapeRegion(obj)` = anéis + `fillRule` do objeto.
+  - `booleanRegions(regions, op)` — N operandos de uma vez (arranjo planar + classificação de arestas da nota do dev):
+    `union` = alguma, `intersect` = todas, `subtract` = a 1ª e nenhuma das demais, `exclude` = nº ímpar. Devolve anéis
+    orientados com o interior à esquerda (externos +, furos −); vazio → `[]`. `booleanOp(a, b, op)` = o par.
+  - `ringsToPathD` (M … L … Z por anel, 3 casas), `ringsArea`, `signedRingArea`, `ringsBounds`,
+    `isBooleanShapeType` (`polyline` fica de fora: é aberta), `MIN_RESULT_AREA` = 0,5 px².
+- `editor-web/src/editor.ts`:
+  - `isBooleanCandidate` (função do módulo) — tipo aceito pelo motor, não `Group`, visível, fora da camada de fundo,
+    não traço à mão, com preenchimento (não vazio/`transparent`/`none`).
+  - `Editor::booleanCandidates(sel)` — as candidatas da `ActiveSelection` na ordem da pilha (base = a mais de baixo).
+  - `Editor::applyBooleanOp(op)` — calcula os anéis COM a seleção ainda ativa (a matriz da seleção entra:
+    coordenadas de página) e ANTES de mexer no canvas; vazio/área < 0,5 px² → `undefined` sem alterar nada; exceção
+    sobe sem ter alterado nada. Senão: `new Path(d, {originX/Y: 'center', fillRule: 'evenodd'})` (sem left/top: o
+    `Path` se posiciona pelo próprio `pathOffset`), herda da base `opacity, shadow, stroke, strokeWidth,
+    strokeDashArray, strokeLineCap, strokeDashStyle, brandColor, brandStroke, animation, visible,
+    globalCompositeOperation` e o preenchimento (degradê do usuário refeito na caixa nova, como no `swapShape`),
+    `layerName` 'Forma combinada'; `discardActiveObject`, remove as N, `insertAt` no índice da base,
+    `setActiveObject`, `commit()` — os `object:removed/added` caem no mesmo debounce de 250 ms: 1 passo do undo.
+- `editor-web/src/main.ts` — `PATHFINDER_OPS` + `pathfinderRow()`: linha `.row.scroll.pathfinder` com `➕ Unir`,
+  `➖ Subtrair`, `✖️ Interseção`, `➗ Vazado` (classes `bool-union|bool-subtract|bool-intersect|bool-exclude`),
+  inserida em `renderProps` logo após a 1ª linha, só com `ActiveSelection` e `editor.booleanCandidates(o).length ≥ 2`.
+  Resultado vazio → toast "As formas não se sobrepõem" (interseção) ou "O resultado ficaria vazio"; exceção → toast
+  com a mensagem (as formas continuam na página); sucesso → toast "Forma combinada — ↶ desfaz" e o painel do `Path`.
+- `editor-web/test/pathBoolean.test.ts` (NOVO, 22 testes) — quadrados sobrepostos/disjuntos/contidos/idênticos, com
+  aresta comum (união = retângulo de 4 vértices), junção T, trecho colinear, vértice comum, anel de sentido inverso;
+  Rect girado+escalado, Rect arredondado, Circle/Ellipse/Triangle/meio círculo, erro do achatamento ≤ 0,5 px, Polygon
+  com `pathOffset`, Path com arco/quadrática e 2 subcaminhos; quadrado × círculo nas 4 operações (±0,5% da
+  fórmula); cupom (retângulo − 2 círculos, N formas); round-trip do `d` num `Path` com origem center (mesma caixa e
+  área); resultado evenodd com furo como operando de novo; 60 pares aleatórios girados conferindo
+  |A∪B|+|A∩B| = |A|+|B|, |A−B| = |A|−|A∩B| e |A⊕B| = |A∪B|−|A∩B|; círculo tangente por fora.
+- `tools/e2e/task16.mjs` (NOVO) — a T2 do plano; `E2E_MODE=base` = controle positivo.
+- `editor/src/main/assets/editor/` — bundle regerado pelo `build` do helper.
+
+**Provas offline (comando literal → resultado), em `editor-web/`:**
+- `npx tsc --noEmit` → sem saída (0 erros).
+- `npx vitest run test/pathBoolean.test.ts` → `Tests 22 passed (22)`.
+- `npx vitest run` → `Test Files 30 passed (30)`, `Tests 341 passed (341)`.
+- `node --check tools/e2e/task16.mjs` (na lane) → OK.
+- `python <helper> build --bug task-16-pathfinder-operacoes-booleanas-de-formas` → exit 0: vitest `341 passed`,
+  `BUILD SUCCESSFUL` (`:app:assembleDebug testDebugUnitTest`); APK `app/build/outputs/apk/debug/app-debug.apk`
+  (11:06). Bundle: `assets/index-DZlddecC.js` → `assets/index-hd8KM5pM.js` (contém `applyBooleanOp`; `claim` dos
+  dois); o `index--MpGjl2x.css` só mudou o fim de linha e foi restaurado.
+
+**Ajustes ao Plano de teste (o que o `task16.mjs` faz de fato):**
+- Página 1080² (`editor.newDocument`): 'Cupom' `addShape('rect', '#e53935')` 600×300 centrado (caixa
+  [240,840]×[390,690]); 'Furo' `addShape('circle', '#1e88e5')` com `radius: 90` centrado em (240,540) — cor
+  diferente da base, para provar que o resultado herda o vermelho do Cupom; texto 'R$ 9,90' na camada 'Preço'.
+- Pontos de pixel: sobreposição (270,540), só retângulo (700,540), só círculo (190,540). Subtrair = branco /
+  vermelho / branco; Unir = 3 vermelhos; Interseção = vermelho / branco / branco; Vazado = branco / vermelho / vermelho.
+  PNG pelo `exportRaster('png', 1, 0.92)` (tolerância 8 por canal), JPG ±40.
+- Caixas com a tolerância de ±1,5 px (a do `task11.mjs`): o `getBoundingRect` soma o `strokeWidth` 1 padrão.
+- A seleção pelo painel Camadas marca cada caixa com um `data-e2e="cb-<i>"` próprio (o `[data-e2e=cb]` do task11
+  poderia casar com a caixa já marcada).
+- Vídeo: `layer_<i>.png` do `exportVideoBundle('mp4')` do `Path` → alpha 0 no furo e vermelho opaco no retângulo.
+- Uso: `ANDROID_SERIAL=<serial> node tools/e2e/task16.mjs <pasta>`; base: `E2E_MODE=base` com o mesmo comando.
