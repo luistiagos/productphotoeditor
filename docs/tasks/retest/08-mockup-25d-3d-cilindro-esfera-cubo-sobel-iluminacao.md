@@ -1,5 +1,61 @@
 # [TASK-08] Motor de Mockup 2.5D (Plano com Malha, Cilindro, Esfera), Fusão de Luz/Dobras e Estúdio de Mockup
 
+## Status (pipeline 20261106-0749 — aprovado no teste rodada 1, 2026-11-06)
+
+**Feito:** nova aba **📦 Mockup 3D** no fim da barra do editor. Ela abre uma folha com 9 templates: os 5 próprios 2.5D
+(Caneca e Pote/Garrafa em cilindro, Bola em esfera, Ecobag e Camiseta em plano com malha 4×4 e dobras) e os 4 planos de
+`mockups/`. A folha tem um preview com 4 alças arrastáveis e os controles Forma (Plano/Cilindro/Esfera), Arte (Design atual
+ou Imagem selecionada), Arco, Inclinação e "Fusão com dobras/luz", além dos botões "Salvar na galeria" e "Inserir no
+design". O motor fica em `editor-web/src/mockup/mockupEngine.ts`, é puro e tem teste no vitest. Os templates são gerados
+por `tools/gen_mockups.py --3d` no índice próprio `content/mockups3d/index.json`. O fluxo Kotlin "Ver em mockup" não mudou.
+
+**Commits** (sobre `origin/main` @ `29ac927`): `bb5cd35` feat(editor) TASK-08 (código, vitest, `tools/e2e/task08.mjs`,
+templates, bundle `index-CqdxzCYu.js`) e este commit de docs. Diff conferida (`git diff 29ac927...HEAD`): só arquivos
+reservados.
+
+**Aparelho:** emulador `emulator-5554` (sdk_gphone64_x86_64), o único no adb, que já estava aberto. Antes de instalar:
+`versionName=0.4.0`, `lastUpdateTime=2026-11-06 14:45:53` (`pacote-antes.txt`). O APK da base `6af7d7d2…70db` (bundle
+`index-wfO6JQsv.js`, sem `mockups3d/`) e o APK do fix `453ffda4…7345` batem com o `sha256sum` do `base.apk` instalado.
+Ficou instalado o APK do fix. O arquivo `Pictures/ProductPhoto/mockup_mug_20261106_151019.jpg` foi criado no emulador
+pela T2.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1210-task-08\`):
+- **Offline:**
+  - `npx tsc --noEmit` deu 0 erros; `npx vitest run` deu 32 arquivos e 381 testes (24 em `mockupEngine.test.ts`).
+  - `gen_mockups.py --3d` rodado 2 vezes deu saída idêntica e igual à commitada. `gen_mockups.py` dos planos saiu
+    idêntico a `content/mockups/`.
+  - O `build` do helper saiu 0 na base e no fix (`build-*.log`); a lane ficou limpa.
+  - `testDebugUnitTest`: 211 testes e 0 falhas, incluindo `MockupTest` 9/9 (4 planos) e `PerspectiveMockupTest` 5/5.
+- **Controle positivo** (APK da base): `task08.mjs` deu 0/1, aba "📦 Mockup 3D" ausente (`base/e2e.txt`,
+  `base/08-base-abas.png`).
+- **T2** (APK do fix): `task08.mjs` deu **10/10** (`fix/e2e.txt`, prints `fix/08-*.png`):
+  - folha com 9 tiles;
+  - Caneca: cilindro com arco 110 e arte em 100% do miolo do quad;
+  - Arco 170: hash muda e a largura útil na linha central vai de 152 para 143 px;
+  - Fusão 0 → 1: luminância da faixa da borda vai de 73,7 para 61,8;
+  - alça topo-esq arrastada 155 px;
+  - Esfera: hash muda e o quad fica igual;
+  - Salvar na galeria: toast `Salvo em Pictures/ProductPhoto/mockup_mug_20261106_151019.jpg`;
+  - Inserir: +1 `image` 1200×1200 e a folha fecha;
+  - nenhuma exceção JS.
+- **T3** (APK do fix):
+  - `task12` 40/40, `task14` 50/50, `task10` 13/13. A 1ª tentativa da `task12` abortou no `launchEditor` porque
+    "Novo design" não apareceu (uiautomator, antes de qualquer verificação, `t3-task12/e2e-tentativa1-launch.txt`). A
+    repetição passou.
+  - Manual pelo driver: Exportar → "Ver em mockup" abre o `MockupScreen` com os 4 planos (`t3-ver-em-mockup/`).
+- **T4:** `fix/logcat-pid25178.txt` (PID da T2, 15:09:48–15:10:35 no relógio do emulador). Sem `FATAL`, ANR nem
+  `AndroidRuntime` do app, e sem erro de console. Só aparece o que é de ambiente e já existia antes:
+  - `UnsatisfiedLinkError` e `Receiver not registered` da telemetria do ONNX, também presentes no PID 8563 às 13:02,
+    antes deste teste;
+  - `Seed missing signature` do WebView;
+  - `OpenGLRenderer swap behavior` do emulador;
+  - o aviso INFO `Canvas2D willReadFrequently` vindo do `getImageData`.
+
+**Falta para `done/`:** o dono validar no aparelho dele (de preferência o moto g86, com toque real nas alças). Na
+validação, conferir o realismo visual da fusão nas dobras da Ecobag e da Camiseta e o "Imagem selecionada" com uma foto
+real (sem prova no E2E, que usou "Design atual"). O emulador ficou com o `mockup_mug_*.jpg` da T2 na galeria.
+
+
 > **Divisão (decisão do dono, 2026-11-05).** O planning 20261105-1638 bloqueou a TASK-08 original (motor 2.5D/3D
 > inteiro + caixa 3D + detecção Sobel) por tamanho: ~1.550–1.700 linhas novas, acima do teto de ~1.500 de uma sessão
 > de dev. Esta task ficou com o **motor 2.5D (plano com malha, cilindro, esfera), a fusão de luz e dobras e o estúdio
