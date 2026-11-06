@@ -239,3 +239,28 @@ Item é task: "causa" = funcionalidade ausente. Base conferida: `80b97d7`.
   integração num `mockupStudio.ts` que ainda não existe hoje (ler o que a TASK-08 deixou e adaptar); ~350–450 linhas.
 - teste: effort medium, ultrathink não — roteiro E2E definido, com o seletor do sistema já provado em outro script;
   sinais numéricos por `evaluate`.
+
+### Nota do dev (pipeline 20261106-0749, 2026-11-06) — plano conferido contra a base `e290d05`
+Símbolos abertos antes de escrever:
+- `editor-web/src/mockup/mockupStudio.ts::openMockupStudio` (TASK-08 + TASK-19) — estado em closures (`tpl`, `quad`,
+  `baseImage`, `basePreview` ≤ 512 px, `shape`); `choose(t)` carrega `contentUrl(t.file)` (`content.ts::contentUrl`
+  devolve URL `https://` como está → serve o blob do `pickImage` sem mudança), põe `quad = t.quad`, `placeHandles()`,
+  `schedule()`; em erro de carga: `toast(describe(e))` e retorna, `tpl` intacto. Estado de leitura:
+  `window.__mockupStudio.state()` (`template`, `quad`, `baseWidth`, `renders`…) e `canvas.dataset.state`.
+  `setBoxMode(on)` esconde alças e controles da superfície no modo Caixa 3D (`tpl.shape === 'box3d'`).
+- `mockupEngine.ts` — `Pixels`, `Quad` (TL,TR,BR,BL), `isConvexQuad`, `ARC_DEFAULT`, `SHADING_DEFAULT`: batem com o resumo
+  do plano.
+- `dom.ts::setBusy/toast/button/h` exportados; `bridge.ts::BridgeRequestError.code`; `protocol.ts::BlobResult`.
+
+Correções ao plano (vale esta versão):
+1. **Filtro de ponto isolado:** "≥ 2 vizinhos-ponto no 3×3" NÃO descarta o pixel claro isolado do caso (g): o Sobel de
+   um pixel isolado acende os 8 vizinhos dele (G = 2·Δ nos laterais, √2·Δ nas diagonais, acima de 0,25·P99), e cada um
+   tem 2+ vizinhos no anel. Troca: **componentes conexos** (8-vizinhança) dos pontos; ficam só os componentes com
+   tamanho ≥ max(12, 10 % do maior). Vale para os dois caminhos (alfa e Sobel).
+2. **Detectar usa o `basePreview`** (a base já reduzida a ≤ 512 px pelo navegador, lida no `choose`) em vez de redesenhar
+   a base num canvas novo: o detector reduz por média de área até 256 e o resultado é reescalado por
+   `tpl.width / basePreview.width` (e o análogo vertical). Sem caminho novo de `SecurityError`.
+3. **"🎯 Detectar superfície" fica escondido no modo Caixa 3D** (como as alças): lá o quad não é editável pelo usuário
+   (vira o retângulo de encaixe da caixa). Em qualquer outra base (template 2.5D, plano ou foto própria) atua.
+4. Cantos do caminho alfa usam o canto EXTERNO do pixel extremo (TL → (x, y), BR → (x+1, y+1)…), exato para forma
+   alinhada; no Sobel, o centro do pixel (a borda Sobel tem 1 px de cada lado do degrau).
