@@ -119,6 +119,8 @@ export const CUSTOM_PROPERTIES = [
   'tableData',
   // TASK-10: camada que recebe um campo do lote (⚡ Gerar em lote): 'produto', 'preco_de', …, 'foto'
   'mergeField',
+  // TASK-07: nitidez, temperatura e duotone (chip + cores) que a folha Filtros relê; os filtros ficam em `filters`
+  'filterAdjust',
 ] as const;
 
 export const MAX_SIDE = 8000;

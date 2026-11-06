@@ -19,6 +19,7 @@ import { type Adjustments, type CalloutKind, Editor, type FilterPreset, renderTh
 import { addStop, brandGradient, evenStops, GRADIENT_PRESETS, gradientCss, type GradientSpec, MAX_STOPS, removeStop, reverseStops } from './gradients';
 import { CAP_OPTIONS, type CapStyle, type ConnectorShape, type ConnectorSpec, DASH_OPTIONS, type DashStyle, SHAPE_OPTIONS, swapEnds } from './connectors';
 import { LIST_OPTIONS, matchSnippet } from './textTools';
+import { BLEND_MODES, brandDuotone, BRAND_DUOTONE_ID, DUOTONE_PRESETS, type DuotoneSpec, isBlendMode, parseFilterAdjust } from './imageFilters';
 import { isFreehandPath, keepAlpha, PEN_MAX, PEN_MIN, PEN_PRESETS, type PenId, penWidth, withAlpha } from './freehandDraw';
 import type { FitMode } from './imageGeometry';
 import { DESIGN_FORMATS, findFormat, formatSvg, GROUP_LABELS, type MediaFormat } from './formats';
@@ -310,7 +311,10 @@ function renderProps(o: FabricObject | undefined): void {
   }
   const merge = isSelection ? null : mergeFieldRow(o);
   if (merge) rows.push(merge);
-  rows.push(h('div', { class: 'row' }, slider('Opacidade', 0, 1, 0.05, o.opacity ?? 1, (v) => editor.set({ opacity: v }))));
+  // Mesclagem (TASK-07): oculta na seleção múltipla (o `set` iria para a seleção transitória e se perderia)
+  rows.push(h('div', { class: 'row' }, slider('Opacidade', 0, 1, 0.05, o.opacity ?? 1, (v) => editor.set({ opacity: v })),
+    isSelection ? null : select('Mesclagem', BLEND_MODES, isBlendMode(o.globalCompositeOperation) ? o.globalCompositeOperation : 'source-over',
+      (v) => editor.set({ globalCompositeOperation: v }))));
   props.replaceChildren(...rows);
   props.classList.add('show');
 }
@@ -1081,6 +1085,10 @@ function showFilters(img: FabricImage): void {
     if (f.type === 'Saturation') adj.saturation = o.saturation;
     if (f.type === 'Blur') adj.blur = o.blur;
   }
+  const extra = parseFilterAdjust(img.get('filterAdjust'));
+  adj.sharpen = extra.sharpen ?? 0;
+  adj.warmth = extra.warmth ?? 0;
+  adj.duotone = extra.duotone;
   const apply = () => editor.applyFilters(img, preset, adj);
   // o preset ativo fica destacado; "Nenhum" zera só o preset, e "Zerar ajustes" só os sliders (§29)
   const chips = FILTERS.map(([id, label]) => button(label, () => {
@@ -1088,8 +1096,23 @@ function showFilters(img: FabricImage): void {
     apply();
     chips.forEach((c, i) => c.classList.toggle('primary', FILTERS[i][0] === preset));
   }, id === preset ? 'primary' : ''));
+  // Duotone (TASK-07): "Duotone da Marca" só com cor primária no brand kit; as cores ficam gravadas no ajuste
+  const brand = brandDuotone(brandKit.colors);
+  const duoOptions: [string, string, DuotoneSpec | undefined][] = [
+    ['none', 'Sem duotone', undefined],
+    ...(brand ? [[BRAND_DUOTONE_ID, 'Duotone da Marca', brand] as [string, string, DuotoneSpec]] : []),
+    ...DUOTONE_PRESETS.map((d): [string, string, DuotoneSpec] => [d.id, d.label, { id: d.id, shadow: d.shadow, highlight: d.highlight }]),
+  ];
+  const duoActive = () => adj.duotone?.id ?? 'none';
+  const duoChips = duoOptions.map(([id, label, spec]) => button(label, () => {
+    adj.duotone = spec;
+    apply();
+    duoChips.forEach((c, i) => c.classList.toggle('primary', duoOptions[i][0] === duoActive()));
+  }, `duotone-chip${id === duoActive() ? ' primary' : ''}`));
   const reset = () => {
     adj.brightness = adj.contrast = adj.saturation = adj.blur = 0;
+    adj.sharpen = adj.warmth = 0;
+    adj.duotone = undefined;
     apply();
     showFilters(img);
   };
@@ -1100,7 +1123,10 @@ function showFilters(img: FabricImage): void {
       slider('Brilho', -0.6, 0.6, 0.02, adj.brightness, (v) => { adj.brightness = v; apply(); }),
       slider('Contraste', -0.6, 0.6, 0.02, adj.contrast, (v) => { adj.contrast = v; apply(); }),
       slider('Saturação', -1, 1, 0.02, adj.saturation, (v) => { adj.saturation = v; apply(); }),
-      slider('Desfoque', 0, 0.5, 0.01, adj.blur, (v) => { adj.blur = v; apply(); })),
+      slider('Desfoque', 0, 0.5, 0.01, adj.blur, (v) => { adj.blur = v; apply(); }),
+      slider('Nitidez', 0, 1, 0.05, adj.sharpen, (v) => { adj.sharpen = v; apply(); }),
+      slider('Temperatura', -1, 1, 0.05, adj.warmth, (v) => { adj.warmth = v; apply(); })),
+    h('div', { class: 'chips duotone' }, h('span', { class: 'hint' }, 'Duotone:'), ...duoChips),
     h('div', { class: 'row' }, button('Zerar ajustes', reset))));
 }
 

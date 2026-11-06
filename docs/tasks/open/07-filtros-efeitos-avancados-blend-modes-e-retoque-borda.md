@@ -309,3 +309,47 @@ Task: a "causa" é a funcionalidade ausente. Linhas da base `80b97d7` (as do pla
 - dev: effort medium, ultrathink sim — mudança localizada em filtros nativos, mas com decisões finas já descritas
   (`opaque: false`, `filterAdjust`, ordem da cadeia, campos opcionais em `Adjustments`) que precisam ser seguidas.
 - teste: effort medium, ultrathink nao — E2E nos moldes de `task11`/`task12`; pixels com tolerância.
+
+### Conferência do dev (pipeline 20261106-0749, 2026-11-06, antes da 1ª edição)
+Símbolos reabertos na base `465e0c0` e o plano confere: `editor.ts::applyFilters` (L1916), `Adjustments` (L91),
+`set` (L1353), `renderPageCanvas` (L2147), `load`/`toDocument` (L465/L507); `main.ts::renderProps` (L261, Opacidade
+L313), `showFilters` (L1074), `brandKit` (L47), `FILTERS` (L1029); `dom.ts::select`/`slider`; `document.ts::CUSTOM_PROPERTIES` (L97).
+Fabric conferido: `Convolute_3_0` usa `(w - 1.0)` e preserva o alfa da fonte; `ColorMatrix` padrão `colorsOnly: true`
+(2D não mexe no alfa) e no GL `color *= uColorMatrix` com a coluna de alfa `m15..m18` → linha de alfa identidade
+preserva o recorte; o backend GL usa `premultipliedAlpha: false` (offset do duotone em pixel alfa 0 continua invisível,
+igual ao `Brightness` de hoje). `TMatColorMatrix` não é exportado no topo do pacote → `imageFilters.ts` declara a sua
+tupla de 20 (estruturalmente igual). Nada no plano a corrigir.
+
+## Correcao (pipeline 20261106-0749, rodada 1)
+
+O que mudou (`arquivo::simbolo`) e por quê — segue o Planejamento sem desvio:
+- `editor-web/src/imageFilters.ts` (novo) — `BLEND_MODES` (16, rótulos da §2.1) + `isBlendMode`; `sharpenKernel(s)`
+  (soma 1); `warmthMatrix(w)` (ganho R `1+0.15w` / B `1−0.15w`, preto continua preto); `hexToRgb01`;
+  `duotoneMatrix(sombra, destaque)` (linha c = `(h_c−s_c)·[0.299, 0.587, 0.114]`, offset `s_c`, linha de alfa identidade;
+  `null` se a cor não for hex); `DUOTONE_PRESETS` (Cyberpunk `#240046→#00f5d4`, Sépia Ouro `#3e2a14→#f4d58d`, Azul
+  Profundo `#0b1d51→#9ad1ff`); `brandDuotone(colors)` (primária → secundária ou `#ffffff`); `FilterAdjust`,
+  `parseFilterAdjust` (defensivo para rascunho) e `compactFilterAdjust` (zeros somem; nada → `undefined`).
+- `editor-web/src/editor.ts::Adjustments` — `sharpen?`, `warmth?`, `duotone?` opcionais. `::applyFilters` — cadeia fixa
+  preset → brilho → contraste → saturação → `ColorMatrix(warmthMatrix)` → `ColorMatrix(duotoneMatrix)` →
+  `Convolute({ opaque: false })` → blur; grava `filterAdjust` (o duotone só entra se a matriz for válida).
+- `editor-web/src/document.ts::CUSTOM_PROPERTIES` — `'filterAdjust'`.
+- `editor-web/src/main.ts::renderProps` — `select('Mesclagem', BLEND_MODES, …)` na linha da Opacidade, oculto em
+  `ActiveSelection`; valor fora da lista (ex.: `destination-out` vindo de outro lugar) mostra Normal.
+- `editor-web/src/main.ts::showFilters` — relê `filterAdjust`; sliders `Nitidez` (0–1, 0.05) e `Temperatura` (−1–1, 0.05);
+  linha `Duotone:` com chips `.duotone-chip` (`Sem duotone`, `Duotone da Marca` só com primária no kit, 3 presets), chip
+  ativo com `.primary`; `Zerar ajustes` zera também nitidez, temperatura e duotone.
+- `editor-web/test/imageFilters.test.ts` (novo, 12 testes) — kernel e matrizes pelo `applyTo2d` real do Fabric (preto →
+  sombra, branco → destaque, alfa intacto; borda mais forte com a nitidez; temperatura), 16 modos, round-trip de
+  `globalCompositeOperation` (`Rect.toObject/fromObject`) e de imagem com `filterAdjust` + 2 `ColorMatrix` + `Convolute`.
+- `tools/e2e/task07.mjs` (novo) — a T2 do Plano de teste (passos 1–4) + passo 5: `Zerar ajustes` remove os novos filtros e
+  o `filterAdjust`. Chips do duotone achados por `button.duotone-chip`.
+
+Provas offline (em `editor-web/`): `npx tsc --noEmit` → 0; `npx vitest run test/imageFilters.test.ts` → 12/12;
+`npx vitest run` → 28 arquivos, 309 testes, 0 falhas; `node --check tools/e2e/task07.mjs` → ok.
+
+Ajustes ao Plano de teste: nenhum além do passo 5 acima. O E2E não depende de `uiFind`: no APK da base os checks de
+`Mesclagem`, sliders e chips falham (controle positivo) sem abortar o script.
+
+Build do helper (`build --bug task-07-…`): exit 0 (`npm run build` + vitest + `:app:assembleDebug testDebugUnitTest`,
+BUILD SUCCESSFUL em 5m03s). Bundle regerado: `index.html` + `assets/index-DSfrd14t.js` (novo; `index-CK5tbOIb.js`
+removido, ambos por `claim`); `index--MpGjl2x.css` só mudou em fim de linha e foi devolvido ao commitado.

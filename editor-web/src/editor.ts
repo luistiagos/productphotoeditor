@@ -64,6 +64,7 @@ import { collectTextLayers, countMatches, detectListStyle, findAndReplaceInText,
 import { FREEHAND_DECIMATE, FREEHAND_LAYER, isFreehandPath } from './freehandDraw';
 import { encodeQr, isQrConfig, type QrConfig, qrLayout, qrSvg } from './qrcode';
 import { buildTable, isTableData, type Measure, type TableData } from './table';
+import { compactFilterAdjust, type DuotoneSpec, duotoneMatrix, sharpenKernel, warmthMatrix } from './imageFilters';
 
 FabricObject.customProperties = [...CUSTOM_PROPERTIES];
 installWarpRenderer(Textbox);
@@ -88,7 +89,11 @@ export type ShapeKind = 'rect' | 'rounded' | 'circle' | 'triangle' | 'line' | 's
 export const SWAP_KINDS: ShapeKind[] = ['rect', 'rounded', 'pill', 'circle', 'triangle', 'star', 'badge-hex'];
 export type CalloutKind = 'pin' | 'dimension' | 'zoom' | 'curved-arrow';
 export type FilterPreset = 'none' | 'grayscale' | 'sepia' | 'vintage' | 'polaroid' | 'kodachrome' | 'invert';
-export interface Adjustments { brightness: number; contrast: number; saturation: number; blur: number }
+/** Sliders da folha Filtros. `sharpen`/`warmth`/`duotone` (TASK-07) são opcionais e relidos de `filterAdjust`. */
+export interface Adjustments {
+  brightness: number; contrast: number; saturation: number; blur: number;
+  sharpen?: number; warmth?: number; duotone?: DuotoneSpec;
+}
 /** Formatos de raster do `toDataURL` do Fabric 7.4 (`ImageFormat`). */
 export type RasterFormat = 'png' | 'jpeg' | 'webp';
 
@@ -1927,10 +1932,18 @@ export class Editor {
     if (adj.brightness) list.push(new filters.Brightness({ brightness: adj.brightness }));
     if (adj.contrast) list.push(new filters.Contrast({ contrast: adj.contrast }));
     if (adj.saturation) list.push(new filters.Saturation({ saturation: adj.saturation }));
+    // TASK-07, ordem fixa: temperatura → duotone → nitidez → desfoque. Convolute com `opaque: false` (o padrão): o
+    // shader GL `Convolute_3_1` (opaque) do Fabric 7.4.0 não compila em GLSL ES 1.0 (`w - 1`) [[task-07-filtros-efeitos-avancados-blend-modes-e-retoque-borda]]
+    if (adj.warmth) list.push(new filters.ColorMatrix({ matrix: warmthMatrix(adj.warmth) }));
+    const duo = adj.duotone ? duotoneMatrix(adj.duotone.shadow, adj.duotone.highlight) : null;
+    if (duo) list.push(new filters.ColorMatrix({ matrix: duo }));
+    if (adj.sharpen) list.push(new filters.Convolute({ matrix: sharpenKernel(adj.sharpen), opaque: false }));
     if (adj.blur) list.push(new filters.Blur({ blur: adj.blur }));
     img.filters = list;
     img.applyFilters();
     img.set('filterPreset', preset);
+    // o que a folha relê (os dois ColorMatrix não se distinguem por `type`); some do JSON quando tudo zera
+    img.set('filterAdjust', compactFilterAdjust({ sharpen: adj.sharpen, warmth: adj.warmth, duotone: duo ? adj.duotone : undefined }));
     this.commit();
   }
 
