@@ -236,8 +236,8 @@ await step('F grade', async () => {
   r.check('F: a grade não sai no PNG exportado (fundo branco no mesmo ponto)', exported.every((px) => isColor(px, [255, 255, 255], 3)), JSON.stringify(exported));
   shot('13-F-tercos');
   await selectRect();
-  const s = await dragRectLeftTo(360 + 3 / Z0);
-  r.check('F: arrastar a ~3 px de tela de x = 360 → borda esquerda encaixa em 360 (tol 0,5)', near(s.bl, 360, 0.5), `left ${s.bl.toFixed(2)}`);
+  const s = await dragRectLeftTo(360 + 1.5 / Z0);
+  r.check('F: arrastar a ~1,5 px de tela de x = 360 → borda esquerda encaixa em 360 (tol 0,5)', near(s.bl, 360, 0.5), `left ${s.bl.toFixed(2)}`);
   shot('13-F-snap');
   // ampliado (200%) a linha continua no lugar certo
   await p.tap('#zoom-pill .zoom-in');
@@ -305,7 +305,7 @@ await step('H guia manual', async () => {
   const px = await screenPixels([60, 80, 100, 120].map((y) => [200, y + 800]));
   r.check('H: a guia aparece na tela em x = 200 (violeta)', px.some((c) => isColor(c, [124, 77, 255], 60)), JSON.stringify(px));
   await selectRect();
-  const s = await dragRectLeftTo(200 + 3 / Z0);
+  const s = await dragRectLeftTo(200 + 1.5 / Z0);
   r.check('H: arrastar para perto → borda esquerda encaixa em 200 (tol 0,5)', near(s.bl, 200, 0.5), `left ${s.bl.toFixed(2)}`);
   shot('13-H-guia');
   await p.evaluate('(editor.clearCustomGuides(), true)');

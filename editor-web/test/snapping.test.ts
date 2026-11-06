@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { computeSnap, type BoundingBox } from '../src/snapping';
+import { Rect } from 'fabric/node';
+import { computeSnap, type BoundingBox, snapMovingTarget } from '../src/snapping';
 
 describe('computeSnap', () => {
   const docWidth = 1080;
@@ -116,5 +117,51 @@ describe('computeSnap com alvos extras (TASK-13: terços e guias manuais)', () =
     const target: BoundingBox = { left: 300, top: 300, width: 10, height: 10 };
     const res = computeSnap(target, W, H, [], 6, { x: [Number.NaN, Number.POSITIVE_INFINITY], y: [] });
     expect(res.deltaX).toBe(0);
+  });
+});
+
+describe('snapMovingTarget (object:moving real do Fabric: caixa em cache até o setCoords)', () => {
+  const W = 1080;
+  const H = 1080;
+  const thirds = { x: [W / 3, (2 * W) / 3], y: [H / 3, (2 * H) / 3] };
+  const rect = () => {
+    const r = new Rect({ left: 540, top: 540, width: 324, height: 228, originX: 'center', originY: 'center', strokeWidth: 0 });
+    r.setCoords();
+    return r;
+  };
+
+  it('controle: depois de set(left) sem setCoords o getBoundingRect ainda é o antigo (o que o dragHandler entrega)', () => {
+    const r = rect();
+    r.set('left', 525);
+    expect(r.getBoundingRect().left).toBe(378);
+  });
+
+  it('borda a 3 px de W/3 com a caixa em cache desatualizada encaixa em W/3', () => {
+    const r = rect();
+    r.set('left', 525); // caixa real em 363, cache em 378
+    const snap = snapMovingTarget(r, W, H, [], 17, thirds);
+    expect(r.getBoundingRect().left).toBeCloseTo(360, 9);
+    expect(snap.guides.some((g) => g.axis === 'x' && g.pos === 360)).toBe(true);
+  });
+
+  it('arrasto em 14 passos (left absoluto pelo dedo, como o dragHandler) termina encaixado em 360', () => {
+    const r = rect();
+    const finalLeft = 540 - (378 - 368.55); // dedo leva a borda a 368,55 (3 px de tela a 35%)
+    for (let i = 1; i <= 14; i++) {
+      r.set('left', 540 + ((finalLeft - 540) * i) / 14); // sem setCoords: o Fabric só chama depois do evento
+      snapMovingTarget(r, W, H, [], 17, thirds);
+    }
+    expect(r.getBoundingRect().left).toBeCloseTo(360, 9);
+  });
+
+  it('guia manual em x = 200: arrasto termina com a borda esquerda em 200', () => {
+    const r = rect();
+    // 1,5 px de tela da guia (4,3 do doc): a borda direita (529) não disputa com o centro da página (540)
+    const finalLeft = 540 - (378 - 204.3);
+    for (let i = 1; i <= 14; i++) {
+      r.set('left', 540 + ((finalLeft - 540) * i) / 14);
+      snapMovingTarget(r, W, H, [], 17, { x: [200], y: [] });
+    }
+    expect(r.getBoundingRect().left).toBeCloseTo(200, 9);
   });
 });

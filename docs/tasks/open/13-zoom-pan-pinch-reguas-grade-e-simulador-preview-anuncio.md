@@ -396,5 +396,17 @@ Causa (aberta na biblioteca): `node_modules/fabric/src/controls/drag.ts::dragHan
 `object:moving` ali dentro; `canvas/Canvas.ts::_performTransformAction` (l.1376–1384) só chama `target.setCoords()` DEPOIS
 do handler. `ObjectGeometry.ts::getBoundingRect` (l.345) usa o `aCoords` em cache → no handler do `Editor` a caixa era a
 do evento anterior e o delta do snap era aplicado sobre a posição nova: o encaixe oscilava e não engatava (vale também para
-o snapping da TASK-01). Correção: `editor-web/src/editor.ts` construtor, `object:moving` — `target.setCoords()` antes de
-`getBoundingRect()`. Pendente nesta sessão (limite de uso): `build --bug`, commit do bundle e `enqueue-test`.
+o snapping da TASK-01). Correção: `editor-web/src/snapping.ts::snapMovingTarget` (novo; tipo estrutural `SnappableTarget`, sem importar o
+Fabric) faz `target.setCoords()` antes de `getBoundingRect()`, chama `computeSnap` e aplica o delta; o `object:moving` do
+`Editor` (construtor) passa a usá-lo.
+
+Prova: `test/snapping.test.ts` "snapMovingTarget" com `Rect` real de `fabric/node` — controle (sem `setCoords` o
+`getBoundingRect` continua o antigo) e arrasto em 14 passos com `left` absoluto (como o `dragHandler`) terminando em
+360 (terços) e em 200 (guia manual). Mutação: tirando o `setCoords()` inicial, 3 casos falham; com ele, 16/16.
+`npx vitest run`: 24 arquivos, 256 testes; `npx tsc --noEmit` limpo.
+
+Achado no caminho (ajuste do Plano de teste, passos F e H do `task13.mjs`): parar o dedo a ~3 px de tela da linha
+deixa a borda esquerda a 8,55 px do doc do alvo, e com o retângulo de 325 px a borda DIREITA fica a ~6,5 px do centro
+da página (540) — o `computeSnap` escolhe corretamente o candidato mais próximo (o centro), então H falharia mesmo com
+o snap certo. O roteiro agora para o dedo a ~1,5 px de tela (`360 + 1.5 / Z0`, `200 + 1.5 / Z0`): só o alvo do passo
+fica dentro do limiar com folga.

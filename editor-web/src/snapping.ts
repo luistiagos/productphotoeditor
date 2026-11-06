@@ -194,6 +194,38 @@ export function computeSnap(
   };
 }
 
+/** O que o snapping precisa de um objeto do Fabric em arrasto (FabricObject satisfaz). */
+export interface SnappableTarget {
+  left: number;
+  top: number;
+  setCoords(): void;
+  getBoundingRect(): BoundingBox;
+  set(props: { left: number; top: number }): unknown;
+}
+
+/**
+ * Um passo do snapping no `object:moving`: encaixa o alvo e devolve as guias a desenhar.
+ * O Fabric 7.4.0 dispara `object:moving` DENTRO do `dragHandler` (controls/drag.ts), depois de `set(left/top)` e ANTES
+ * do `setCoords()` (Canvas._performTransformAction); `getBoundingRect()` lê o `aCoords` em cache, então sem o
+ * `setCoords()` aqui a caixa é a do evento anterior e o encaixe oscila sem engatar.
+ */
+export function snapMovingTarget(
+  target: SnappableTarget,
+  docWidth: number,
+  docHeight: number,
+  otherObjects: BoundingBox[],
+  threshold: number,
+  extra?: ExtraSnapTargets
+): SnapResult {
+  target.setCoords();
+  const snap = computeSnap(target.getBoundingRect(), docWidth, docHeight, otherObjects, threshold, extra);
+  if (snap.deltaX !== 0 || snap.deltaY !== 0) {
+    target.set({ left: target.left + snap.deltaX, top: target.top + snap.deltaY });
+    target.setCoords();
+  }
+  return snap;
+}
+
 /**
  * Detecta espaçamento equidistante entre objetos ordenados horizontalmente ou verticalmente.
  */

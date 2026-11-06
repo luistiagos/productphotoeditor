@@ -44,7 +44,7 @@ import { FfmpegCommandBuilder, type LayerRenderItem } from './video/FfmpegComman
 import { VideoPreview } from './video/VideoPreview';
 import { audioChannels } from './video/audioTrack';
 import type { ExportVideoBundle } from './protocol';
-import { computeSnap, renderGuideLines, type ExtraSnapTargets, type GuideLine } from './snapping';
+import { renderGuideLines, type ExtraSnapTargets, type GuideLine, snapMovingTarget } from './snapping';
 import {
   type GridOverlayMode, gridLines, isValidGuide, type ManualGuide, renderGridOverlay, renderManualGuides, renderOverlayGuide,
   type OverlayGuideMode,
@@ -164,22 +164,11 @@ export class Editor {
       if (!this.snappingEnabled || !target || this.isExporting) return;
       const zoom = this.canvas.getZoom();
       const threshold = 6 / (zoom || 1);
-      // o Fabric dispara object:moving DENTRO do dragHandler, antes do setCoords() (Canvas._performTransformAction):
-      // sem isto a caixa é a do evento anterior e o encaixe oscila sem engatar [[task-13-zoom-pan-pinch-reguas-grade-e-simulador-preview-anuncio]]
-      target.setCoords();
-      const targetBBox = target.getBoundingRect();
       const otherBBoxes = this.canvas.getObjects()
         .filter((o) => o !== target && o.visible && o.get('layerName') !== BACKGROUND_LAYER && o.selectable)
         .map((o) => o.getBoundingRect());
-
-      const snap = computeSnap(targetBBox, this.docWidth, this.docHeight, otherBBoxes, threshold, this.extraSnapTargets());
-      if (snap.deltaX !== 0 || snap.deltaY !== 0) {
-        target.set({
-          left: target.left + snap.deltaX,
-          top: target.top + snap.deltaY,
-        });
-        target.setCoords();
-      }
+      // caixa ATUAL do alvo (o evento chega antes do setCoords do Fabric) [[task-13-zoom-pan-pinch-reguas-grade-e-simulador-preview-anuncio]]
+      const snap = snapMovingTarget(target, this.docWidth, this.docHeight, otherBBoxes, threshold, this.extraSnapTargets());
       this.activeGuides = snap.guides;
       this.canvas.requestRenderAll();
     });
