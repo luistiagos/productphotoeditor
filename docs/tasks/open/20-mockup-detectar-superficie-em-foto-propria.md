@@ -264,3 +264,57 @@ Correções ao plano (vale esta versão):
    (vira o retângulo de encaixe da caixa). Em qualquer outra base (template 2.5D, plano ou foto própria) atua.
 4. Cantos do caminho alfa usam o canto EXTERNO do pixel extremo (TL → (x, y), BR → (x+1, y+1)…), exato para forma
    alinhada; no Sobel, o centro do pixel (a borda Sobel tem 1 px de cada lado do degrau).
+
+## Correcao (pipeline 20261106-0749, rodada 1)
+
+**O que mudou** (`arquivo::simbolo`):
+- `editor-web/src/mockup/surfaceDetector.ts` (novo, puro, sem DOM):
+  - `detectSurfaceQuad(px) → {quad, method: 'alpha'|'sobel'|'fallback'}`, quad em px da entrada, ordem TL,TR,BR,BL.
+    Recorte (≥ 1 % de α ≤ 32 e ≥ 1 % de α > 32) → pontos = α > 32, canto EXTERNO do pixel extremo; senão Sobel 3×3 na
+    luminância, limiar `max(P80(G central [¼..¾]²), 0,25·P99(G), 1e-6)`, fora de 2 px da moldura, centro do pixel.
+    Cantos = extremos nas diagonais (TL mín x+y, TR máx x−y, BR máx x+y, BL mín x−y).
+  - Rejeição de ruído (desvio do plano, ver a Nota do dev): `dropSmallComponents` (componentes conexos 8-viz. menores que
+    max(12, 10 % do maior) saem) e `edgeCoverage` (Sobel com bordas em > 75 % da grade 8×8 = textura → fallback).
+    **Por quê o 2º:** o ruído uniforme do caso (e) passava como `sobel` com quad de 88 % da área (abaixo do teto de 90 %).
+    Medido: ruído 0,95–0,98 da grade; retângulos dos testes 0,16–0,38.
+  - Fallback = `centralQuad(w,h)` (0,2..0,8): imagem < 3 px, < max(16, 0,1 %) pontos, textura, quad não convexo
+    (`mockupEngine::isConvexQuad`), área fora de 2 %..90 %, coordenada não finita.
+  - `downscaleArea(px, 256)`: média por área (RGBA) até o lado maior ≤ 256; devolve a própria entrada se já cabe.
+- `editor-web/src/mockup/mockupStudio.ts::openMockupStudio`:
+  - `📷 Usar foto própria` (`.mockup-own`, acima da grade) → `useOwnPhoto`: `setBusy('Abrindo foto')` →
+    `bridge.request<BlobResult>('pickImage')`; `BridgeRequestError` `cancelled` → silêncio; outro erro →
+    `toast(describe(e))`, estúdio intacto. Sucesso → template de sessão `{id:'own', shape:'plane', file: r.url,
+    quad: centralQuad}` pelo mesmo `choose` dos templates (agora devolve `boolean`; em falha de carga devolve o destaque
+    do tile à base anterior).
+  - `🎯 Detectar superfície` (`.mockup-detect`, 1ª linha dos controles; escondido no modo Caixa 3D, como as alças) →
+    `detect`: `detectSurfaceQuad(basePreview)`, reescala por `tpl.width/basePreview.width` (e vertical), põe o quad,
+    `placeHandles`, re-render; toast "Superfície detectada…" ou "Nenhuma superfície clara: ajuste as 4 alças". Erro →
+    toast "Não foi possível analisar a foto", sem lançar.
+  - Estado de leitura: `__mockupStudio.state().detect` = método da última detecção na base atual (null após `choose`).
+  - **Foto recortada (com α):** `renderFull(kind)` — base opaca (templates, JPEG da galeria) continua JPEG 0,92; base com
+    transparência: `insert` → PNG (o recorte vai transparente ao design), `save` → JPEG sobre branco (sem isso o
+    transparente sairia preto). `baseOpaque` calculado no `choose` (`isOpaque(basePreview)`).
+  - `HINT_SURFACE` cita o 🎯.
+- `editor-web/src/styles.css`: `.mockup-own-row button { flex: 1; }`.
+- `editor-web/test/surfaceDetector.test.ts` (novo, 14 casos): (a)/(a′) retângulo ±15° → sobel ≤ 3 px na ordem;
+  (b) 1024² → ≤ 12 px; (b′) 1200×900 → ≤ 15 px (escalas x/y separadas); (c) trapézio com alfa e RGB igual ao fundo →
+  alpha ≤ 2 px; (c′) o mesmo opaco → fallback; (d) liso → fallback = quad central; (e) ruído LCG → fallback, finito;
+  (f) 2×2, 1×1, 0×0, 2×50 → fallback; (g) + pixel isolado → ainda ≤ 3 px; (h) fundo em gradiente → sobel ≤ 3 px;
+  (i) objeto > 90 % → fallback; `downscaleArea` (média e identidade).
+  **Mutação conferida:** sem o filtro de componentes (`MIN_COMPONENT=1`, `COMPONENT_FRAC=0`) o (g) falha (TL em
+  (11,5;11,5)); sem o teste de textura (`TEXTURE_COVERAGE=2`) o (e) falha.
+- `tools/e2e/task20.mjs` (novo): a T2 do plano + passo 5 (recorte PNG → `alpha`, inserir mantém α = 0 no canto).
+
+**Provas offline (lane, `editor-web/`):** `npx tsc --noEmit` → 0 erros; `npx vitest run test/surfaceDetector.test.ts` →
+14/14; `npx vitest run` → 34 arquivos, 413/413.
+
+**Ajustes ao Plano de teste (T2, `tools/e2e/task20.mjs`):**
+- O script gera as 3 fotos no WebView depois do `launchEditor` e faz `adb push` de cada uma só antes de escolhê-la (a mais
+  nova é a 1ª do seletor): `e2e_task20_rect.png` (1200×900), `e2e_task20_flat.png` (800×600), `e2e_task20_cutout.png`
+  (800×600, trapézio vermelho sobre transparente). Limpeza no `finally` (`rm -f` + `scan_volume`).
+- Arte = fundo azul `#1e50c8` + título (a receita do `task08.mjs`), para a arte se destacar da foto.
+- Arrasto da alça TL: (+40, +30) px CSS (o do `task08.mjs`); (+80, +60) chega perto de virar o quad.
+- Passo 3 (inserir): +1 imagem 1200×900 com `getSrc()` JPEG (foto opaca). Passo 5 (novo): recorte → `detect ===
+  'alpha'`, cantos ≤ 40 px do trapézio, inserir → `getSrc()` PNG e α = 0 no pixel (1,1) da imagem inserida.
+- Controle positivo: na base o script acha os botões ausentes, marca FAIL "ausentes (base sem a TASK-20)" e para.
+- T3: vitest inteiro, `task08.mjs` e `task19.mjs` (o `mockupStudio.ts` é dos dois; a Caixa 3D esconde o 🎯).

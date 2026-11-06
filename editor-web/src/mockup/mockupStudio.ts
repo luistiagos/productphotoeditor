@@ -3,17 +3,20 @@
 // resultado no design ou salva na galeria (export 'save' da ponte, sem Kotlin novo).
 // Modo Caixa 3D (TASK-19): o template `box3d` troca alças e sliders da superfície pela caixa do `box3d.ts` — Rotação X/Y,
 // proporções, perspectiva e arte ou cor por face (frente, lateral, topo); as saídas são as mesmas.
+// Foto própria (TASK-20): "Usar foto própria" põe uma foto da galeria (`pickImage`) como base, num plano; "🎯 Detectar
+// superfície" sugere os 4 cantos pelo `surfaceDetector` (alfa do recorte ou bordas Sobel) e o usuário ajusta nas alças.
 import { FabricImage } from 'fabric';
-import type { Bridge } from '../bridge';
+import { type Bridge, BridgeRequestError } from '../bridge';
 import { contentUrl } from '../content';
 import { button, colorInput, h, openSheet, select, setBusy, slider, toast } from '../dom';
 import type { Editor } from '../editor';
-import type { ExportPayload, ExportResult } from '../protocol';
+import type { BlobResult, ExportPayload, ExportResult } from '../protocol';
 import {
   ARC_DEFAULT, ARC_MAX, ARC_MIN, homographyFromQuads, isConvexQuad, type MockupParams, type MockupTemplate,
-  parseFlatMockupIndex, parseMockup3dIndex, type Pixels, type Pt, type Quad, renderMockup, type Shape, TILT_LIMIT,
-  transformPoints,
+  parseFlatMockupIndex, parseMockup3dIndex, type Pixels, type Pt, type Quad, renderMockup, SHADING_DEFAULT, type Shape,
+  TILT_LIMIT, transformPoints,
 } from './mockupEngine';
+import { centralQuad, type DetectMethod, detectSurfaceQuad } from './surfaceDetector';
 import {
   type BoxFace, boxFaces, type BoxParams, type BoxSource, type BoxTemplate, FACE_SLOTS, type FaceSlot, FOV_MAX, FOV_MIN,
   parseBoxTemplates, RATIO_MAX, RATIO_MIN, type Rect, rectOfQuad, renderBox, ROT_X_LIMIT, ROT_Y_LIMIT,
@@ -31,6 +34,8 @@ const PREVIEW_MAX = 512;
 /** Lado máximo da arte lida (design ou imagem). */
 const ART_MAX = 1600;
 const SHAPE_LABELS: [Shape, string][] = [['plane', 'Plano'], ['cylinder', 'Cilindro'], ['sphere', 'Esfera']];
+/** id do template de sessão da foto própria (não vai para índice nenhum). */
+const OWN_ID = 'own';
 
 type ArtSource = 'design' | 'image';
 /** Fonte de uma face da caixa: a arte (design/imagem) ou uma cor sólida. */
@@ -40,8 +45,8 @@ const FACE_LABELS: Record<FaceSlot, string> = { front: 'Frente', side: 'Lateral'
 /** Papelão: as cores da lateral/topo quando o design não dá para ler. */
 const KRAFT = '#c49c6c';
 const BOX_SHADOW = 0.3;
-const HINT_SURFACE = 'Arraste as alças para encaixar a arte. Arco e Inclinação valem para Cilindro e Esfera; a fusão '
-  + 'traz as dobras e a luz da foto para a arte.';
+const HINT_SURFACE = 'Arraste as alças para encaixar a arte (🎯 Detectar superfície sugere os cantos). Arco e Inclinação '
+  + 'valem para Cilindro e Esfera; a fusão traz as dobras e a luz da foto para a arte.';
 const HINT_BOX = 'Gire a caixa com Rotação X e Y. Cada face recebe o design, a imagem selecionada ou uma cor; a arte '
   + 'preenche a face sem deformar (ajuste Largura e Altura à proporção dela para não cortar).';
 
@@ -88,6 +93,12 @@ function scaledCanvas(src: CanvasImageSource, w: number, hgt: number, max: numbe
   return c;
 }
 
+/** Todos os pixels com α = 255. */
+function isOpaque(p: Pixels): boolean {
+  for (let o = 3; o < p.data.length; o += 4) if (p.data[o] !== 255) return false;
+  return true;
+}
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const im = new Image();
@@ -122,10 +133,14 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
   let artPreview: Pixels | null = null;
   let baseImage: HTMLImageElement | null = null;
   let basePreview: Pixels | null = null;
+  /** A base não tem pixel transparente (os templates; a foto própria em JPEG). */
+  let baseOpaque = true;
   let renders = 0;
   let raf = 0;
   let loadToken = 0;
   let closed = false;
+  /** Resultado da última detecção na base atual (null: nenhuma desde que a base foi escolhida). */
+  let lastDetect: DetectMethod | null = null;
   // caixa 3D
   const box: BoxParams = { rotX: 0, rotY: 0, boxRatio: { w: 1, h: 1, d: 1 }, fov: 35 };
   const faceArt: Record<FaceSlot, FaceArt> = { front: 'design', side: 'color', top: 'color' };
@@ -155,6 +170,9 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
   artRow.classList.add('mockup-art');
   const insertBtn = button('Inserir no design', () => void insert(), 'primary mockup-insert');
   const saveBtn = button('Salvar na galeria', () => void save(), 'mockup-save');
+  const ownBtn = button('📷 Usar foto própria', () => void useOwnPhoto(), 'mockup-own');
+  const detectBtn = button('🎯 Detectar superfície', () => detect(), 'mockup-detect');
+  const detectRow = h('div', { class: 'row' }, detectBtn);
   // ---------- controles da caixa 3D ----------
   const boxSlider = (label: string, cls: string, min: number, max: number, step: number, set: (v: number) => void) => {
     const row = slider(label, min, max, step, min, (v) => { set(v); schedule(); });
@@ -186,11 +204,12 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
   const boxControls = h('div', { class: 'mockup-box' }, rotXRow, rotYRow, boxWRow, boxHRow, boxDRow, fovRow, ...faceRowEls);
   boxControls.hidden = true;
 
-  const controls = h('div', { class: 'mockup-controls' }, shapeRow, artRow, arcRow, tiltRow, fuseRow, boxControls,
+  const controls = h('div', { class: 'mockup-controls' }, detectRow, shapeRow, artRow, arcRow, tiltRow, fuseRow, boxControls,
     h('div', { class: 'row' }, insertBtn, saveBtn));
   controls.hidden = true;
   const hint = h('p', { class: 'hint' }, HINT_SURFACE);
-  const root = h('div', { class: 'mockup-studio' }, grid, stage, controls, hint);
+  const ownRow = h('div', { class: 'row mockup-own-row' }, ownBtn);
+  const root = h('div', { class: 'mockup-studio' }, ownRow, grid, stage, controls, hint);
   const closeSheet = openSheet('📦 Mockup 3D', root, { tall: true });
   const close = () => { closed = true; cancelAnimationFrame(raf); closeSheet(); };
   document.querySelector('#sheet .scrim')?.addEventListener('click', () => { closed = true; });
@@ -207,6 +226,8 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
     template: tpl?.id ?? null, shape: isBox() ? 'box3d' : shape, quad, arcDeg, tiltDepth, shadingStrength: strength,
     art: artSource, baseWidth: tpl?.width ?? 0, baseHeight: tpl?.height ?? 0, previewWidth: canvas.width,
     previewHeight: canvas.height, renders,
+    // foto própria (TASK-20): método da última detecção na base atual ('alpha' | 'sobel' | 'fallback' | null)
+    detect: lastDetect,
     // caixa 3D: parâmetros, fonte de cada face e as faces visíveis do último preview (ordem de pintura; quads em px do preview)
     box: isBox() ? {
       rotX: box.rotX, rotY: box.rotY, boxRatio: { ...box.boxRatio }, fov: box.fov, faceArt: { ...faceArt },
@@ -315,7 +336,8 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
 
   /** Modo caixa: troca alças e controles da superfície pelos da caixa (e vice-versa). */
   function setBoxMode(on: boolean): void {
-    for (const el of [shapeRow, artRow, arcRow, tiltRow, fuseRow, ...handles]) el.hidden = on;
+    // o quad da caixa não é editável (vira o retângulo de encaixe): sem alças, sem detecção
+    for (const el of [shapeRow, artRow, arcRow, tiltRow, fuseRow, detectRow, ...handles]) el.hidden = on;
     boxControls.hidden = !on;
     hint.textContent = on ? HINT_BOX : HINT_SURFACE;
   }
@@ -338,20 +360,28 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
     }, h('img', { alt: t.name, src: contentUrl(t.thumb) }), h('span', {}, t.name))));
   }
 
-  async function choose(t: StudioTemplate): Promise<void> {
+  const markTile = (id: string | undefined) => {
+    for (const b of grid.querySelectorAll<HTMLElement>('.mockup-tile')) b.classList.toggle('primary', b.dataset.id === id);
+  };
+
+  /** Carrega a base de `t` (do conteúdo empacotado, ou a URL de blob da foto própria) e a põe no estúdio. */
+  async function choose(t: StudioTemplate): Promise<boolean> {
     const token = ++loadToken;
-    for (const b of grid.querySelectorAll<HTMLElement>('.mockup-tile')) b.classList.toggle('primary', b.dataset.id === t.id);
+    markTile(t.id);
     let img: HTMLImageElement;
     try {
       img = await loadImage(contentUrl(t.file));
     } catch (e) {
+      if (token === loadToken) markTile(tpl?.id); // a base anterior continua
       toast(describe(e));
-      return;
+      return false;
     }
-    if (token !== loadToken || closed) return;
+    if (token !== loadToken || closed) return false;
     tpl = t;
     baseImage = img;
+    lastDetect = null;
     basePreview = canvasPixels(scaledCanvas(img, t.width, t.height, PREVIEW_MAX));
+    baseOpaque = isOpaque(basePreview);
     canvas.width = basePreview.width;
     canvas.height = basePreview.height;
     quad = t.quad.map((p) => [p[0], p[1]]) as Quad;
@@ -376,6 +406,56 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
     placeHandles();
     schedule();
     stage.scrollIntoView({ block: 'nearest' });
+    return true;
+  }
+
+  // ---------- foto própria (TASK-20) ----------
+  /** Galeria → base do estúdio (plano, quad central). Cancelar no seletor não avisa; outro erro → toast, estúdio intacto. */
+  async function useOwnPhoto(): Promise<void> {
+    setBusy('Abrindo foto');
+    try {
+      let r: BlobResult;
+      try {
+        r = await bridge.request<BlobResult>('pickImage');
+      } catch (e) {
+        if (!(e instanceof BridgeRequestError && e.code === 'cancelled')) toast(describe(e));
+        return;
+      }
+      if (closed) return;
+      const own: MockupTemplate = {
+        id: OWN_ID, name: 'Foto própria', shape: 'plane', file: r.url, thumb: r.url, width: r.width, height: r.height,
+        quad: centralQuad(r.width, r.height), arcDeg: ARC_DEFAULT, tiltDepth: 0, shadingStrength: SHADING_DEFAULT,
+      };
+      if (await choose(own)) toast('Foto carregada: toque em 🎯 Detectar superfície ou arraste as alças');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /**
+   * Sugere os 4 cantos na base atual: o detector roda sobre o `basePreview` (≤ 512 px; ele reduz a 256) e o quad volta
+   * para px da base. Sem superfície clara → quad central e aviso para ajustar as alças.
+   */
+  function detect(): void {
+    if (!tpl || !basePreview || isBox()) return;
+    let method: DetectMethod;
+    try {
+      const r = detectSurfaceQuad(basePreview);
+      const kx = tpl.width / basePreview.width;
+      const ky = tpl.height / basePreview.height;
+      const next = r.quad.map(([x, y]) => [x * kx, y * ky]) as Quad;
+      if (!isConvexQuad(next)) throw new Error('quad detectado inválido');
+      quad = next;
+      method = r.method;
+    } catch (e) {
+      console.warn('mockup detectar', e);
+      toast('Não foi possível analisar a foto');
+      return;
+    }
+    lastDetect = method;
+    placeHandles();
+    schedule();
+    toast(method === 'fallback' ? 'Nenhuma superfície clara: ajuste as 4 alças' : 'Superfície detectada: ajuste as alças se precisar');
   }
 
   // ---------- render ----------
@@ -427,8 +507,12 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
     canvas.dataset.state = JSON.stringify(state());
   }
 
-  /** Render na resolução da base → dataURL JPEG 0,92 (a base é opaca; PNG de 1200–1600² inflaria o rascunho). */
-  async function renderFull(): Promise<string | null> {
+  /**
+   * Render na resolução da base → dataURL JPEG 0,92 (base opaca; PNG de 1200–1600² inflaria o rascunho). Base com
+   * transparência (foto própria recortada, TASK-20): `insert` → PNG, que leva o recorte ao design; `save` → JPEG sobre
+   * branco (sem isso o transparente sai preto).
+   */
+  async function renderFull(kind: 'insert' | 'save'): Promise<string | null> {
     if (!tpl || !baseImage) return null;
     const boxMode = isBox();
     if (!boxMode && !artFull) { toast('Sem arte para aplicar'); return null; }
@@ -439,14 +523,23 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
     const id = ctx.createImageData(out.width, out.height);
     id.data.set(out.data);
     ctx.putImageData(id, 0, 0);
-    return c.toDataURL('image/jpeg', 0.92);
+    if (baseOpaque) return c.toDataURL('image/jpeg', 0.92);
+    if (kind === 'insert') return c.toDataURL('image/png');
+    const flat = document.createElement('canvas');
+    flat.width = c.width;
+    flat.height = c.height;
+    const fx = flat.getContext('2d')!;
+    fx.fillStyle = '#ffffff';
+    fx.fillRect(0, 0, flat.width, flat.height);
+    fx.drawImage(c, 0, 0);
+    return flat.toDataURL('image/jpeg', 0.92);
   }
 
   async function insert(): Promise<void> {
     setBusy('Gerando o mockup');
     try {
       await nextFrame();
-      const url = await renderFull();
+      const url = await renderFull('insert');
       if (!url) return;
       await editor.addImage(url, { fit: 0.8 });
       close();
@@ -462,7 +555,7 @@ export function openMockupStudio(deps: MockupStudioDeps): void {
     setBusy('Salvando o mockup');
     try {
       await nextFrame();
-      const data = await renderFull();
+      const data = await renderFull('save');
       if (!data) return;
       const name = `mockup_${tpl?.id ?? 'design'}`.replace(/[^\p{L}\p{N}_-]+/gu, '_');
       const r = await bridge.request<ExportResult>('export', { format: 'jpg', action: 'save', name, data } satisfies ExportPayload);
