@@ -421,3 +421,29 @@ Evidência: `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidenci
   (~300 MB cada + libs nativas `Stored`); depois da tentativa o livre caiu a 384 MB. Sem apagar dado do app ou
   desinstalar (proibido pelo manual), não cabe. **Para destravar:** o Moto g86 no adb, ou o dono liberar ≥ ~1 GB no
   `pp_api34`. O emulador segue com o APK da BASE.
+- **Retomada após limite de uso (2026-11-06, ~17h):** `sync` → base `9033756`, código igual. Evidência em `emu2\` e `moto\`
+  da mesma pasta.
+  - **Moto g86** (`ZY32LMNN9B`, adb-tls) estava bloqueado com credencial (`deviceLocked=1`) no início → caí no
+    `emulator-5554` (recriado, 12 GB). Mais tarde o emulador sumiu do adb (processo fechado, não por mim) e o Moto
+    apareceu desbloqueado: segui nele (`E2E_FORMAT="Post Instagram"`).
+  - **Controle positivo:** emulador 3/3 (`emu2\base-task18-guardado.txt`, recorte U²-Net p) e Moto 3/3
+    (`moto\base-task18-guardado.txt`, ML Kit) — sem `.refine-btn` e sem `originalSrcBeforeCutout` na base (cópia guardada do
+    script, ver defeito acima).
+  - **T2 com o fix (sha256 do APK conferido no aparelho):** `task18.mjs` **20/20 no emulador** (`emu2\fix-task18.txt`) e
+    **20/20 no Moto** (`moto\fix-task18.txt`). Prints `emu2\fix\02-restaurando.png` (faixa restaurada com borda suave) e
+    `04-apagado.png` (faixa apagada, toast "Retoque aplicado"). Passo 6 caiu no ✨ Remover fundo (upscale recusa > 1 MP).
+    Observação: o passo 7 confere a `src` DEPOIS do passo 6 (`/blob/ai-…`), não o `/blob/edit-…`; no Moto o 2º recorte do
+    ML Kit tirou o pixel restaurado (P_t α=0 salvo e reaberto) — o script prova "salvar/reabrir mantém a imagem", e a
+    sobrevivência do retoque em si fica provada pelo passo 5 (↶ volta ao blob `edit-` do retoque) e pelo emulador (α=193).
+  - **T3 E2E no emulador (fix):** `task11` 25/25, `task14` 50/50, `task09` 26/26 (`emu2\t3-task*.txt`; precisou de uma
+    foto na galeria do emulador recriado — `e2e18_galeria.png` posta por mim em `DCIM/Camera`, que sumiu com o emulador).
+    `task10` não passou do `launchEditor` 4 vezes ("Novo design" não apareceu: o laço do `cdp.mjs` toca de novo quando a
+    lista de formatos demora > 1,2 s; tela nativa, fora do fix) e o emulador caiu antes de comparar com a base.
+  - **T3 no Moto (fix), INCOMPLETO:** `task11` 15/25 (arrasto do grupo, inspetor e galeria — sem comparação com a base
+    ainda), `task14` parou no `launchEditor` (o seletor de fotos deixado aberto pelo `task11` cobria o app), `task09`
+    interrompido: o lote em segundo plano foi **morto pelo Claude Code por falta de memória na máquina**, sem permissão de
+    relançar nesta sessão.
+  - **T4 (Moto, logcat desde a instalação do fix, `moto\logcat-janela.txt`):** sem `FATAL`/`AndroidRuntime E`/ANR/erro de
+    console do WebView.
+  - **Falta para fechar:** T3 `task10` (lote → `swapPhotoJson`) e a classificação do `task11` no Moto contra a base
+    (`deploy --at-base` equivalente: APK base `base-9033756.apk` + `task11.mjs`). O Moto ficou com o APK do FIX.
