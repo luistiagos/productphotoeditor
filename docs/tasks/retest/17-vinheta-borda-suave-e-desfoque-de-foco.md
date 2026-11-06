@@ -1,5 +1,46 @@
 # [TASK-17] Vinheta, Borda Suave e Desfoque de Foco (Bokeh Radial / Tilt-Shift)
 
+## Status (pipeline 20261106-0749 — aprovado no teste rodada 1, 2026-11-06)
+
+**Feito:** a folha **Filtros** ganhou os sliders **Vinheta** (−1…1) e **Borda suave** (0…1) e a linha **Foco:** com os
+chips `Sem foco` / `Foco radial` / `Foco linear`; com o foco ligado aparecem `Intensidade`, `Centro X/Y`, `Raio`,
+`Transição` e, só no linear, `Ângulo`. São três filtros próprios do Fabric (`editor-web/src/focusFilters.ts`:
+`Vignette`, `SoftEdge`, `FocusBlur`) com shader GLSL e espelho 2D, registrados no `classRegistry` (rascunho, undo,
+páginas e clone revivem). Os três agem sobre a parte visível da foto, que segue o Recortar, o `swapImage` e o
+`swapPhotoJson` do lote. Nenhum caminho de exportação precisou de mudança: PNG/JPG/camada de vídeo saem com o efeito.
+
+**Commits** (sobre `origin/main` @ `42bc4bc`): `f6cac69` feat(editor) TASK-17 (código, vitest, `tools/e2e/task17.mjs`,
+bundle `index-wfO6JQsv.js`) e este commit de docs. Diff conferida (`git diff 42bc4bc...HEAD`): só arquivos reservados
+(`dataMerge.ts`/`dataMerge.test.ts`/`imageGeometry.ts` entraram por `claim`, lacuna anotada na nota do dev).
+
+**Aparelho:** emulador `emulator-5554` (sdk_gphone64_x86_64, Android 14; único no adb, já estava aberto; o moto g86 não
+estava conectado). Backend de filtros **WebGL** (`filterBackendIsWebGL() = true`, logcat `fabric WebGL: max texture
+size 8192`): a T2 provou o caminho do shader. APK do fix `3bb30ff8…592e` = `sha256sum` do `base.apk` instalado; APK da
+base `a16e9dea…9c16` (bundle `index-hd8KM5pM.js`). Ficou instalado o APK do fix.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1135-task-17-vinheta-borda-suave-e-desfoque-de-foco\`):
+- Offline: `npx tsc --noEmit` 0 erros; `npx vitest run` 31 arquivos / 357 testes (15 de `focusFilters.test.ts`, +1 em
+  `dataMerge.test.ts`); `build` do helper da base e do fix exit 0 (`build-base.log`, `build-fix.log`), lane limpa.
+- Controle positivo (APK base): `node tools/e2e/task17.mjs` **4/25** (`base/task17-base.txt`): folha só com Brilho…
+  Temperatura, sem chips de foco, `filterBackendIsWebGL` ausente, `img.filters` vazio, pixels inalterados.
+- T2 (APK fix): `node tools/e2e/task17.mjs` **25/25** (`fix/task17-fix.txt`, prints `fix/17-*.png`): Vinheta 0.8 → canto
+  128 → 74,1, centro 128 = 128, página 192 → 113; Borda suave 0.5 → alfa (1,150) = 0, centro 255, página = verde do
+  fundo; Foco radial → variância do canto 1426 → 42, centro 4096 = 4096; linear 0° → linha y=150 igual, topo 3736 → 5,
+  45° muda o hash; PNG/JPG/camada de vídeo iguais à página/elemento; recorte cropX 100 → `x0 = 0.25` nos três e alfa da
+  nova borda 0; `load(toDocument())` revive os três com os mesmos parâmetros e pixels, a folha reabre com 0.80 / 0.50 /
+  `Foco linear` / 45; undo sem exceção.
+- T3 (APK fix, `t3-fix/`): `task07` 19/19, `task11` 25/25, `task10` 13/13, `task09` 26/26. `task03` 6 PASS / 5 FAIL +
+  aborto em `[data-e2e=pal]` em 3 rodadas — **igual na base** (`t3-base/task03-r1.txt`, `-r2.txt`: os mesmos 5 FAIL com os
+  mesmos valores): não pertinente, é o bug já aberto `docs/bugs/open/e2e-task03-lupa-conta-gotas-emulador.md`
+  (reconfirmação anotada lá). A parte do conta-gotas que lê `renderPageCanvas` ficou sem prova E2E nos dois APKs.
+- T4: `fix/logcat-21334.txt` (PID da T2): sem `FATAL`, `AndroidRuntime`, ANR, `Fragment shader compile error`,
+  `No class registered`, `FabricError` nem erro de WebGL. Só `variations_seed_loader … Seed missing signature` e o
+  `UnsatisfiedLinkError` da telemetria do ONNX, que aparecem em todo launch do dia (ambiente).
+
+**Falta para `done/`:** validação do dono no aparelho dele (de preferência o moto g86: WebGL de GPU real, foto real
+grande), olhando o bandeamento do desfoque forte (o shader não tem dither, decisão do planning), e o conta-gotas sobre
+foto com vinheta quando o bug da `task03` estiver resolvido.
+
 > **Origem:** dividida da TASK-07 pelo dono em 2026-11-05 (§2.2 itens 4 e §2.3 originais; a "07b" do planning). A
 > TASK-07 ficou com mesclagem + Nitidez/Temperatura/Duotone e a [TASK-18](18-retocar-recorte-pos-remocao-de-fundo.md)
 > com o retoque de recorte.

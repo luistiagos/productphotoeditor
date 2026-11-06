@@ -15,3 +15,7 @@
   script E2E e não do app; reproduzir à mão no aparelho decide.
 - **Evidência:** `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1005-task-07-filtros-efeitos-avancados-blend-modes-e-retoque-borda\`
   — `t3-task03\e2e.txt` (fix) e `base-task03\e2e.txt` (base), com os prints dos dois.
+- **Reconfirmado** no teste da TASK-17 (pipeline 20261106-0749, rodada 1), mesmo emulador: os mesmos 5 FAIL e o aborto
+  em `[data-e2e=pal]`, com os mesmos valores, no APK da base `42bc4bc` (2 rodadas) e no do fix (3 rodadas). Evidência:
+  `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1135-task-17-vinheta-borda-suave-e-desfoque-de-foco\`
+  `t3-base\task03-r*.txt` e `t3-fix\task03*.txt`.
