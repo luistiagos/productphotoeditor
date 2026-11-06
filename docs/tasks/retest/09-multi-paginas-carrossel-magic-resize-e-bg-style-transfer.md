@@ -1,5 +1,45 @@
 # [TASK-09] Projetos Multi-Páginas (Carrossel / Catálogo), Magic Resize Multi-Formato e Transferência de Estilo de Fundo
 
+## Status (pipeline 20261105-1638 — aprovado no teste rodada 2, 2026-11-05)
+
+**Feito:** projeto com várias páginas (carrossel) no mesmo rascunho — faixa `◀ 📄 Página i/N ▶ ＋ Nova ⧉ Duplicar 🗑️`,
+folha "Páginas" com miniaturas e reordenação, undo entre páginas, `pages?`/`activePageIndex?` opcionais no documento (rascunho
+de 1 página continua idêntico, sem `pages`); "✨ Magic Resize (vários formatos)" na aba Tamanho (checkbox sobre os
+formatos, reflow por papel: 9:16 empilhado na zona segura, 16:9 produto à esquerda e textos à direita, fundo `cover`);
+na aba Fundo "✨ Extrair fundo da foto do produto" (degradê das cores da foto, texto recolorido por contraste) e
+"🎨 Aplicar estilo deste fundo em todas as páginas" (um passo do undo); "Exportar todas as páginas (N)" em PNG/JPG;
+Brand Kit aplicado em todas as páginas.
+
+**Commits** (sobre `origin/main` @ `713a557`): `254cb99` feat(editor) TASK-09 (código + bundle `index-BxKdazMA.js`),
+`b13355f` docs teste rodada 1 reprovado (o E2E `task09.mjs` quebrava na montagem: folha Fundo aberta, toque perdido no
+"Aplicar"), `368ddcf` feat(editor) E2E com toque estável e espera de folha, mais este commit de docs.
+
+**Aparelho:** emulador `pp_api34` (`emulator-5554`, Post Facebook 1080×1080) — o moto g86 estava com bloqueio seguro nas
+duas rodadas. APK do fix `d6e8ed70…1b31` = `sha256sum` do `base.apk` instalado; APK da base `a7797074…0717`.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-2230-task-09-multi-paginas-carrossel-magic-resize-e-bg-style-transfer-r2\`;
+rodada 1 em `...\evidencia\20261105-2202-task-09-...\`):
+- Offline: `npx tsc --noEmit` 0 erros; `npx vitest run` 279/279 (26 arquivos); `build --bug` exit 0 (vitest 279/279,
+  `testDebugUnitTest` 199 sem falha); lane limpa depois do build; diff só em arquivos reservados.
+- Controle positivo (`base-713a557.apk`): `task09.mjs` para em `state()` com `editor.getPageCount is not a function`
+  (`base/e2e.txt`); sonda `base/controle-positivo.txt`: sem faixa `#pages`, sem `pages` no documento, Tamanho sem
+  ✨ Magic Resize, Fundo sem os dois botões, Exportar sem "todas as páginas".
+- **T2** (`fix-368ddcf.apk`): `task09.mjs` versionado **26/26** sem nenhuma repetição de passo (`fix/e2e.txt`, prints
+  `fix/09-*`): duplicar, nova com o fundo herdado, editar/ir/voltar, undo cruzado, reordenar, excluir (desabilitado com
+  1) + ↶↶, reabrir pelo Rascunhos após `force-stop`, Magic Resize 1080×1920 / 1920×1080 / 1200×1200 (dentro da página,
+  fundo cobre, geometria 9:16 e 16:9), extrair da foto (contraste 3,17 e 3,22), aplicar em todas + um ↶, exportar 6 PNG
+  (apagados no fim) e volta à página ativa; sem exceção JS.
+- **T3:** `task12` 40/40, `task14` 50/50, `task03` 19/19, `task11` 25/25 (1ª execução parou após 16 PASS num
+  `typeInto` do próprio task11 — campo do inspetor sumiu com o teclado mexendo o layout; repetida passou inteira:
+  `t3-task11/` e `t3-task11-rerun/`); rascunho antigo `E2E13_1793915014648` (de antes do fix) abre sem
+  `pages`/`activePageIndex`, "📄 Página 1/1", Tamanho mantém "Ajustar o conteúdo" (`t3-rascunho-antigo/`).
+- **T4:** logcat da janela do T2 (`fix/logcat-janela.txt`): só `Receiver not registered` (finalizer) e WebView `Seed
+  missing signature`, iguais nas execuções da base; nenhum `FATAL`/ANR/exceção JS.
+
+**Falta para `done/`:** validação do dono no aparelho dele (o moto não pôde ser usado: bloqueio seguro). O moto ficou com o
+APK da base `713a557` (instalado na rodada 1, antes de ver o bloqueio). Rascunhos de teste no emulador: `E2E09_*` e
+"Post Facebook" das tentativas.
+
 ## Metadados e Esforço Mensurado
 
 | Campo | Valor |
