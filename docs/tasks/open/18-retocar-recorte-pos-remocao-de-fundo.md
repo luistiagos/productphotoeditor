@@ -414,3 +414,10 @@ Evidência: `C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidenci
   `files/models/qwen3-0.6b-int4` 336 MB — que não se apaga). O emulador ficou com o APK da BASE `9033756`.
   Fechado como `ambiente`; a próxima rodada refaz tudo desde o Passo 1 (de preferência no Moto g86 ou com espaço no
   emulador).
+- **Retomada no slot (mesma rodada, 2026-11-06):** `sync` → base continua `9033756`, código igual (o APK do fix na
+  evidência é idêntico ao da lane, `cmp`). O `emulator-5554` (único aparelho) tinha 953 MB livres e mesmo assim
+  `INSTALL_FAILED_INSUFFICIENT_STORAGE`, também com `sys_storage_threshold_max_bytes` baixado a 100 MB só durante o
+  `adb install` (chave apagada em seguida: `settings get` → `null`). A troca precisa do APK antigo e do novo juntos
+  (~300 MB cada + libs nativas `Stored`); depois da tentativa o livre caiu a 384 MB. Sem apagar dado do app ou
+  desinstalar (proibido pelo manual), não cabe. **Para destravar:** o Moto g86 no adb, ou o dono liberar ≥ ~1 GB no
+  `pp_api34`. O emulador segue com o APK da BASE.
