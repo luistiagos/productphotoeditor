@@ -1,5 +1,40 @@
 # [TASK-07] Modos de Mesclagem (16 Blend Modes), Nitidez, Temperatura e Duotone com Brand Kit
 
+## Status (pipeline 20261106-0749 — aprovado no teste rodada 1, 2026-11-06)
+
+**Feito:** seletor **Mesclagem** com os 16 modos do Canvas 2D na linha da Opacidade de qualquer camada (oculto na seleção
+múltipla); folha **Filtros** com **Nitidez** (0–1), **Temperatura** (−1–1) e chips de **Duotone** (`Sem duotone`, `Duotone da
+Marca` pelo brand kit, Cyberpunk, Sépia Ouro, Azul Profundo), relidos de `filterAdjust` ao reabrir; `Zerar ajustes` zera os novos.
+Filtros nativos do Fabric (`ColorMatrix`, `Convolute` com `opaque: false`). **Fora deste item:** SVG não exporta o modo de
+mesclagem (limitação conhecida); vinheta/borda suave/bokeh = TASK-17; retoque de recorte = TASK-18.
+
+**Commits** (sobre `origin/main` @ `465e0c0`): `9d90fda` feat(editor) TASK-07 (código + bundle `index-DSfrd14t.js`) e este
+commit de docs.
+
+**Aparelho:** emulador `emulator-5554` (AVD `pp_api34`; nenhum celular no adb). APK do fix `0a4f0086…3de9` = `sha256sum` do
+`base.apk` instalado; APK da base `fb026ff8…04d3`. Ficou instalado o APK do fix.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1005-task-07-filtros-efeitos-avancados-blend-modes-e-retoque-borda\`):
+- Offline: diff só em arquivos reservados; `npx tsc --noEmit` 0; `npx vitest run` 309/309 (28 arquivos); `build --bug` exit 0
+  na base e no fix (`build-base.log`, `build-fix.log`; vitest 309/309, 40 XMLs `testDebugUnitTest` sem `<failure`).
+- Controle positivo (`base-465e0c0.apk`, `base/e2e.txt`): `task07.mjs` 5/19 — sem `Mesclagem` (painel `null`), folha só com
+  Brilho/Contraste/Saturação/Desfoque, sem chips de Duotone, pixel da forma inalterado.
+- **T2** (`fix-9d90fda.apk`, `fix/e2e.txt`, prints `fix/07-*.png`): `task07.mjs` **19/19** — 16 modos; Multiplicar dá
+  `46,74,0` (esperado `46,75,0`); Duotone da Marca leva preto → `26,35,126` (#1a237e) e branco → `255,235,59` (#ffeb3b);
+  Convolute centro 3.4; `filterAdjust` gravado; reabrir o rascunho mantém modo, filtros, pixels e a folha (0.60 / 0.80 /
+  chip destacado); `Zerar ajustes` limpa; sem exceção JS.
+- **T3:** `task12` 40/40, `task10` 13/13 (fix). `task11`: 23/25 na 1ª rodada do fix (o toque no chip `+45°` não pegou:
+  ângulo 0, e o `undo` depende dele), **25/25 nas 2 rodadas seguintes** (`t3-task11-r2`, `t3-task11-r3`) e 25/25 na base —
+  intermitência de toque, fora do código tocado. `task03`: mesmas 5 falhas + aborto na base e no fix (`base-task03`,
+  `t3-task03`) → não pertinente, registrado em `docs/bugs/open/e2e-task03-lupa-conta-gotas-emulador.md`.
+- **T4** (`logcat-janela.txt`, `logcat-t2-pid9712.txt`): sem `AndroidRuntime`/`FATAL`/ANR do app nem erro de shader/WebGL;
+  só `Seed missing signature` do WebView e o fetch remoto offline (iguais na base).
+- Ambiente: um diálogo "System UI isn't responding" do emulador e o `null root node` intermitente do `uiautomator` exigiram
+  repetir a abertura do editor (`base/launch-fail.png`, `fix/launch-fail.png`); não é do app.
+
+**Falta para `done/`:** validação do dono no aparelho dele (Moto g86): mesclagem num anúncio real, duotone numa foto
+recortada (alfa preservado no GL) e export PNG/JPG/MP4 com o modo aplicado.
+
 > **Divisão (decisão do dono, 2026-11-05).** O planning 20261105-1638 bloqueou a TASK-07 original (efeitos, blend,
 > bokeh e retoque de recorte) por tamanho: ~1.650–1.900 linhas novas, acima do teto de ~1.500 de uma sessão de dev.
 > Esta task ficou com os **modos de mesclagem e os filtros que o Fabric já tem nativos** (Nitidez, Temperatura,
