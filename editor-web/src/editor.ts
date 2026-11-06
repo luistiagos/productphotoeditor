@@ -26,7 +26,11 @@ import {
   filters,
 } from 'fabric';
 import { createImageCroppingControls } from 'fabric/extensions';
-import { createDocument, CUSTOM_PROPERTIES, type EditorDocument, type LayerAnimation, type VideoSettings, fontsUsed, parseDocument } from './document';
+import {
+  createDocument, CUSTOM_PROPERTIES, type EditorDocument, type EditorPage, type FabricJson, fabricFontsUsed, fontsUsed, type LayerAnimation,
+  MAX_PAGES, parseDocument, type VideoSettings,
+} from './document';
+import { type ReflowItem, smartReflowLayout } from './magicResize';
 import { History } from './history';
 import { fitSlot, type FitMode, rescaledGeometry } from './imageGeometry';
 export interface ShadowOptions {
@@ -146,6 +150,16 @@ export class Editor {
   private activeGuides: GuideLine[] = [];
   /** Avisado a cada mudança de zoom/pan (a pílula atualiza o rótulo). */
   onZoom: () => void = () => {};
+  /**
+   * Páginas do projeto (TASK-09). A ativa está no canvas: o `fabric` dela aqui só vale depois de `storeActivePage()`.
+   * As inativas são cópias do JSON (o `toObject` repassa por referência as propriedades próprias dos objetos).
+   */
+  private pages: EditorPage[] = [{ id: 'p0', width: 1080, height: 1080, fabric: { objects: [] } }];
+  private activePage = 0;
+  /** Operações de página em fila: trocar/criar/apagar é assíncrono (loadFromJSON) e dois toques seguidos não podem se cruzar. */
+  private pageOps: Promise<unknown> = Promise.resolve();
+  /** Avisado quando muda o número de páginas, a ordem ou a ativa (a faixa de páginas). */
+  onPages: () => void = () => {};
 
   constructor(el: HTMLCanvasElement, private readonly host: HTMLElement) {
     this.canvas = new Canvas(el, { preserveObjectStacking: true, enableRetinaScaling: true, backgroundColor: '#ffffff' });
@@ -448,6 +462,7 @@ export class Editor {
   async load(input: unknown): Promise<EditorDocument> {
     const doc = parseDocument(input);
     await ensureFonts(fontsUsed(doc));
+    this.setPagesFrom(doc);
     this.docWidth = doc.width;
     this.docHeight = doc.height;
     this.name = doc.name;
@@ -465,8 +480,21 @@ export class Editor {
     this.fit();
     this.history.reset(this.snapshot());
     this.canvas.requestRenderAll();
+    this.onPages();
     this.onChange();
     return doc;
+  }
+
+  /** Lista de páginas do documento; a ativa é sempre `fabric/width/height` da raiz (o que o brand kit e o Kotlin mexem). */
+  private setPagesFrom(doc: EditorDocument): void {
+    if (doc.pages && doc.pages.length > 1) {
+      this.activePage = doc.activePageIndex ?? 0;
+      this.pages = doc.pages.map((p, i) => (i === this.activePage ? { ...p, width: doc.width, height: doc.height, fabric: doc.fabric } : { ...p }));
+    } else {
+      const id = this.pages.length === 1 ? this.pages[0].id : newPageId([]);
+      this.pages = [{ id, width: doc.width, height: doc.height, fabric: doc.fabric }];
+      this.activePage = 0;
+    }
   }
 
   newDocument(name: string, width: number, height: number): Promise<EditorDocument> {
@@ -474,9 +502,21 @@ export class Editor {
   }
 
   toDocument(): EditorDocument {
-    const fabric = this.canvas.toObject() as EditorDocument['fabric'];
+    const fabric = this.activeFabric();
+    const pages = this.pages.length > 1
+      ? {
+        pages: this.pages.map((p, i) => (i === this.activePage ? { ...p, width: this.docWidth, height: this.docHeight, fabric } : p)),
+        activePageIndex: this.activePage,
+      }
+      : undefined;
+    return createDocument(this.name, this.docWidth, this.docHeight, fabric, { ...this.videoSettings }, pages);
+  }
+
+  /** JSON do Fabric da página no canvas, com o papel do brand kit no fundo. */
+  private activeFabric(): FabricJson {
+    const fabric = this.canvas.toObject() as FabricJson;
     if (this.brandBackground) fabric.brandBackground = this.brandBackground;
-    return createDocument(this.name, this.docWidth, this.docHeight, fabric, { ...this.videoSettings });
+    return fabric;
   }
 
   private snapshot(): string {
@@ -506,16 +546,26 @@ export class Editor {
   private async restore(state: string | undefined): Promise<void> {
     if (!state) return;
     const doc = parseDocument(state);
+    // o instantâneo traz todas as páginas e a ativa dele: o undo de uma edição feita em outra página volta para ela
+    const before = this.pages[this.activePage]?.id;
+    this.setPagesFrom(doc);
     await this.withoutHistory(() => this.canvas.loadFromJSON(doc.fabric));
     this.syncLocks();
     this.refitCurves();
     this.brandBackground = typeof doc.fabric.brandBackground === 'string' ? doc.fabric.brandBackground : undefined;
-    if (doc.width !== this.docWidth || doc.height !== this.docHeight) {
+    const pageChanged = this.pages[this.activePage].id !== before;
+    if (pageChanged || doc.width !== this.docWidth || doc.height !== this.docHeight) {
       this.docWidth = doc.width;
       this.docHeight = doc.height;
+      this.videoSettings = { ...this.videoSettings, width: doc.width, height: doc.height };
+      if (pageChanged) {
+        this.view = { ...FIT_VIEW };
+        this.customGuides = this.customGuides.filter((g) => isValidGuide(g, doc.width, doc.height));
+      }
       this.fit();
     }
     this.canvas.requestRenderAll();
+    this.onPages();
     this.onChange();
   }
 
@@ -523,6 +573,251 @@ export class Editor {
   commit(): void {
     this.canvas.requestRenderAll();
     this.scheduleSnapshot();
+  }
+
+  // ---------- páginas: carrossel / catálogo (TASK-09) ----------
+
+  getPageCount(): number { return this.pages.length; }
+  getActivePageIndex(): number { return this.activePage; }
+
+  /** Id, nome e tamanho de cada página, na ordem (a faixa e o teste). */
+  pageList(): { id: string; name?: string; width: number; height: number }[] {
+    return this.pages.map((p, i) => ({
+      id: p.id, name: p.name, width: i === this.activePage ? this.docWidth : p.width, height: i === this.activePage ? this.docHeight : p.height,
+    }));
+  }
+
+  private serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.pageOps.then(fn, fn);
+    this.pageOps = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Grava a página do canvas na lista (antes de o canvas receber outra). */
+  private storeActivePage(): void {
+    this.pages[this.activePage] = {
+      ...this.pages[this.activePage], width: this.docWidth, height: this.docHeight, fabric: cloneJson(this.activeFabric()),
+    };
+  }
+
+  /** Põe a página `index` no canvas, fora do histórico (quem chama decide se é edição). */
+  private async showPage(index: number): Promise<void> {
+    const p = this.pages[index];
+    this.leaveCrop();
+    this.videoPreview.stop();
+    this.canvas.discardActiveObject();
+    this.activePage = index;
+    this.docWidth = p.width;
+    this.docHeight = p.height;
+    this.brandBackground = typeof p.fabric.brandBackground === 'string' ? p.fabric.brandBackground : undefined;
+    this.videoSettings = { ...this.videoSettings, width: p.width, height: p.height };
+    await ensureFonts(fabricFontsUsed(p.fabric));
+    await this.withoutHistory(() => this.canvas.loadFromJSON(p.fabric));
+    this.syncLocks();
+    this.refitCurves();
+    this.view = { ...FIT_VIEW };
+    this.customGuides = this.customGuides.filter((g) => isValidGuide(g, p.width, p.height));
+    this.fit();
+    this.canvas.requestRenderAll();
+    this.onPages();
+  }
+
+  /** Edição de página (criar, mover, apagar, gerar): um passo do undo. */
+  private pushEdit(): void {
+    this.canvas.requestRenderAll();
+    if (this.history.push(this.snapshot())) this.onChange();
+  }
+
+  /** Vai para a página `index`. Não é edição: o undo/redo fica como está (History.replace). Com a máscara aberta, recusa. */
+  switchToPage(index: number): Promise<boolean> {
+    return this.serial(async () => {
+      if (!Number.isInteger(index) || index < 0 || index >= this.pages.length || this.maskPaths) return false;
+      if (index === this.activePage) return true;
+      this.flushPending();
+      this.storeActivePage();
+      await this.showPage(index);
+      this.history.replace(this.snapshot());
+      return true;
+    });
+  }
+
+  /**
+   * Página nova logo depois da ativa: em branco com o mesmo fundo (cor, degradê ou imagem, refeito no tamanho dela), ou
+   * a cópia da ativa (`duplicateCurrent`: o próximo slide com o mesmo cabeçalho, rodapé e fontes).
+   */
+  addPage(opts: { duplicateCurrent?: boolean; width?: number; height?: number } = {}): Promise<boolean> {
+    return this.serial(async () => {
+      if (this.pages.length >= MAX_PAGES || this.maskPaths) return false;
+      this.flushPending();
+      this.storeActivePage();
+      const cur = this.pages[this.activePage];
+      const width = Math.round(opts.width ?? cur.width), height = Math.round(opts.height ?? cur.height);
+      const fabric: FabricJson = opts.duplicateCurrent
+        ? cloneJson(cur.fabric)
+        : { ...cloneJson(cur.fabric), objects: cloneJson(cur.fabric.objects.filter(isBackgroundJson)) };
+      if (width !== cur.width || height !== cur.height) {
+        fabric.objects = fabric.objects.map((o) => (isBackgroundJson(o) ? fitBackgroundJson(o, width, height) : o));
+      }
+      this.pages.splice(this.activePage + 1, 0, { id: newPageId(this.pages), width, height, fabric });
+      await this.showPage(this.activePage + 1);
+      this.pushEdit();
+      return true;
+    });
+  }
+
+  /** Reordena: a página `from` vai para a posição `to`; a ativa continua a mesma página. */
+  movePage(from: number, to: number): boolean {
+    const n = this.pages.length;
+    if (![from, to].every((i) => Number.isInteger(i) && i >= 0 && i < n) || from === to) return false;
+    this.flushPending();
+    const activeId = this.pages[this.activePage].id;
+    const [p] = this.pages.splice(from, 1);
+    this.pages.splice(to, 0, p);
+    this.activePage = this.pages.findIndex((x) => x.id === activeId);
+    this.pushEdit();
+    this.onPages();
+    return true;
+  }
+
+  /** Apaga a página `index` (padrão: a ativa); a última nunca. Apagar a ativa mostra a seguinte (ou a anterior). */
+  deletePage(index: number = this.activePage): Promise<boolean> {
+    return this.serial(async () => {
+      if (this.pages.length <= 1 || !Number.isInteger(index) || index < 0 || index >= this.pages.length || this.maskPaths) return false;
+      this.flushPending();
+      if (index === this.activePage) {
+        this.pages.splice(index, 1);
+        await this.showPage(Math.min(index, this.pages.length - 1));
+      } else {
+        this.pages.splice(index, 1);
+        if (index < this.activePage) this.activePage--;
+        this.onPages();
+      }
+      this.pushEdit();
+      return true;
+    });
+  }
+
+  /** Miniatura de uma página (a ativa sai do canvas; as outras, do JSON num StaticCanvas). */
+  async pageThumbnail(index: number, maxSide = 160): Promise<string> {
+    if (index === this.activePage) return this.thumbnail(maxSide);
+    const p = this.pages[index];
+    return renderThumbnail(createDocument(this.name, p.width, p.height, p.fabric), maxSide);
+  }
+
+  /**
+   * ✨ Magic Resize: uma página nova (no fim) por formato, com o conteúdo da ativa reposicionado por papel
+   * (`smartReflowLayout`). Um passo do undo; mostra a primeira gerada. Devolve quantas páginas criou.
+   */
+  magicResize(formats: { width: number; height: number; name?: string }[]): Promise<number> {
+    return this.serial(async () => {
+      const list = formats
+        .filter((f) => f.width >= 16 && f.height >= 16 && f.width <= 8000 && f.height <= 8000)
+        .slice(0, MAX_PAGES - this.pages.length);
+      if (list.length === 0 || this.maskPaths) return 0;
+      this.flushPending();
+      this.storeActivePage();
+      const source = this.pages[this.activePage];
+      const created: EditorPage[] = [];
+      this.canvas.discardActiveObject();
+      try {
+        for (const f of list) {
+          const W = Math.round(f.width), H = Math.round(f.height);
+          // montada no canvas (fora do histórico): as caixas vêm do Fabric, com o texto medido na fonte dele
+          await this.withoutHistory(() => this.canvas.loadFromJSON(source.fabric));
+          this.refitCurves();
+          this.reflowCanvas(source.width, source.height, W, H);
+          created.push({ id: newPageId([...this.pages, ...created]), name: f.name, width: W, height: H, fabric: cloneJson(this.activeFabric()) });
+        }
+      } catch (e) {
+        await this.showPage(this.activePage);
+        throw e;
+      }
+      this.pages.push(...created);
+      await this.showPage(this.pages.length - created.length);
+      this.pushEdit();
+      return created.length;
+    });
+  }
+
+  /** Reposiciona os objetos do canvas de `srcW × srcH` para `W × H` (a página passa a ter `W × H`). */
+  private reflowCanvas(srcW: number, srcH: number, W: number, H: number): void {
+    const objs = this.canvas.getObjects();
+    const items: ReflowItem[] = objs.map((o, id) => {
+      o.setCoords();
+      const r = o.getBoundingRect(); // plano da cena (aCoords, sem viewport)
+      return {
+        id,
+        kind: o instanceof FabricText ? 'text' : o instanceof FabricImage && o.visible ? 'image' : 'other',
+        box: { left: r.left, top: r.top, width: r.width, height: r.height },
+        background: o.get('layerName') === BACKGROUND_LAYER,
+        fontSize: o instanceof FabricText ? o.fontSize * Math.abs(o.scaleY) : undefined,
+      };
+    });
+    this.docWidth = W;
+    this.docHeight = H;
+    for (const p of smartReflowLayout(items, { width: srcW, height: srcH }, { width: W, height: H })) {
+      const o = objs[p.id];
+      if (p.role === 'background') { this.coverPage(o); this.refreshGradient(o); continue; }
+      o.set({ scaleX: o.scaleX * p.scale, scaleY: o.scaleY * p.scale });
+      o.setCoords();
+      const r = o.getBoundingRect();
+      o.set({ left: o.left + p.box.left + p.box.width / 2 - (r.left + r.width / 2), top: o.top + p.box.top + p.box.height / 2 - (r.top + r.height / 2) });
+      o.setCoords();
+    }
+  }
+
+  /**
+   * 🎨 O fundo da página ativa (cor, degradê do usuário ou imagem) em todas as outras, refeito no tamanho de cada uma (o
+   * degradê é recriado pelo `customGradient`: copiar o Rect levaria as coordenadas da página de origem). Um passo do undo.
+   */
+  applyBackgroundToAllPages(): number {
+    if (this.pages.length < 2) return 0;
+    this.flushPending();
+    const src = cloneJson(this.activeFabric());
+    const layer = src.objects.find(isBackgroundJson);
+    let n = 0;
+    this.pages.forEach((p, i) => {
+      if (i === this.activePage) return;
+      const rest = p.fabric.objects.filter((o) => !isBackgroundJson(o));
+      const objects = layer ? [fitBackgroundJson(cloneJson(layer), p.width, p.height), ...rest] : rest;
+      const fabric: FabricJson = { ...p.fabric, background: src.background, objects };
+      if (this.brandBackground) fabric.brandBackground = this.brandBackground;
+      else delete fabric.brandBackground;
+      this.pages[i] = { ...p, fabric };
+      n++;
+    });
+    this.pushEdit();
+    return n;
+  }
+
+  /**
+   * Rasteriza todas as páginas, na ordem, e entrega cada uma a `each` antes de renderizar a seguinte (um dataURL por vez
+   * na memória). Volta à página de antes, sem passo no undo.
+   */
+  exportAllPagesRaster(format: 'png' | 'jpeg', scale: number, quality: number,
+    each: (index: number, data: string) => Promise<void>): Promise<number> {
+    return this.serial(async () => {
+      this.flushPending();
+      const back = this.activePage;
+      let n = 0;
+      try {
+        for (let i = 0; i < this.pages.length; i++) {
+          if (i !== this.activePage) {
+            this.storeActivePage();
+            await this.showPage(i);
+          }
+          await each(i, await this.exportRaster(format, scale, quality));
+          n++;
+        }
+      } finally {
+        if (this.activePage !== back) {
+          this.storeActivePage();
+          await this.showPage(back);
+        }
+        this.history.replace(this.snapshot());
+      }
+      return n;
+    });
   }
 
   // ---------- tela ----------
@@ -1878,7 +2173,7 @@ export class Editor {
     this.canvas.width = this.docWidth;
     this.canvas.height = this.docHeight;
     try {
-      const families = fontsUsed(this.toDocument());
+      const families = fabricFontsUsed(this.activeFabric());
       fabricConfig.clearFonts();
       const paths: Record<string, string> = {};
       for (const f of families) {
@@ -2011,6 +2306,33 @@ export class Editor {
       this.canvas.setViewportTransform(vpt);
     }
   }
+}
+
+let pageSeq = 0;
+/** Id de página novo, único na lista. */
+function newPageId(existing: { id: string }[]): string {
+  let id: string;
+  do id = `p${Date.now().toString(36)}${(pageSeq++).toString(36)}`; while (existing.some((p) => p.id === id));
+  return id;
+}
+
+const cloneJson = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
+function isBackgroundJson(o: unknown): o is Record<string, unknown> {
+  return typeof o === 'object' && o !== null && (o as Record<string, unknown>).layerName === BACKGROUND_LAYER;
+}
+
+/** O `coverPage` + `refreshGradient` no JSON da camada de fundo, para uma página `w × h` que não está no canvas. */
+function fitBackgroundJson(o: Record<string, unknown>, w: number, h: number): Record<string, unknown> {
+  const place = { left: w / 2, top: h / 2, originX: 'center', originY: 'center' };
+  if (o.type === FabricImage.type || o.type === 'image') {
+    const s = Math.max(w / Math.max(1, Number(o.width) || 1), h / Math.max(1, Number(o.height) || 1));
+    return { ...o, ...place, scaleX: s, scaleY: s };
+  }
+  const out: Record<string, unknown> = { ...o, ...place, width: w, height: h, scaleX: 1, scaleY: 1 };
+  const spec = o.customGradient;
+  if (isGradientSpec(spec) && typeof o.fill === 'object' && o.fill !== null) out.fill = buildFabricGradient(spec, w, h).toObject();
+  return out;
 }
 
 export function defaultVideoSettings(): VideoSettings {

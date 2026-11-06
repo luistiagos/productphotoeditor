@@ -13,6 +13,14 @@ export class History<T = string> {
     this.current = state;
   }
 
+  /**
+   * Troca o estado atual sem empilhar nem mexer no undo/redo: trocar de página não é edição, mas o instantâneo atual
+   * passa a lembrar a página ativa [[task-09-multi-paginas-carrossel-magic-resize-e-bg-style-transfer]].
+   */
+  replace(state: T): void {
+    this.current = state;
+  }
+
   /** Registra um estado novo depois de uma edição. Retorna false se nada mudou. */
   push(state: T): boolean {
     if (this.current !== undefined && this.equals(this.current, state)) return false;

@@ -1,4 +1,4 @@
-import { type EditorDocument, walkObjects } from './document';
+import { type EditorDocument, type FabricJson, walkObjects } from './document';
 
 // Brand kit (ARQUITETURA §9 e §15.2). O mesmo formato é gravado pelo Kotlin (BrandKit.kt).
 
@@ -89,7 +89,19 @@ export interface ApplyOptions {
 export function applyBrandKit(doc: EditorDocument, kit: BrandKit, options: ApplyOptions = {}): EditorDocument {
   const variables = options.variables ?? true;
   const out: EditorDocument = structuredClone(doc);
-  walkObjects(out.fabric.objects, (o) => {
+  // todas as páginas (TASK-09); o structuredClone mantém a página ativa como o MESMO objeto em `fabric` e `pages[i]`,
+  // então cada JSON passa uma vez só
+  const seen = new Set<FabricJson>();
+  for (const fabric of [out.fabric, ...(out.pages ?? []).map((p) => p.fabric)]) {
+    if (seen.has(fabric)) continue;
+    seen.add(fabric);
+    applyToFabric(fabric, kit, variables);
+  }
+  return out;
+}
+
+function applyToFabric(fabric: FabricJson, kit: BrandKit, variables: boolean): void {
+  walkObjects(fabric.objects, (o) => {
     if (isColorRole(o.brandColor) && kit.colors[o.brandColor]) o.fill = kit.colors[o.brandColor];
     if (isColorRole(o.brandStroke) && kit.colors[o.brandStroke]) o.stroke = kit.colors[o.brandStroke];
     if (typeof o.type === 'string' && TEXT_TYPES.has(o.type)) {
@@ -112,9 +124,8 @@ export function applyBrandKit(doc: EditorDocument, kit: BrandKit, options: Apply
       o.src = kit.logoUrl;
     }
   });
-  const bg = out.fabric.brandBackground;
-  if (isColorRole(bg) && kit.colors[bg]) out.fabric.background = kit.colors[bg];
-  return out;
+  const bg = fabric.brandBackground;
+  if (isColorRole(bg) && kit.colors[bg]) fabric.background = kit.colors[bg];
 }
 
 /** Normaliza o que veio do Kotlin (campos desconhecidos e não-string são descartados). */

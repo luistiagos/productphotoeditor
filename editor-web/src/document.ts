@@ -60,6 +60,20 @@ export interface VideoSettings {
   audioFadeOut?: boolean;
 }
 
+/** Uma página do projeto (carrossel/catálogo, TASK-09). */
+export interface EditorPage {
+  id: string;
+  name?: string;
+  width: number;
+  height: number;
+  fabric: FabricJson;
+}
+
+/**
+ * Documento do editor. `fabric/width/height` são sempre os da página ativa (leitores antigos, o Kotlin e o brand kit
+ * continuam valendo); `pages` só existe com 2+ páginas e traz todas, inclusive a ativa. Campo opcional da v1, não v2: um
+ * app antigo abre a página ativa em vez de recusar o rascunho [[task-09-multi-paginas-carrossel-magic-resize-e-bg-style-transfer]].
+ */
 export interface EditorDocument {
   format: typeof DOC_FORMAT;
   version: typeof DOC_VERSION;
@@ -68,6 +82,13 @@ export interface EditorDocument {
   height: number;
   videoSettings?: VideoSettings;
   fabric: FabricJson;
+  pages?: EditorPage[];
+  activePageIndex?: number;
+}
+
+export interface DocumentPages {
+  pages: EditorPage[];
+  activePageIndex: number;
 }
 
 export class DocumentError extends Error {}
@@ -99,16 +120,51 @@ export const CUSTOM_PROPERTIES = [
 ] as const;
 
 export const MAX_SIDE = 8000;
+/** Teto de páginas por projeto (cada página inativa fica como JSON na memória do WebView). */
+export const MAX_PAGES = 30;
 
+/** `pages` com menos de 2 páginas não entra: um documento de uma página fica idêntico ao de antes da TASK-09. */
 export function createDocument(
   name: string,
   width: number,
   height: number,
   fabric: FabricJson,
   videoSettings?: VideoSettings,
+  pages?: DocumentPages,
 ): EditorDocument {
   checkSize(width, height);
-  return { format: DOC_FORMAT, version: DOC_VERSION, name, width, height, videoSettings, fabric };
+  const doc: EditorDocument = { format: DOC_FORMAT, version: DOC_VERSION, name, width, height, videoSettings, fabric };
+  if (pages && pages.pages.length > 1) {
+    for (const p of pages.pages) checkPage(p);
+    doc.pages = pages.pages;
+    doc.activePageIndex = validIndex(pages.activePageIndex, pages.pages.length);
+  }
+  return doc;
+}
+
+function validIndex(i: unknown, n: number): number {
+  return typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < n ? i : 0;
+}
+
+function checkPage(p: unknown): asserts p is EditorPage {
+  if (!isObject(p)) throw new DocumentError('page is not an object');
+  checkSize(p.width, p.height);
+  if (typeof p.id !== 'string' || p.id.length === 0) throw new DocumentError('page without id');
+  if (!isObject(p.fabric) || !Array.isArray(p.fabric.objects)) throw new DocumentError('page without fabric.objects');
+}
+
+/** Lê `pages` de um documento v1: ausente/vazio → sem páginas; inválido → DocumentError. */
+function parsePages(raw: unknown, activePageIndex: unknown): DocumentPages | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) throw new DocumentError('pages is not an array');
+  const pages: EditorPage[] = raw.map((p) => {
+    checkPage(p);
+    const page: EditorPage = { id: p.id, width: p.width, height: p.height, fabric: p.fabric };
+    if (typeof p.name === 'string') page.name = p.name;
+    return page;
+  });
+  if (new Set(pages.map((p) => p.id)).size !== pages.length) throw new DocumentError('duplicate page id');
+  return pages.length > 1 ? { pages, activePageIndex: validIndex(activePageIndex, pages.length) } : undefined;
 }
 
 function checkSize(width: unknown, height: unknown): asserts width is number {
@@ -159,6 +215,7 @@ export function parseDocument(input: unknown): EditorDocument {
     data.height as number,
     fabric as FabricJson,
     videoSettings,
+    parsePages(data.pages, data.activePageIndex),
   );
 }
 
@@ -179,10 +236,17 @@ export function walkObjects(objects: unknown[], visit: (o: Record<string, unknow
   }
 }
 
-/** Fontes usadas pelo documento (para carregar antes do loadFromJSON e embutir no SVG). */
+/** Fontes usadas pelo documento, em todas as páginas (para carregar antes do loadFromJSON). */
 export function fontsUsed(doc: EditorDocument): string[] {
+  const out = new Set<string>(fabricFontsUsed(doc.fabric));
+  for (const p of doc.pages ?? []) for (const f of fabricFontsUsed(p.fabric)) out.add(f);
+  return [...out].sort();
+}
+
+/** Fontes de uma página (JSON do Fabric): o SVG embute só as da página exportada. */
+export function fabricFontsUsed(fabric: FabricJson): string[] {
   const out = new Set<string>();
-  walkObjects(doc.fabric.objects, (o) => {
+  walkObjects(fabric.objects, (o) => {
     if (typeof o.fontFamily === 'string') out.add(o.fontFamily);
     const styles = o.styles;
     if (Array.isArray(styles)) {

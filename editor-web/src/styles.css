@@ -261,3 +261,24 @@ button:disabled { opacity: 0.4; }
 .adp-card-title { padding: 6px 8px 2px; font-size: 12px; line-height: 1.25; height: 2.5em; overflow: hidden; }
 .adp-card-price { padding: 0 8px; font-size: 18px; font-weight: 500; }
 .adp-card-ship { padding: 0 8px; font-size: 12px; font-weight: 600; color: #00a650; }
+
+/* Faixa de páginas: carrossel / catálogo (TASK-09) */
+#pages {
+  display: flex; align-items: center; gap: 4px; padding: 4px 8px; overflow-x: auto; scrollbar-width: none;
+  background: var(--surface); border-top: 1px solid var(--line);
+}
+#pages button { min-height: 36px; padding: 4px 10px; flex: none; }
+#pages button.icon { min-width: 36px; padding: 4px 6px; }
+#pages button:disabled, .pg-move button:disabled { opacity: 0.35; }
+#pages .pg-label { font-weight: 600; font-variant-numeric: tabular-nums; }
+.pages-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.pg-tile { display: flex; flex-direction: column; gap: 2px; border: 2px solid transparent; border-radius: 12px; padding: 2px; }
+.pg-tile.active { border-color: var(--accent); }
+.pg-tile .tile { width: 100%; }
+.pg-tile small { font-size: 11px; color: var(--muted); text-align: center; }
+.pg-move { justify-content: center; gap: 4px; padding: 0; }
+.pg-move button { min-height: 32px; min-width: 32px; padding: 2px 6px; }
+.magic-bar { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.magic-format { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.magic-format input { position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; margin: 0; }
+.magic-format:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }

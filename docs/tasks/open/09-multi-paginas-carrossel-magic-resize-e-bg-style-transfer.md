@@ -338,9 +338,101 @@ Como é task, a "causa" aqui é por que a funcionalidade não existe e onde ela 
   `width/height`.
 - **T4:** logcat do PID sem erro novo de `chromium` nem `Uncaught` durante a troca de páginas e o Magic Resize.
 
+### Nota do dev (2026-11-05, antes da 1ª edição)
+
+Conferido na base `713a557` (o `main` andou desde o planejamento; as linhas citadas acima mudaram):
+- `wc -l` → `editor.ts` 2.099, `main.ts` 2.177. `Editor.load` L448, `toDocument` L476, `snapshot` L482, `restore` L506,
+  `resize` L552, fundo L647–704, `renderPage` L1790, `exportRaster` L1841, `thumbnail` L1848, `flushPending` L1853,
+  `exportSvg` L1866 (usa `fontsUsed(this.toDocument())`), `renderThumbnail` L2028. `main.ts`: `saveDraft` L139, `applyKit`
+  L154, `mainProductImage` L416, `imageColors` L428, `textContrast` L485 (renderiza a página sem o texto e tira a média de
+  9 pontos; em erro devolve `null`), `showBackgrounds` L1620, `showSize` L1656, `showExport` L2033, `start` L2092.
+- **Plano da caixa no fabric 7.4.0** (`node_modules/fabric/src/shapes/Object/ObjectGeometry.ts`): `getBoundingRect()` =
+  `makeBoundingBoxFromPoints(getCoords())`, e `getCoords()` são os `aCoords` (`calcACoords`: centro relativo + ângulo +
+  `_getTransformedDimensions`), **sem viewport** → plano da cena (px do documento). Os `aCoords` ficam em cache: o reflow
+  chama `setCoords()` antes de ler e depois de mudar escala/posição.
+- `loadFromJSON` (Fabric) não muda o JSON de entrada; mesmo assim as páginas inativas guardam uma cópia
+  (`JSON.parse(JSON.stringify(canvas.toObject()))`), porque o `toObject` repassa por referência as propriedades próprias
+  (`customGradient`, `connectorSpec`...).
+- `enlivenObjectEnlivables` revive qualquer valor com `type` registrado (o `fill` de degradê): dá para recriar o fundo de
+  outra página só no JSON, com `buildFabricGradient(spec, w, h).toObject()`.
+- `ensureFonts` só espera as fontes já registradas; `load` passa a esperar as fontes de todas as páginas (`fontsUsed`), e o
+  `exportSvg` embute só as da página ativa (`fabricFontsUsed`).
+
+Decisões que o plano deixou abertas:
+- **Reflow por blocos:** os objetos viram 4 blocos (cabeçalho = topo `< 0,25·H` que não é texto grande; título = acima do
+  produto; preço/CTA = abaixo; produto = maior imagem). Cada bloco escala por inteiro e mantém o arranjo interno. Texto na
+  altura do produto (o `addText` centraliza tudo) desempata pelo tamanho da fonte: o maior vai para o título, o resto para
+  o CTA. 9:16 (W/H < 0,8): faixa útil entre a zona segura da TASK-01 (topo 150, base 320 a cada 1920 px) e a margem;
+  30% de cima para cabeçalho/título, 50% para o produto, 20% para o CTA (a "área útil" de 45–55% é a ALTURA da faixa, no
+  vertical, e a LARGURA, no horizontal). W/H ≥ 1,5: produto na metade esquerda, textos empilhados na direita. Entre os
+  dois, o mesmo empilhamento do vertical sem a zona segura. Proporção quase igual à de origem (razão < 1,15): escala
+  uniforme, como o "Tamanho" com "Ajustar o conteúdo".
+- **Miniaturas** não entram no documento (o `thumbnail?` da especificação ficaria velho a cada edição e engordaria o
+  rascunho): a faixa as renderiza com `renderThumbnail` ao abrir a folha de páginas.
+- **Faixa de páginas**: `<div id="pages">` entre o palco e o painel de propriedades (`◀`, `📄 Página i/N`, `▶`, `＋ Nova`,
+  `⧉ Duplicar`, `🗑️`); o rótulo abre a folha "Páginas" (miniaturas; tocar vai à página; `◀`/`▶` em cada uma reordena).
+- **Trocar de página não chama `onChange`** (não suja o rascunho nem salva): só a faixa se atualiza (`onPages`).
+- **Estilo de fundo:** `extractBackgroundStyle` escolhe a cor de texto (`#ffffff`/`#111111`) pelo menor contraste entre as
+  duas paradas e **escurece/clareia as paradas** até 4,5:1 com ela; "Extrair da foto" troca o fundo da página ativa e
+  recolore os textos com contraste `< LOW_CONTRAST` (medido por `textContrast`).
+
 ### Sessões seguintes
 
 - dev: effort high, ultrathink sim — modelo de dados com retrocompatibilidade, histórico entre páginas e geometria no
   Fabric (reflow por papel), com muitos caminhos (load/restore/applyKit/troca de página) que precisam concordar.
 - teste: effort medium, ultrathink não — o roteiro E2E é longo, mas os sinais são objetivos (contagens, tamanhos, bbox,
   arquivos). O cuidado é com o aparelho compartilhado e com apagar os exports.
+
+## Correcao (pipeline 20261105-1638, rodada 1)
+
+Tamanho: ~1.450 linhas novas (src ~880, testes ~290, E2E 283), dentro do teto. Nenhum bloco cortado; Kotlin intocado.
+
+**O que mudou (`arquivo::simbolo`):**
+- `document.ts::EditorPage/DocumentPages/MAX_PAGES` (novos); `EditorDocument.pages?/activePageIndex?` (v1, campo opcional);
+  `createDocument(…, pages?)` só grava `pages` com 2+ páginas (rascunho de 1 página fica idêntico); `parsePages`
+  valida cada página (`checkSize`, `id` não vazio e único, `fabric.objects` array → senão `DocumentError`) e devolve o
+  índice ativo fora da faixa como 0; `fontsUsed` passa por todas as páginas e o novo `fabricFontsUsed(fabric)` por uma.
+- `history.ts::History.replace` — troca o estado atual sem empilhar nem mexer em `past`/`future`.
+- `editor.ts::Editor` — estado `pages`/`activePage` + `onPages`; `load`/`restore` por `setPagesFrom` (a ativa é a raiz do
+  documento; o `restore` volta à página do instantâneo, com o encaixe da tela); `toDocument` com `pages` (a ativa sai do
+  canvas); `getPageCount`, `getActivePageIndex`, `pageList`, `switchToPage` (sem passo no undo: `History.replace`),
+  `addPage({duplicateCurrent,width,height})` (em branco herda só a camada de fundo e a cor; noutro tamanho o fundo é
+  refeito por `fitBackgroundJson`), `movePage`, `deletePage` (nunca a última), `pageThumbnail`, `magicResize(formats)`
+  (+ `reflowCanvas`: mede `getBoundingRect` depois de `setCoords`, escala e recentra cada objeto), `applyBackgroundToAllPages`
+  (recria o degradê pelo `customGradient` no tamanho de cada página, um passo do undo), `exportAllPagesRaster` (uma
+  página por vez, volta à de antes). As operações assíncronas de página passam por uma fila (`serial`): dois toques
+  seguidos não se cruzam. `exportSvg` embute só as fontes da página ativa. Com a máscara aberta, as operações recusam.
+- `magicResize.ts` (novo) — `reflowMode`, `safeZone916`, `classifyLayers`, `smartReflowLayout` (blocos por papel; ver a
+  nota do dev acima; o produto fica com 50% da faixa útil no vertical, `PRODUCT_SHARE`).
+- `bgStyleTransfer.ts` (novo) — `extractBackgroundStyle` (degradê 45° da 1ª para a 2ª cor dominante, `mood`, texto
+  `#ffffff`/`#111111` e paradas ajustadas até 4,5:1), `moodOf`, `saturation`, `mix`, `worstContrast`.
+- `brandkit.ts::applyBrandKit` — aplica em `fabric` e em cada `pages[i].fabric` (a ativa, que é o mesmo objeto nos dois,
+  passa uma vez só: `applyToFabric`).
+- `main.ts` — faixa `#pages` (`renderPageBar`: `◀`, `📄 Página i/N`, `▶`, `＋ Nova`, `⧉ Duplicar`, `🗑️` com confirmação e
+  desabilitado com 1 página); folha `showPages` (miniaturas; tocar abre; `◀`, `⇤ início`, `▶` reordenam); `showSize`
+  ganha "✨ Magic Resize (vários formatos)" → `showMagicResize` (checkbox sobre `DESIGN_FORMATS`, botão "Gerar N formatos
+  como páginas"); `showBackgrounds` ganha "✨ Extrair fundo da foto do produto" (`extractBackgroundFromPhoto`: sem foto ou
+  sem cor → toast; recolore texto com contraste `< 3` pela cor do estilo ou, se ela não se lê sobre o que está atrás do
+  texto, por `suggestReadableColor`) e "🎨 Aplicar estilo deste fundo em todas as páginas"; `showExport` ganha
+  "Exportar todas as páginas (N)" (só PNG/JPG com 2+ páginas; nomes `<nome>_p1..pN`).
+- `index.html` (`<nav id="pages">`), `styles.css` (faixa, miniaturas, checkbox do Magic Resize).
+- Testes: `document.test.ts` (+5), `history.test.ts` (+1), `brandkit.test.ts` (+1), `magicResize.test.ts` (9),
+  `bgStyleTransfer.test.ts` (7). E2E `tools/e2e/task09.mjs` (casos 1–10 + undo cruzado).
+
+**Provas offline (comando → resultado):**
+- `npx tsc --noEmit` → 0 erros; `npx vitest run` → 26 arquivos, 279 testes ok.
+- Mutação: `textLeft = m` e `PRODUCT_SHARE → 0,3` em `magicResize.ts`, laço de legibilidade desligado em
+  `bgStyleTransfer.ts` → 3 testes falham; código restaurado → 16/16.
+- Smoke do `Editor` real (Fabric 7.4.0) no Chrome headless da máquina, servido por `npx vite` (não é o app nem o build;
+  script descartável na pasta do job): 22/22 — duplicar, nova com o fundo, editar/ir/voltar, undo cruzado, reordenar,
+  apagar + undo, `load(toDocument())`, Magic Resize (9:16 produto no terço do meio e título acima; 16:9 produto à
+  esquerda e textos à direita; tudo dentro; fundo cobre; um undo desfaz), extrair da foto, aplicar em todas (degradê
+  refeito: 1080×1920 → coords `(-210,210)–(1290,1710)`), exportar todas na ordem e volta à página, sem exceção JS.
+
+**Ajustes ao Plano de teste:**
+- No E2E, o tipo da instância no Fabric 7 é minúsculo (`o.type === 'image'`); no JSON é `'Image'` (o script usa cada um
+  no seu lugar).
+- Caso 4 pela folha "📄 Páginas" (toque no rótulo da faixa) → `⇤` na 3ª miniatura. Caso 5 tem confirmação ("Excluir").
+- O `↷` depois do undo cruzado volta ao instantâneo que lembra a página onde o usuário estava (a 1ª), com a edição de
+  volta na 2ª: o E2E confere a edição em `pages[1]`, não a página ativa.
+- O script deixa o rascunho `E2E09_<id>` (apagar pelo Rascunhos) e apaga os PNG exportados no fim.

@@ -133,3 +133,27 @@ describe('parseBrandKit', () => {
     expect(parseBrandKit(null)).toEqual({ profile: {}, colors: {}, fonts: {} });
   });
 });
+
+describe('applyBrandKit with pages (TASK-09)', () => {
+  it('applies the kit to every page, not only to the active one, and fills each object once', () => {
+    const t = template();
+    const p2 = structuredClone(t.fabric);
+    const p3 = { brandBackground: 'primary', objects: [{ type: 'Textbox', text: 'Fale com {{company}}', brandColor: 'primary', brandFont: 'body' }] };
+    // como o Editor.toDocument: a página ativa é o MESMO objeto em `fabric` e em `pages[i]`
+    const doc = createDocument('c', 1080, 1080, t.fabric, undefined, {
+      pages: [{ id: 'a', width: 1080, height: 1080, fabric: t.fabric }, { id: 'b', width: 1080, height: 1920, fabric: p2 },
+        { id: 'c', width: 1200, height: 628, fabric: p3 }],
+      activePageIndex: 0,
+    });
+    const out = applyBrandKit(doc, kit);
+    const titleOf = (f: { objects: unknown[] }) => (f.objects[1] as Record<string, unknown>);
+    expect(titleOf(out.fabric)).toMatchObject({ text: 'Doces da Ana', fontFamily: 'Pacifico', fill: '#222222' });
+    expect(titleOf(out.pages![1].fabric)).toMatchObject({ text: 'Doces da Ana', fontFamily: 'Pacifico', fill: '#222222' });
+    expect(out.pages![2].fabric.objects[0]).toMatchObject({ text: 'Fale com Doces da Ana', fill: '#d81b60', fontFamily: 'Lato' });
+    expect(out.pages![2].fabric.background).toBe('#d81b60');
+    expect(out.pages![1].fabric.background).toBe('#fff8e1');
+    // a ativa continua sendo uma só (o load lê `fabric`), com o texto preenchido uma vez
+    expect(out.pages![0].fabric).toBe(out.fabric);
+    expect(out.pages![0].width).toBe(1080);
+  });
+});

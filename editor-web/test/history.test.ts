@@ -25,4 +25,20 @@ describe('History', () => {
     expect(h.undo()).toBe(2);
     expect(h.canUndo).toBe(false);
   });
+
+  it('replace swaps the current state without creating an undo step nor touching the redo branch', () => {
+    const h = new History<string>();
+    h.reset('a');
+    h.push('b');
+    h.push('c');
+    h.undo(); // current b, past [a], future [c]
+    h.replace('b@page2');
+    expect(h.canUndo).toBe(true);
+    expect(h.canRedo).toBe(true);
+    expect(h.push('b@page2')).toBe(false); // igual ao atual: nada a empilhar
+    expect(h.redo()).toBe('c');
+    expect(h.undo()).toBe('b@page2');
+    expect(h.undo()).toBe('a');
+    expect(h.canUndo).toBe(false);
+  });
 });

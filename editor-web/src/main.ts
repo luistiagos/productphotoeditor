@@ -8,7 +8,8 @@ import {
   contentUrl, type ContentIndex, knownFamilies, loadContentIndex, loadTemplate, registerBundledFonts, registerFont,
   type TemplateEntry,
 } from './content';
-import { parseDocument, type EasingCurve, type EmphasisFx, type EntranceFx, type ExitFx, type LayerAnimation } from './document';
+import { MAX_PAGES, parseDocument, type EasingCurve, type EmphasisFx, type EntranceFx, type ExitFx, type LayerAnimation } from './document';
+import { extractBackgroundStyle } from './bgStyleTransfer';
 import { EASING_OPTIONS, EMPHASIS_OPTIONS, ENTRANCE_OPTIONS, EXIT_OPTIONS, legacyFx } from './video/animation';
 import { button, colorInput, confirmSheet, h, openSheet, select, setBusy, setColorPaletteProvider, slider, toast, toHex } from './dom';
 import { averageColor, composite, contrastRatio, formatRatio, LOW_CONTRAST, parseColor, type Rgba, suggestReadableColor } from './contrast';
@@ -20,7 +21,7 @@ import { CAP_OPTIONS, type CapStyle, type ConnectorShape, type ConnectorSpec, DA
 import { LIST_OPTIONS, matchSnippet } from './textTools';
 import { isFreehandPath, keepAlpha, PEN_MAX, PEN_MIN, PEN_PRESETS, type PenId, penWidth, withAlpha } from './freehandDraw';
 import type { FitMode } from './imageGeometry';
-import { DESIGN_FORMATS, findFormat, formatSvg, GROUP_LABELS } from './formats';
+import { DESIGN_FORMATS, findFormat, formatSvg, GROUP_LABELS, type MediaFormat } from './formats';
 import type { GridOverlayMode, OverlayGuideMode } from './overlays';
 import { AD_PREVIEW_MODES, type AdPreviewMode, buildAdPreview, previewModel } from './adPreview';
 import { zoomLabel } from './viewportZoom';
@@ -1167,6 +1168,73 @@ function served(what: string, r: BlobResult): string {
   return r.servedBy ? `${what} (${r.servedBy})` : what;
 }
 
+// ---------- páginas: carrossel / catálogo (TASK-09) ----------
+
+const pageBar = document.getElementById('pages')!;
+
+/** Toda ação de página conclui o desenho à mão; com a máscara aberta, recusa (a máscara é da página atual). */
+function pageOp(fn: () => Promise<unknown>): void {
+  if (editor.isFreehandDrawing) finishFreehand();
+  if (maskImage) { toast('Conclua ou cancele a máscara antes'); return; }
+  void fn().catch((e: unknown) => toast(describe(e)));
+}
+
+function addPageOp(duplicateCurrent: boolean): void {
+  pageOp(async () => {
+    if (!(await editor.addPage({ duplicateCurrent }))) toast(`Limite de ${MAX_PAGES} páginas`);
+  });
+}
+
+function deletePageOp(index: number): void {
+  pageOp(async () => {
+    if (!(await confirmSheet('Excluir página', `Excluir a página ${index + 1}? O ↶ desfaz.`, 'Excluir'))) return;
+    await editor.deletePage(index);
+  });
+}
+
+function renderPageBar(): void {
+  const n = editor.getPageCount();
+  const i = editor.getActivePageIndex();
+  pageBar.replaceChildren(
+    h('button', { type: 'button', class: 'icon pg-prev', title: 'Página anterior', 'aria-label': 'Página anterior', disabled: i <= 0,
+      onclick: () => pageOp(() => editor.switchToPage(i - 1)) }, '◀'),
+    h('button', { type: 'button', class: 'pg-label', title: 'Ver todas as páginas', onclick: showPages }, `📄 Página ${i + 1}/${n}`),
+    h('button', { type: 'button', class: 'icon pg-next', title: 'Próxima página', 'aria-label': 'Próxima página', disabled: i >= n - 1,
+      onclick: () => pageOp(() => editor.switchToPage(i + 1)) }, '▶'),
+    button('＋ Nova', () => addPageOp(false), 'pg-add'),
+    button('⧉ Duplicar', () => addPageOp(true), 'pg-dup'),
+    h('button', { type: 'button', class: 'icon pg-del', title: 'Excluir página', 'aria-label': 'Excluir página', disabled: n <= 1,
+      onclick: () => deletePageOp(editor.getActivePageIndex()) }, '🗑️'),
+  );
+}
+editor.onPages = renderPageBar;
+renderPageBar();
+
+/** Folha com as miniaturas: tocar abre a página; ◀/▶ de cada uma muda a ordem. */
+function showPages(): void {
+  const active = editor.getActivePageIndex();
+  const list = editor.pageList();
+  const move = (from: number, to: number) => {
+    if (editor.movePage(from, to)) showPages();
+  };
+  const tiles = list.map((p, idx) => {
+    const im = h('img', { alt: `Página ${idx + 1}` });
+    void editor.pageThumbnail(idx, 200).then((u) => { im.src = u; }).catch((e: unknown) => console.warn('miniatura da página', idx, e));
+    return h('div', { class: 'pg-tile' + (idx === active ? ' active' : ''), 'data-index': idx, 'data-id': p.id },
+      h('button', { class: 'tile pg-go', type: 'button', onclick: () => { close(); pageOp(() => editor.switchToPage(idx)); } },
+        im, h('span', {}, `${idx + 1}${p.name ? ` · ${p.name}` : ''}`), h('small', {}, `${p.width}×${p.height}`)),
+      h('div', { class: 'row pg-move' },
+        h('button', { type: 'button', class: 'icon pg-move-left', title: 'Mover para a esquerda', disabled: idx === 0, onclick: () => move(idx, idx - 1) }, '◀'),
+        h('button', { type: 'button', class: 'icon pg-move-first', title: 'Mover para o início', disabled: idx === 0, onclick: () => move(idx, 0) }, '⇤'),
+        h('button', { type: 'button', class: 'icon pg-move-right', title: 'Mover para a direita', disabled: idx === list.length - 1,
+          onclick: () => move(idx, idx + 1) }, '▶')));
+  });
+  const close = openSheet(`📄 Páginas (${list.length})`, h('div', {},
+    h('div', { class: 'row' }, button('＋ Nova página', () => { close(); addPageOp(false); }, 'pg-add'),
+      button('⧉ Duplicar página', () => { close(); addPageOp(true); }, 'pg-dup')),
+    h('div', { class: 'grid pages-grid' }, ...tiles)), { tall: true });
+}
+
 // ---------- abas ----------
 
 const tabs: [string, () => void][] = [
@@ -1617,10 +1685,44 @@ function showStickers(): void {
     h('img', { src: contentUrl(s.file), alt: s.name }))))])), { tall: true });
 }
 
+/**
+ * ✨ Degradê a partir das cores dominantes da foto do produto (TASK-09) e recolore os textos que ficaram com contraste
+ * abaixo de 3:1 sobre o fundo novo. Um passo do undo (os dois `commit` caem no mesmo debounce do histórico).
+ */
+function extractBackgroundFromPhoto(): void {
+  const img = mainProductImage();
+  if (!img) { toast('Adicione a foto do produto primeiro'); return; }
+  const style = extractBackgroundStyle(imageColors(img));
+  if (!style) { toast('Não deu para ler as cores desta foto'); return; }
+  editor.setBackgroundGradientSpec(style.gradient);
+  let fixed = 0;
+  for (const t of editor.textLayers()) {
+    const info = textContrast(t);
+    if (info && info.ratio < LOW_CONTRAST) {
+      // a cor do estilo, se ela se lê sobre o que está de fato atrás do texto (pode ser a própria foto); senão a melhor
+      // entre branco e quase-preto para esse fundo (≥ 4,3:1 sempre)
+      const color = contrastRatio(style.recommendedTextColor, info.background) >= LOW_CONTRAST
+        ? style.recommendedTextColor : suggestReadableColor(info.background).color;
+      t.set({ fill: color, brandColor: undefined });
+      fixed++;
+    }
+  }
+  if (fixed) editor.commit();
+  toast(fixed ? `Fundo da foto aplicado; ${plural(fixed, 'texto ajustado', 'textos ajustados')} para leitura` : 'Fundo da foto aplicado');
+}
+
 function showBackgrounds(): void {
+  const pages = editor.getPageCount();
   const close = openSheet('Fundo', h('div', {},
     h('div', { class: 'row' }, colorInput('Cor sólida', toHex(editor.canvas.backgroundColor), (v) => editor.setBackgroundColor(v)),
       button('🌈 Degradê personalizado', () => { close(); showGradientSheet('background'); }, 'bg-gradient-btn')),
+    h('div', { class: 'row' },
+      button('✨ Extrair fundo da foto do produto', () => { close(); extractBackgroundFromPhoto(); }, 'bg-extract-btn'),
+      button('🎨 Aplicar estilo deste fundo em todas as páginas', () => {
+        close();
+        const n = editor.applyBackgroundToAllPages();
+        toast(n ? `Fundo aplicado em mais ${plural(n, 'página', 'páginas')}` : 'O projeto tem uma página só');
+      }, 'bg-apply-all-btn' + (pages > 1 ? '' : ' off'))),
     h('h4', {}, 'Cores e degradês'),
     h('div', { class: 'grid small' }, ...content.backgrounds.filter((b) => b.kind !== 'image').map((b) => h('button', {
       class: 'tile swatch', type: 'button', style: `background:${cssOf(b)}`, title: b.name,
@@ -1697,6 +1799,7 @@ function showSize(): void {
   refreshGuides();
 
   const close = openSheet('Tamanho e Guias', h('div', {},
+    h('div', { class: 'row' }, button('✨ Magic Resize (vários formatos)', () => { close(); showMagicResize(); }, 'primary magic-resize-btn')),
     h('label', { class: 'check' }, sc, h('span', {}, 'Ajustar o conteúdo ao novo tamanho')),
     h('h4', {}, 'Zonas Seguras e Alinhamento'),
     h('div', { class: 'row' },
@@ -1735,6 +1838,37 @@ function showSize(): void {
     h('h4', {}, 'Personalizado'),
     h('div', { class: 'row' }, custom, h('label', {}, 'L ', w), h('label', {}, 'A ', hh), button('Aplicar', () => apply(Number(w.value), Number(hh.value)), 'primary'))),
   { tall: true });
+}
+
+/** ✨ Magic Resize (TASK-09): formatos do catálogo com checkbox; cada um vira uma página nova com o conteúdo reposicionado. */
+function showMagicResize(): void {
+  const picked = new Set<MediaFormat>();
+  const go = button('', () => void generate(), 'primary magic-go');
+  const refresh = () => {
+    go.textContent = `Gerar ${plural(picked.size, 'formato', 'formatos')} como páginas`;
+    go.disabled = picked.size === 0;
+  };
+  const sections = GROUP_LABELS.flatMap(([g, label]) => {
+    const list = DESIGN_FORMATS.filter((f) => f.group === g);
+    return list.length ? [h('h4', {}, label), h('div', { class: 'grid formats' }, ...list.map((f) => {
+      const cb = h('input', { type: 'checkbox', class: 'magic-check', 'data-format': f.id });
+      cb.addEventListener('change', () => { if (cb.checked) picked.add(f); else picked.delete(f); refresh(); });
+      return h('label', { class: 'tile format magic-format', title: f.hint, 'data-format': f.id },
+        cb, formatThumb(f), h('span', {}, f.label), h('small', {}, `${f.width}×${f.height}`));
+    }))] : [];
+  });
+  const generate = async () => {
+    const list = [...picked];
+    close();
+    const n = await run('Gerando formatos', () => editor.magicResize(list.map((f) => ({ width: f.width, height: f.height, name: f.label }))));
+    if (n) toast(`${plural(n, 'página criada', 'páginas criadas')}: confira na faixa de páginas`);
+    else if (n === 0) toast(editor.getPageCount() >= MAX_PAGES ? `Limite de ${MAX_PAGES} páginas` : 'Conclua ou cancele a máscara antes');
+  };
+  refresh();
+  const close = openSheet('✨ Magic Resize', h('div', {},
+    h('p', { class: 'hint' }, 'Marque os formatos. Cada um vira uma página nova deste projeto, com o produto e os textos reposicionados para a proporção dele.'),
+    h('div', { class: 'row magic-bar' }, go),
+    ...sections), { tall: true });
 }
 
 function showBrand(): void {
@@ -2052,6 +2186,22 @@ function showExport(initial: ExportPayload['format'] = 'png'): void {
       toast(r.location ? `Salvo em ${r.location}` : 'Pronto');
     });
   })();
+  // TASK-09: uma imagem por página, salvas na galeria como `<nome>_p1`, `<nome>_p2`... (o Kotlin acrescenta data e hora)
+  const pageCount = editor.getPageCount();
+  const goAll = () => void (async () => {
+    close();
+    await run('Exportando páginas', async (progress) => {
+      let location = '';
+      const n = await editor.exportAllPagesRaster(format === 'png' ? 'png' : 'jpeg', scale, quality, async (i, data) => {
+        progress(i / pageCount, `página ${i + 1} de ${pageCount}`);
+        const payload: ExportPayload = { format, action: 'save', name: `${name}_p${i + 1}`, data };
+        const r = await bridge.request<{ location?: string }>('export', payload);
+        location = r.location ?? location;
+      });
+      toast(`${plural(n, 'página salva', 'páginas salvas')}${location ? ` em ${location}` : ''}`);
+    });
+  })();
+  const allBtn = button(`Exportar todas as páginas (${pageCount})`, goAll, 'export-all-btn');
   const toMockup = () => void (async () => {
     close();
     await run('Preparando o mockup', async () => {
@@ -2072,6 +2222,7 @@ function showExport(initial: ExportPayload['format'] = 'png'): void {
     scaleRow.hidden = format === 'svg' || video;
     printBtn.hidden = video;
     mockupBtn.hidden = video;
+    allBtn.hidden = pageCount < 2 || !(format === 'png' || format === 'jpg');
   };
   const close = openSheet('Exportar', h('div', {},
     select('Formato', [['png', 'PNG'], ['jpg', 'JPG'], ['svg', 'SVG (vetor)'], ['mp4', '🎬 Vídeo MP4 (com animações)'],
@@ -2083,6 +2234,7 @@ function showExport(initial: ExportPayload['format'] = 'png'): void {
     qualityRow,
     h('div', { class: 'row' }, button('Salvar na galeria', () => go('save'), 'primary'), button('Compartilhar', () => go('share')),
       printBtn),
+    h('div', { class: 'row' }, allBtn),
     h('div', { class: 'row' }, mockupBtn)));
   syncRows();
 }
