@@ -377,3 +377,22 @@ e o modo base quebra.
 - T4: `logcat-janela.txt` sem `FATAL`/`ANR`; `Seed missing signature` (WebView) e `Uncaught exception thrown by
   finalizer` aparecem igual na janela da base (PID 12864) → ambiente, não o fix.
 - Sobras no emulador: rascunho de teste `E2E15_mw50fdpn` e a foto `/sdcard/Pictures/e2e_task15.jpg` (o script não apaga).
+
+### Rodada 1 — reprovada: o script da T2 (`tools/e2e/task15.mjs`) errava em 3 pontos; correção: só o script (vai para a rodada 2)
+
+Motivo (seção "Teste rodada 1 — reprovado"): (1) modo base abortava (`info()` chamava `editor.textImageFillOf` antes do
+`if (BASE)`); (2) `letterPixels` usava o render só do texto, mas o `renderPageCanvas` pinta o `backgroundColor` do
+canvas mesmo com o filtro → alfa 255 na grade inteira (429/429), o fundo branco entrava como "letra" e o 9j falhava
+(o `layer_N.png` é transparente fora das letras); (3) 4d arrastava a alça para DENTRO, o Textbox não encolhe abaixo da
+palavra mais longa e o `!==` passava por ruído de float. O código da funcionalidade não mudou.
+
+Correção em `tools/e2e/task15.mjs`:
+- `info()` — `mine: typeof editor.textImageFillOf === 'function' && …` (o modo base chega aos 2 checks BASE).
+- `letterPixels` — desliga `editor.canvas.backgroundColor`/`backgroundImage` (try/finally restaura) só no render da
+  máscara; o render de cor continua o da página inteira. Check novo em 2b: os pontos da máscara são ≥ 20 e < 80% da
+  grade (`GRID` = 39×11) — a grade inteira não pode passar. 2b, 6g, 7h, 8i e 9j passam a comparar só pixels de letra.
+- 4d — alça `mr` pelo meio de `aCoords.tr`/`aCoords.br` e `editor.docToClient` (não mais `oCoords` + `upperCanvasEl`),
+  arrasto de +30 px de tela para FORA; exige `|w − w0| > 20`, algum termo do `patternTransform` mudando > 0,5 e o cover
+  cobrindo.
+- Offline: `node --check tools/e2e/task15.mjs` OK. Não rodei no aparelho: o dev não usa o slot de teste (etapas/dev.md);
+  a rodada 2 do teste roda os dois modos (`E2E_MODE=base` no APK da base e o fix).

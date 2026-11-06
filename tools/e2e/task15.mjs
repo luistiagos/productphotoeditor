@@ -91,7 +91,8 @@ const selectText = (text) => p.evaluate(`(() => { const t = ${T(text)}; editor.c
 const info = (text) => p.evaluate(`(() => { const t = ${T(text)}; if (!t) return null; const f = t.fill; const isP = typeof f === 'object' && f !== null && 'patternTransform' in f;
   const src = isP ? f.source : null;
   return { w: t.width, h: t.height, fill: typeof f === 'string' ? f : null, isPattern: isP, json: t.toObject().fill?.type ?? null, mark: t.textImageFill ?? null,
-    mine: Boolean(editor.textImageFillOf(t)), tr: isP ? f.patternTransform : null, repeat: isP ? f.repeat : null,
+    // na base (E2E_MODE=base) a API não existe: info() roda antes do if (BASE)
+    mine: typeof editor.textImageFillOf === 'function' && Boolean(editor.textImageFillOf(t)), tr: isP ? f.patternTransform : null, repeat: isP ? f.repeat : null,
     iw: src ? (src.naturalWidth || src.width) : 0, ih: src ? (src.naturalHeight || src.height) : 0, src: src?.src ?? null }; })()`);
 /** (c) os 4 cantos da caixa, pela inversa do patternTransform, caem dentro da foto. */
 const covers = (i) => {
@@ -103,12 +104,21 @@ const covers = (i) => {
   });
 };
 /**
- * Pontos DENTRO das letras (alfa 255 no render só do texto, sem fundo) numa grade da caixa e a cor de cada um no render
- * da página inteira. Coordenadas do documento (o export 1× tem o mesmo tamanho).
+ * Pontos DENTRO das letras numa grade da caixa (GRID pontos) e a cor de cada um no render da página inteira.
+ * Coordenadas do documento (o export 1× tem o mesmo tamanho). Máscara = alfa 255 no render SÓ do texto com o
+ * `backgroundColor`/`backgroundImage` do canvas desligados: o `renderPageCanvas` pinta o fundo do canvas mesmo com o
+ * filtro (rodada 1 do teste: com o fundo, alfa 255 na grade inteira e os pontos brancos entravam como "letra").
  */
+const GRID = 39 * 11;
 const letterPixels = (text) => p.evaluate(`(() => {
   const t = ${T(text)}; t.setCoords(); const b = t.getBoundingRect();
-  const only = editor.renderPageCanvas(1080, (o) => o === t); const ox = only.canvas.getContext('2d');
+  const bgColor = editor.canvas.backgroundColor, bgImage = editor.canvas.backgroundImage;
+  let only;
+  try {
+    editor.canvas.backgroundColor = 'transparent'; editor.canvas.backgroundImage = undefined;
+    only = editor.renderPageCanvas(1080, (o) => o === t);
+  } finally { editor.canvas.backgroundColor = bgColor; editor.canvas.backgroundImage = bgImage; }
+  const ox = only.canvas.getContext('2d');
   const full = editor.renderPageCanvas(1080); const fx = full.canvas.getContext('2d');
   const pts = [];
   for (let i = 1; i < 40; i++) for (let j = 1; j < 12; j++) {
@@ -187,6 +197,8 @@ r.check('2a. seletor do Android → fill é Pattern (JSON type "pattern"), marca
 console.log(`foto escolhida: ${i1.iw}×${i1.ih} (listras do teste = 1200×800)`);
 let px1 = await letterPixels('VERÃO');
 const solidRgb = hex3(solid);
+r.check('2b. máscara das letras: só parte da grade cai dentro das letras (o fundo ficou de fora)',
+  px1.length >= 20 && px1.length < 0.8 * GRID, `${px1.length} de ${GRID}`);
 r.check('2b. render: pixels dentro das letras ≠ a cor sólida anterior e com várias cores (a foto)',
   px1.length >= 3 && px1.every((q) => dist(q.c, solidRgb) > 40) && distinct(px1) >= 2, JSON.stringify({ n: px1.length, distinct: distinct(px1), amostra: px1.slice(0, 4) }));
 r.check('2c. cover: os 4 cantos da caixa caem dentro da foto', covers(i1), JSON.stringify({ tr: i1.tr, w: i1.w, h: i1.h, iw: i1.iw, ih: i1.ih }));
@@ -209,13 +221,17 @@ r.check('4. ✏️ Editar texto → "VERÃO 50%"', await edit('VERÃO 50%'));
 await selectText('VERÃO 50%');
 let i4 = await info('VERÃO 50%');
 r.check('4d. texto editado: continua Pattern e o cover cobre a caixa nova', i4.mine && covers(i4), JSON.stringify({ before: [before.w, before.h, before.tr], after: [i4.w, i4.h, i4.tr] }));
-const handle = await p.evaluate(`(() => { const t = editor.active; t.setCoords(); const c = t.oCoords.mr; const r = editor.canvas.upperCanvasEl.getBoundingClientRect();
-  return { x: r.left + c.x, y: r.top + c.y }; })()`);
-const w0 = i4.w, tr0 = JSON.stringify(i4.tr);
-await p.drag(handle.x, handle.y, handle.x - 120, handle.y, { steps: 14 });
+// alça "mr" = meio da borda direita (aCoords: tr/br no plano da cena) → tela por docToClient. Arrasta para FORA: o
+// Textbox não fica mais estreito que a palavra mais longa ("VERÃO" a 260 px ≈ a caixa inteira), para dentro não muda.
+const handle = await p.evaluate(`(() => { const t = editor.active; t.setCoords(); const a = t.aCoords;
+  return editor.docToClient((a.tr.x + a.br.x) / 2, (a.tr.y + a.br.y) / 2); })()`);
+const w0 = i4.w, tr0 = i4.tr;
+await p.drag(handle.x, handle.y, handle.x + 30, handle.y, { steps: 14 });
 await p.sleep(500);
 i4 = await info('VERÃO 50%');
-r.check('4d. alça lateral arrastada: largura mudou, patternTransform refeito e ainda cobre', i4.w !== w0 && JSON.stringify(i4.tr) !== tr0 && covers(i4) && i4.mine,
+const trMoved = Array.isArray(tr0) && Array.isArray(i4.tr) && i4.tr.some((v, k) => Math.abs(v - tr0[k]) > 0.5);
+r.check('4d. alça lateral arrastada para fora: largura muda > 20 px, patternTransform refeito e ainda cobre',
+  Math.abs(i4.w - w0) > 20 && trMoved && covers(i4) && i4.mine,
   JSON.stringify({ w0, w: i4.w, h: i4.h, tr0, tr: i4.tr }));
 screencap(`${out}/15-4-editado-redimensionado.png`);
 
