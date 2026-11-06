@@ -1,5 +1,43 @@
 # [TASK-13] Zoom e Pan por Pinça (Multi-Touch), Grade/Guias Manuais e Simulador de Preview (Instagram / Mercado Livre)
 
+## Status (pipeline 20261105-1638 — aprovado no teste rodada 2, 2026-11-05)
+
+**Feito:** zoom por pinça de 2 dedos (0,5×–4× do encaixe, ancorado no centro da pinça, sem mover/deformar a camada
+selecionada nem gerar passo de undo), pan com 2 dedos, pílula `🔍 NN%` (−, reset, +) no canto do palco, duplo toque
+fora de objetos volta ao encaixe; exportação PNG/JPG/SVG idêntica com a tela ampliada; grade Regra dos Terços e
+quadriculada 10% em "Tamanho e Guias" (só na tela, não exporta) com encaixe magnético nos terços; guias manuais com
+encaixe; "👁️ Preview" com Feed, Stories/Reels 9:16 e Busca de marketplace (card 170 px). De quebra corrige o bug lateral
+`docs/bugs/open/editor-guias-e-zonas-seguras-fora-de-escala.md` (passo I: falha na base, passa no fix — o doc dele
+ainda está em `open/`; o dono decide movê-lo).
+
+**Commits** (sobre `origin/main` @ `b35e837`): `6bf5b7f` feat(editor) TASK-13 (código + bundle), `7f61d3f` docs teste
+rodada 1 reprovado (encaixe nos terços/guia manual não engatava), `cd564f0` e `bd8a6b9` fix(editor) `snapMovingTarget`
+(`setCoords()` antes do `getBoundingRect()` no `object:moving`), mais este commit de docs.
+
+**Aparelho:** Moto g86 5G (`adb-ZY32LMNN9B-6mRvcH._adb-tls-connect._tcp`), `E2E_FORMAT="Post Instagram"`. APK do fix
+`f4e0549e…6e31` = `sha256sum` do `base.apk` instalado; APK da base `5f2b9877…cd6`.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261105-2200-task-13-r2\`;
+rodada 1 no emulador em `...\evidencia\20261105-1840-task-13-...\`):
+- Offline: `npx vitest run` 256/256 (24 arquivos), `npx tsc --noEmit` limpo, `build --bug` exit 0 (vitest + unidade Gradle
+  sem `<failure>`), lane limpa depois do build.
+- Controle positivo (`base-b35e837.apk`): `task13.mjs` 5/19 — zoom 1,000× e o 1º dedo arrasta o retângulo (undo 2 → 3),
+  sem pílula, sem Preview, sem Grade/guia manual, zona segura fora de escala (`base-task13.txt`, `base/`).
+- **T2** (`fix-bd8a6b9.apk`): `task13.mjs` **36/36** (`fix-task13.txt`, prints `fix/13-*`): pinça 3,000×, limites
+  4,000×/0,500×, pan +100, reset, export 200% idêntico e arquivo da galeria 1080×1080, encaixe em 360,00 (terços) e
+  200,00 (guia manual), preview nos 3 modos, zona segura ciano em x = 135, traço a 200% sob o dedo, teclado mantém o
+  fator, sem exceção JS.
+- **T3:** `task03` 19/19, `task12` 40/40, `task14` 50/50, `task11` 22/25 — as 3 falhas (seletor de fotos do sistema no
+  moto) se repetem iguais com o APK da base (`base-task11.txt`): **não pertinente**, registrada em
+  `docs/bugs/open/e2e-task11-seletor-de-fotos-moto-g86.md`. A 1ª tentativa de `task12`/`task14` falhou porque o seletor
+  ficou aberto por cima do app (`*-tentativa1.txt`); com ele fechado, passaram.
+- **T4:** logcat do PID 7440 (`fix-logcat.txt`): sem `FATAL`/`AndroidRuntime`/`ANR`/erro de console; só `INFO` do
+  Chromium sobre `getImageData` (amostragem de pixel do próprio roteiro). Buffer de crash vazio.
+
+**Falta para `done/`:** validação do dono no aparelho dele — pinça e pan com os dedos de verdade (o E2E usa toques
+sintéticos por CDP), sensação de suavidade a 4× num design 1080×1920, máscara com o pincel ampliado, legibilidade do
+preview; "Exportar → JPG/MP4" a 200% (o E2E cobre PNG/SVG pela API e PNG pela galeria).
+
 ## Metadados e Esforço Mensurado
 
 | Campo | Valor |
