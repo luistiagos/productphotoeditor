@@ -1,5 +1,51 @@
 # [TASK-19] Mockup: Caixa 3D Multi-Face (Rotação X/Y, Faces com Artes Próprias e Luz por Face)
 
+## Status (pipeline 20261106-0749 — aprovado no teste rodada 1, 2026-11-06)
+
+**Feito:** o estúdio **📦 Mockup 3D** ganhou o tile **Caixa 3D**. Ele abre o modo caixa com os sliders Rotação X
+(−60…60), Rotação Y (−80…80), Largura, Altura, Profundidade e Perspectiva, e uma linha por face (Frente, Lateral e
+Topo) com Design atual, Imagem selecionada ou Cor. Só as faces voltadas para a câmera aparecem, pintadas de trás para
+a frente, com a luz de cada face: frente 100 %, topo 108 %, laterais 78 %. Há sombra de contato. As saídas "Salvar na
+galeria" e "Inserir no design" são as mesmas da TASK-08. O motor fica em `editor-web/src/mockup/box3d.ts` (puro, com
+vitest), e o fundo `box` foi gerado por último no `tools/gen_mockups.py --3d`.
+
+**Commits** (sobre `origin/main` @ `6493dc6`): `8a67596` feat(editor) TASK-19 (código, vitest, `task19.mjs`, ajuste do
+`task08.mjs` e do `mockupEngine.test.ts` para 10 tiles / entrada `box3d`, templates, bundle `index-CduBvNpc.js`) e este
+commit de docs. Diff conferida (`git diff origin/main...HEAD`): só arquivos reservados.
+
+**Aparelho:** emulador `emulator-5554` (sdk_gphone64_x86_64, API 34), o único no adb, que já estava aberto. Antes de
+instalar: `versionName=0.4.0`, `lastUpdateTime=2026-11-06 15:09:29` (`aparelho.txt`). O APK da base `f53ed12c…5596` e o
+do fix `3c3690ee…1932` batem com o `sha256sum` do `base.apk` instalado. Ficou instalado o APK do fix. A T2 e a T3
+criaram no emulador `Pictures/ProductPhoto/mockup_box_20261106_153848.jpg` e `mockup_mug_20261106_153939.jpg`.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1236-task-19-mockup-caixa-3d-multi-face\`):
+- **Offline:**
+  - `npx tsc --noEmit` deu 0 erros; `npx vitest run` deu 33 arquivos e **399 testes** (18 em `box3d.test.ts`).
+  - `gen_mockups.py --3d <tmp>` saiu idêntico, byte a byte, aos 14 arquivos commitados de `mockups3d/`.
+  - O `build` do helper saiu 0 na base e no fix (`build-base.log`, `build-fix.log`) e a lane ficou limpa.
+  - `testDebugUnitTest`: 211 testes e 0 falhas (`MockupTest` 9/9, `PerspectiveMockupTest` 5/5).
+- **Controle positivo** (APK da base): `task19.mjs` deu 0/1. O estúdio abre com os tiles, mas sem "Caixa 3D"
+  (`base/task19-base.txt`, `base/19-base-estudio.png`).
+- **T2** (APK do fix): `task19.mjs` deu **11/11** (`fix/task19-fix.txt`, prints `fix/19-*.png`):
+  - o tile abre em X −20 / Y 30 com top+right+front, sem alças e sem Arco, e com 3 linhas de face;
+  - (0,0) mostra `[front]`; Y +30 mostra front+right e −30 mostra front+left; X −25 mostra front+top;
+  - pixels por cor em X −25 / Y +30: frente `[192,0,0]`, lateral `[0,150,0]` e topo `[0,0,207]`, ou seja, 100/78/108 %;
+  - com Frente = Design atual, o pixel vira `[30,80,200]` e o hash muda;
+  - a Caneca volta ao cilindro com alças, e a Caixa 3D de novo mantém as escolhas de face;
+  - Salvar mostra o toast `mockup_box_…jpg`; Inserir adiciona +1 `image` de 1200×1200;
+  - nenhuma exceção JS.
+- **T3:** vitest inteiro (acima), `task08.mjs` no APK do fix deu **10/10** (`t3/task08-fix.txt`, 10 tiles com a Caixa
+  3D, cilindro, arco, fusão, alça, esfera, salvar e inserir) e `testDebugUnitTest` não teve falhas.
+- **T4:** `logcat-27541.txt` (T2) e `logcat-27842.txt` (T3) não têm FATAL, ANR nem exceção JS. Os únicos `E` são:
+  - `Uncaught exception thrown by finalizer` de `ai.onnxruntime.telemetry.HttpClient`, que já existia (56 ocorrências
+    no logcat do emulador desde 13:02, em PIDs anteriores a este teste);
+  - `variations_seed_loader`, do WebView;
+  - "Failed to fetch remote templates/icons", por falta de rede.
+
+  Nada disso é atribuível ao fix.
+
+**Falta para `done/`:** o dono validar no aparelho dele: girar a caixa, pôr arte/cor por face, salvar e inserir.
+
 > **Origem:** dividida da TASK-08 pelo dono em 2026-11-05 (Geometria 4 do §2.1 original e critério 2; a "08b" do
 > planning). **Depende da [TASK-08](08-mockup-25d-3d-cilindro-esfera-cubo-sobel-iluminacao.md)**: usa o warp plano
 > (`mockupEngine.ts`) e o estúdio (`mockupStudio.ts`) dela; só começa com a TASK-08 em `retest/`. Se as duas
