@@ -1,5 +1,39 @@
 # [TASK-16] Pathfinder: Operações Booleanas de Formas (Unir, Subtrair, Interseção, Vazado)
 
+## Status (pipeline 20261106-0749 — aprovado no teste rodada 1, 2026-11-06)
+
+**Feito:** com ≥ 2 formas fechadas e preenchidas na seleção múltipla, a barra de propriedades mostra **➕ Unir,
+➖ Subtrair, ✖️ Interseção, ➗ Vazado** (não aparece com forma + texto). O toque troca as formas por um `Path` vetorial só
+(`fillRule: 'evenodd'`), calculado por um motor próprio em TS puro (`editor-web/src/pathBoolean.ts`: arranjo planar +
+classificação de arestas, N operandos), que herda cor/contorno/degradê da forma de baixo e entra no lugar dela na pilha;
+1 toque em ↶ devolve as formas originais. PNG, JPG, SVG e a camada do vídeo saem com o furo.
+
+**Commits** (sobre `origin/main` @ `d97035d`): `07d6fd1` docs (nota do dev), `540cb4b` feat(editor) TASK-16 (código,
+vitest, `tools/e2e/task16.mjs`, bundle `index-hd8KM5pM.js`), e este commit de docs. Diff conferida: só arquivos reservados.
+
+**Aparelho:** emulador `emulator-5554` (sdk_gphone64_x86_64, Android 14; único no adb, já estava aberto). APK do fix
+`a16e9dea…9c16` = `sha256sum` do `base.apk` instalado; APK da base `f7cce1a7…71af` (bundle `index-DZlddecC.js`).
+Ficou instalado o APK do fix.
+
+**Evidência** (`C:\projects\sandbox\.bugfix-pipeline-product_photo_offline\evidencia\20261106-1110-task-16-pathfinder-operacoes-booleanas-de-formas\`):
+- Offline: `npx tsc --noEmit` limpo; `npx vitest run` 30 arquivos / 341 testes (22 de `pathBoolean.test.ts`); `build` do
+  helper da base e do fix EXIT 0 (`build-base.log`, `build-fix.log`), lane limpa.
+- Controle positivo (APK base): `E2E_MODE=base node tools/e2e/task16.mjs` **5/5**: com Cupom + Furo selecionados,
+  `#props .bool-subtract` nulo e `editor.applyBooleanOp` indefinido (`e2e-base.txt`, `base/`).
+- T2 (APK fix): `node tools/e2e/task16.mjs` **19/19** (`e2e-fix.txt`, prints em `fix/`): forma + texto sem a linha; os 4
+  botões com 2 formas; Subtrair = 1 `path` (total 3 → 2) `#e53935` evenodd no índice 0, bbox = Cupom, PNG branco no furo e
+  vermelho no retângulo; ↶ devolve rect + circle com as mesmas caixas; Unir bbox [149,7; 389,5; 690,8; 301]; Interseção
+  meia-lua [239,5; 449,7; 91; 180,6]; Vazado branco na sobreposição; exportações PNG, JPG, SVG (`fill-rule` evenodd,
+  desenhado no WebView) e `layer_0.png` do pacote de vídeo com alpha 0 no furo; sem exceção JS.
+- T3: `task11` 25/25, `task12` 40/40 (`t3-task11.txt`, `t3-task12.txt`; a 1ª tentativa `*-tentativa1-sem-pasta.txt`
+  parou porque esses scripts não criam a pasta de prints, não por falha do app); Kotlin `testDebugUnitTest` 211 testes,
+  0 falhas.
+- T4: `logcat-fix-pid19505.txt` e `logcat-t3-*` sem `FATAL`/`AndroidRuntime`/`ANR`; só `Seed missing signature`
+  (chromium) e `Uncaught exception thrown by finalizer`, iguais na base (`logcat-base-pid19166.txt`) → ambiente.
+
+**Falta para `done/`:** validação do dono no celular dele (desenhar um cupom/etiqueta de verdade com formas giradas e
+escaladas; exportar o MP4 pelo FFmpeg — o teste conferiu só a camada `layer_N.png` do pacote de vídeo).
+
 > **Origem:** dividida da TASK-06 pelo dono em 2026-11-05 (§2.3 original "Operações Booleanas de Formas"). A TASK-06
 > ficou com as molduras de recorte e a [TASK-15](15-preencher-texto-com-foto.md) com a foto dentro do texto.
 > **Independente** das duas: não usa nada delas. Doc original:
