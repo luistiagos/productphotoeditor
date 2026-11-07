@@ -15,3 +15,7 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+
+# Saidas binarias dos E2E (tools/e2e), regeneradas a cada execucao
+reports/**/*.pdf
+reports/**/*.zip
