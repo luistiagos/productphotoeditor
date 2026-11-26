@@ -69,6 +69,8 @@ data class UiState(
     val step: Step = Step.CATEGORY,
     val category: ProductCategory = ProductCategory.ALL,
     val removerMode: RemoverMode = RemoverMode.AUTO,
+    val removeBackground: Boolean = true,
+    val maskSkipped: Boolean = false,
     val busy: String? = null,
     val message: String? = null,
     val servedBy: ServedBy? = null,
@@ -116,6 +118,8 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
 
     fun setCategory(c: ProductCategory) = _state.update { it.copy(category = c) }
 
+    fun setRemoveBackground(enabled: Boolean) = _state.update { it.copy(removeBackground = enabled) }
+
     fun setRemoverMode(m: RemoverMode) {
         _state.update { it.copy(removerMode = m) }
         viewModelScope.launch { deps.setRemoverMode(m) }
@@ -126,13 +130,8 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
     fun showMessage(text: String) = _state.update { it.copy(message = text) }
 
     fun back(): Boolean {
-        val prev = when (_state.value.step) {
-            Step.CATEGORY -> return false
-            Step.MASK -> Step.CATEGORY
-            Step.SCENE -> Step.MASK
-            Step.POSITION -> Step.SCENE
-            Step.RESULT -> Step.POSITION
-        }
+        val s = _state.value
+        val prev = previousStep(s.step, s.maskSkipped, hasScene = s.scene != null) ?: return false
         composeJob?.cancel()
         _state.update { it.copy(step = prev, busy = null) }
         return true
@@ -140,17 +139,22 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
 
     fun restart() {
         composeJob?.cancel()
-        _state.update { UiState(category = it.category, removerMode = it.removerMode) }
+        sceneBitmap = null
+        _state.update { UiState(category = it.category, removerMode = it.removerMode, removeBackground = it.removeBackground) }
     }
 
-    /** Foto escolhida → remover fundo. */
+    /** Foto escolhida → remove o fundo ou mantém o original conforme opção do usuário. */
     fun onImagePicked(uri: Uri) = viewModelScope.launch {
         _state.update { it.copy(busy = "Abrindo foto…") }
         try {
             val bmp = deps.decode(uri)
             source = bmp
             srcPixels = IntArray(bmp.width * bmp.height).also { bmp.getPixels(it, 0, bmp.width, 0, 0, bmp.width, bmp.height) }
-            runRemover()
+            if (_state.value.removeBackground) {
+                runRemover()
+            } else {
+                useOriginalAlpha(maskSkipped = true)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -159,6 +163,12 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
     }
 
     fun rerunRemover() = viewModelScope.launch { if (source != null) runRemover() }
+
+    /** Mantém o fundo original (ou transparência existente de PNG) sem aplicar recorte de IA. */
+    fun keepOriginalWithoutRemover() = viewModelScope.launch {
+        if (source == null) return@launch
+        useOriginalAlpha(maskSkipped = false)
+    }
 
     private suspend fun runRemover() {
         val src = source ?: return
@@ -171,8 +181,8 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
             preview = withContext(Dispatchers.Default) { cutout(src, Mask(src.width, src.height, alpha)) }
                 .let { if (it.isMutable) it else it.copy(Bitmap.Config.ARGB_8888, true) }
             _state.update {
-                it.copy(step = Step.MASK, busy = null, servedBy = deps.removerServedBy.value, removeMillis = dt,
-                    maskVersion = it.maskVersion + 1)
+                it.copy(step = Step.MASK, maskSkipped = false, busy = null, servedBy = deps.removerServedBy.value,
+                    removeMillis = dt, maskVersion = it.maskVersion + 1)
             }
         } catch (e: CancellationException) {
             throw e
@@ -189,6 +199,24 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
         } catch (e: Exception) {
             _state.update { it.copy(busy = null, message = "Falha ao remover o fundo: ${e.message}") }
         }
+    }
+
+    private suspend fun useOriginalAlpha(maskSkipped: Boolean) {
+        val src = source ?: return
+        alpha = originalAlphaFromArgb(srcPixels)
+        preview = withContext(Dispatchers.Default) { cutout(src, Mask(src.width, src.height, alpha)) }
+            .let { if (it.isMutable) it else it.copy(Bitmap.Config.ARGB_8888, true) }
+        _state.update {
+            it.copy(
+                servedBy = null,
+                removeMillis = null,
+                maskVersion = it.maskVersion + 1,
+            )
+        }
+        applyAlphaToCropAndGoToScene(
+            maskSkipped = maskSkipped,
+            emptyMessage = "A imagem está totalmente transparente.",
+        )
     }
 
     /** Pincel do editor de máscara, em pixels da foto. restore=true pinta de volta o produto. */
@@ -219,20 +247,52 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
 
     /** Fim da edição da máscara → recorta pela caixa do produto e vai para os cenários. */
     fun confirmMask() {
-        val src = source ?: return
+        applyAlphaToCropAndGoToScene(
+            maskSkipped = false,
+            emptyMessage = "A máscara está vazia: restaure o produto com o pincel.",
+        )
+    }
+
+    private fun applyAlphaToCropAndGoToScene(maskSkipped: Boolean, emptyMessage: String): Boolean {
+        val src = source ?: return false
         val plane = Mask(src.width, src.height, alpha).toPlane()
         val roi = Roi.of(plane, src.width, src.height, 0.02f)
         if (roi.isEmpty) {
-            _state.update { it.copy(message = "A máscara está vazia: restaure o produto com o pincel.") }
-            return
+            _state.update { it.copy(busy = null, message = emptyMessage) }
+            return false
         }
         val crop = Bitmap.createBitmap(src, roi.x0, roi.y0, roi.width, roi.height)
         val cropAlpha = ByteArray(roi.width * roi.height)
-        for (y in 0 until roi.height) System.arraycopy(alpha, (roi.y0 + y) * src.width + roi.x0, cropAlpha, y * roi.width, roi.width)
+        for (y in 0 until roi.height) {
+            System.arraycopy(alpha, (roi.y0 + y) * src.width + roi.x0, cropAlpha, y * roi.width, roi.width)
+        }
         cropSource = crop
         cropMask = Mask(roi.width, roi.height, cropAlpha)
         cutoutPreview = cutout(crop, cropMask!!)
-        _state.update { it.copy(step = Step.SCENE) }
+        _state.update { it.copy(step = Step.SCENE, busy = null, maskSkipped = maskSkipped) }
+        return true
+    }
+
+    /** Pula a escolha de cenário e segue direto para Resultado com a imagem atual. */
+    fun skipScene() {
+        val src = source ?: return
+        composeJob?.cancel()
+        sceneBitmap = null
+        val directResult = if (_state.value.servedBy != null) {
+            preview?.let { it.copy(Bitmap.Config.ARGB_8888, false) } ?: src
+        } else {
+            src
+        }
+        _state.update {
+            it.copy(
+                step = Step.RESULT,
+                busy = null,
+                scene = null,
+                placement = null,
+                result = directResult,
+                composeMillis = null,
+            )
+        }
     }
 
     fun selectScene(entry: SceneEntry) = viewModelScope.launch {
@@ -384,3 +444,16 @@ class ProductFlowViewModel(val deps: ProductFlowDeps) : ViewModel() {
         }
     }
 }
+
+/** Calcula o passo anterior respeitando etapas opcionais (remoção de fundo e escolha de cenário). */
+internal fun previousStep(step: Step, maskSkipped: Boolean, hasScene: Boolean): Step? = when (step) {
+    Step.CATEGORY -> null
+    Step.MASK -> Step.CATEGORY
+    Step.SCENE -> if (maskSkipped) Step.CATEGORY else Step.MASK
+    Step.POSITION -> Step.SCENE
+    Step.RESULT -> if (hasScene) Step.POSITION else Step.SCENE
+}
+
+/** Extrai o canal alfa original (0..255) de pixels ARGB sem perda de transparência. */
+internal fun originalAlphaFromArgb(pixels: IntArray): ByteArray =
+    ByteArray(pixels.size) { ((pixels[it] ushr 24) and 0xFF).toByte() }

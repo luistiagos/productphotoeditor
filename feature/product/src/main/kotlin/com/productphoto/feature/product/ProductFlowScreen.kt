@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -49,10 +50,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -166,16 +169,44 @@ private fun CategoryStep(vm: ProductFlowViewModel, state: UiState) {
                 FilterChip(selected = state.category == c, onClick = { vm.setCategory(c) }, label = { Text(c.label) })
             }
         }
-        Text("Removedor de fundo", style = MaterialTheme.typography.titleMedium)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(RemoverMode.entries) { m ->
-                FilterChip(selected = state.removerMode == m, onClick = { vm.setRemoverMode(m) }, label = { Text(m.label) })
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text("Remover fundo da foto", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (state.removeBackground) {
+                                "Opcional: recorta o produto automaticamente com IA antes de escolher o cenário."
+                            } else {
+                                "Desativado: mantém o fundo original (ou a transparência já existente de um PNG)."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.removeBackground,
+                        onCheckedChange = vm::setRemoveBackground,
+                    )
+                }
+                if (state.removeBackground) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(RemoverMode.entries) { m ->
+                            FilterChip(selected = state.removerMode == m, onClick = { vm.setRemoverMode(m) }, label = { Text(m.label) })
+                        }
+                    }
+                    Text(
+                        "Automático: ML Kit quando há Google Play services, senão u2netp (empacotado). Tudo roda no aparelho.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
-        Text(
-            "Automático: ML Kit quando há Google Play services, senão u2netp (empacotado). Tudo roda no aparelho.",
-            style = MaterialTheme.typography.bodySmall,
-        )
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
@@ -205,13 +236,13 @@ private fun DrawScope.checkerboard(fit: Fit, w: Int, h: Int) {
     val top = fit.top
     val right = left + w * fit.scale
     val bottom = top + h * fit.scale
-    drawRect(Color(0xFFEEEEEE), Offset(left, top), Size(right - left, bottom - top))
+    drawRect(Color(0xFF1E222E), Offset(left, top), Size(right - left, bottom - top))
     var y = top
     var row = 0
     while (y < bottom) {
         var x = left + if (row % 2 == 0) 0f else cell
         while (x < right) {
-            drawRect(Color(0xFFCCCCCC), Offset(x, y), Size(min(cell, right - x), min(cell, bottom - y)))
+            drawRect(Color(0xFF282E3E), Offset(x, y), Size(min(cell, right - x), min(cell, bottom - y)))
             x += cell * 2
         }
         y += cell
@@ -310,9 +341,20 @@ private fun MaskStep(vm: ProductFlowViewModel, state: UiState) {
                     if (viewport.zoom > 1.01f) " · ${(viewport.zoom * 10).roundToInt() / 10f}×" else "",
                 style = MaterialTheme.typography.bodySmall,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { vm.rerunRemover() }, enabled = state.busy == null) { Text("Refazer recorte") }
-                Button(onClick = { vm.confirmMask() }, enabled = state.busy == null, modifier = Modifier.weight(1f)) { Text("Avançar") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { vm.rerunRemover() },
+                    enabled = state.busy == null,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Refazer recorte") }
+                OutlinedButton(
+                    onClick = { vm.keepOriginalWithoutRemover() },
+                    enabled = state.busy == null,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Sem recorte") }
+            }
+            Button(onClick = { vm.confirmMask() }, enabled = state.busy == null, modifier = Modifier.fillMaxWidth()) {
+                Text("Avançar com recorte")
             }
         }
     }
@@ -327,6 +369,28 @@ private fun SceneStep(vm: ProductFlowViewModel, state: UiState) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item(span = { GridItemSpan(maxLineSpan) }, key = "skip_scene_banner") {
+            OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Manter foto sem cenário", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Pular a troca de fundo e ir direto para Luz IA, Formato, Salvar ou Editor.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { vm.skipScene() },
+                        enabled = state.busy == null,
+                    ) { Text("Pular") }
+                }
+            }
+        }
         items(scenes, key = { it.id }) { e ->
             val thumb by produceState<Bitmap?>(null, e.id) { value = withContext(Dispatchers.IO) { vm.deps.scenes.thumb(e) } }
             Column(Modifier.clickable(enabled = state.busy == null) { vm.selectScene(e) }) {
@@ -388,77 +452,118 @@ private fun PositionStep(vm: ProductFlowViewModel, state: UiState) {
     }
 }
 
+enum class ResultStudioTab(val label: String) {
+    LIGHT("Luz IA"),
+    FORMAT("Formato"),
+    ADJUST("Ajustes"),
+}
+
 @Composable
 private fun ResultStep(vm: ProductFlowViewModel, state: UiState) {
+    var activeTab by rememberSaveable { mutableStateOf(ResultStudioTab.LIGHT) }
+    val tabs = remember(state.scene) {
+        if (state.scene != null) ResultStudioTab.entries else listOf(ResultStudioTab.LIGHT, ResultStudioTab.FORMAT)
+    }
+    LaunchedEffect(state.scene) {
+        if (state.scene == null && activeTab == ResultStudioTab.ADJUST) {
+            activeTab = ResultStudioTab.LIGHT
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF202020)), contentAlignment = Alignment.Center) {
+        Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF0F1117)), contentAlignment = Alignment.Center) {
             state.result?.let { Image(it.asImageBitmap(), "resultado", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
         }
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                state.composeMillis?.let { Text("Composição: $it ms", style = MaterialTheme.typography.bodySmall) }
-                state.relightingMillis?.let { Text("Relighting: $it ms", style = MaterialTheme.typography.bodySmall) }
-                state.outpaintMillis?.let { Text("Outpaint: $it ms", style = MaterialTheme.typography.bodySmall) }
+            // Segmented Studio Tabs
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                tabs.forEach { tab ->
+                    FilterChip(
+                        selected = activeTab == tab,
+                        onClick = { activeTab = tab },
+                        label = { Text(tab.label) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
 
-            // Seção 1: Harmonização & Relighting IA (ADS-01)
-            androidx.compose.material3.OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Harmonização & Relighting IA", style = MaterialTheme.typography.titleSmall)
-                    Text("Recalcula luz e sombras para integrar o produto organicamente ao cenário.", style = MaterialTheme.typography.bodySmall)
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        LightDirection.entries.forEach { dir ->
-                            FilterChip(
-                                selected = state.lightDirection == dir,
-                                onClick = { vm.setLightDirection(dir) },
-                                label = { Text(dir.label) },
-                            )
+            when (activeTab) {
+                ResultStudioTab.LIGHT -> {
+                    androidx.compose.material3.OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Harmonização & Relighting IA", style = MaterialTheme.typography.titleSmall)
+                            Text("Recalcula luz e sombras para integrar o produto organicamente ao cenário.", style = MaterialTheme.typography.bodySmall)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                LightDirection.entries.forEach { dir ->
+                                    FilterChip(
+                                        selected = state.lightDirection == dir,
+                                        onClick = { vm.setLightDirection(dir) },
+                                        label = { Text(dir.label) },
+                                    )
+                                }
+                            }
+                            Button(
+                                onClick = { vm.applyRelighting() },
+                                enabled = state.busy == null && state.result != null,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Harmonizar Iluminação (${state.lightDirection.label})")
+                            }
                         }
                     }
-                    Button(
-                        onClick = { vm.applyRelighting() },
-                        enabled = state.busy == null && state.result != null,
+                }
+                ResultStudioTab.FORMAT -> {
+                    androidx.compose.material3.OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Formato do Anúncio (Expansão)", style = MaterialTheme.typography.titleSmall)
+                            Text("Expande o cenário mantendo o produto seguro no centro.", style = MaterialTheme.typography.bodySmall)
+                            FormatPicker(
+                                state.adFormat, MediaFormats.forAds, vm::setAdFormat,
+                                maxAspect = MediaFormats.ADS_MAX_ASPECT, enabled = state.busy == null,
+                            )
+                            Button(
+                                onClick = { vm.applyAdOutpaint() },
+                                enabled = state.busy == null && state.result != null,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Expandir para ${state.adFormat.label}")
+                            }
+                        }
+                    }
+                }
+                ResultStudioTab.ADJUST -> {
+                    val o = state.options
+                    OptionSlider("Sombra de contato", o.contactShadow, { vm.setOptions(o.copy(contactShadow = it)) }, vm::recompose)
+                    OptionSlider("Sombra projetada", o.castShadow, { vm.setOptions(o.copy(castShadow = it)) }, vm::recompose)
+                    OptionSlider("Harmonização de cor", o.harmonize, { vm.setOptions(o.copy(harmonize = it)) }, vm::recompose)
+                    OptionSlider("Luz de borda", o.lightWrap, { vm.setOptions(o.copy(lightWrap = it)) }, vm::recompose)
+                    OutlinedButton(
+                        onClick = { vm.setOptions(CompositeOptions()); vm.recompose() },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Harmonizar Iluminação (${state.lightDirection.label})")
+                        Text("Restaurar Ajustes Padrão")
                     }
                 }
             }
 
-            // Seção 2: Expansão de Formato de Anúncio (ADS-02)
-            androidx.compose.material3.OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Formato do Anúncio (Expansão)", style = MaterialTheme.typography.titleSmall)
-                    Text("Expande o cenário mantendo o produto seguro no centro.", style = MaterialTheme.typography.bodySmall)
-                    FormatPicker(
-                        state.adFormat, MediaFormats.forAds, vm::setAdFormat,
-                        maxAspect = MediaFormats.ADS_MAX_ASPECT, enabled = state.busy == null,
-                    )
-                    Button(
-                        onClick = { vm.applyAdOutpaint() },
-                        enabled = state.busy == null && state.result != null,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Expandir para ${state.adFormat.label}")
-                    }
-                }
-            }
-
-            // Ajustes Finos Manuais
-            val o = state.options
-            OptionSlider("Sombra de contato", o.contactShadow, { vm.setOptions(o.copy(contactShadow = it)) }, vm::recompose)
-            OptionSlider("Sombra projetada", o.castShadow, { vm.setOptions(o.copy(castShadow = it)) }, vm::recompose)
-            OptionSlider("Harmonização de cor", o.harmonize, { vm.setOptions(o.copy(harmonize = it)) }, vm::recompose)
-            OptionSlider("Luz de borda", o.lightWrap, { vm.setOptions(o.copy(lightWrap = it)) }, vm::recompose)
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { vm.setOptions(CompositeOptions()); vm.recompose() }) { Text("Padrão") }
-                Button(onClick = { vm.export(ExportFormat.PNG) }, enabled = state.busy == null && state.result != null) { Text("PNG") }
-                Button(onClick = { vm.export(ExportFormat.JPG) }, enabled = state.busy == null && state.result != null) { Text("JPG") }
-                OutlinedButton(onClick = { vm.restart() }) { Text("Nova") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { vm.export(ExportFormat.PNG) },
+                    enabled = state.busy == null && state.result != null,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Salvar PNG") }
+                Button(
+                    onClick = { vm.export(ExportFormat.JPG) },
+                    enabled = state.busy == null && state.result != null,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Salvar JPG") }
+                OutlinedButton(onClick = { vm.restart() }) { Text("Novo") }
             }
             Button(
                 onClick = { vm.openInEditor() },

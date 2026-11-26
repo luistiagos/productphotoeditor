@@ -1,0 +1,123 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Logo Tech",
+ "width": 1000,
+ "height": 1000,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#0f172a",
+  "objects": [
+   {
+    "type": "Polygon",
+    "left": 500,
+    "top": 390,
+    "points": [
+     {
+      "x": 215.0,
+      "y": 0.0
+     },
+     {
+      "x": 107.5,
+      "y": 186.2
+     },
+     {
+      "x": -107.5,
+      "y": 186.2
+     },
+     {
+      "x": -215.0,
+      "y": 0.0
+     },
+     {
+      "x": -107.5,
+      "y": -186.2
+     },
+     {
+      "x": 107.5,
+      "y": -186.2
+     }
+    ],
+    "fill": "#06b6d4",
+    "brandColor": "primary"
+   },
+   {
+    "type": "Polygon",
+    "left": 500,
+    "top": 390,
+    "points": [
+     {
+      "x": 185.0,
+      "y": 0.0
+     },
+     {
+      "x": 92.5,
+      "y": 160.21
+     },
+     {
+      "x": -92.5,
+      "y": 160.21
+     },
+     {
+      "x": -185.0,
+      "y": 0.0
+     },
+     {
+      "x": -92.5,
+      "y": -160.21
+     },
+     {
+      "x": 92.5,
+      "y": -160.21
+     }
+    ],
+    "fill": "#ffffff",
+    "opacity": 0.14
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 390,
+    "width": 340,
+    "text": "T",
+    "fontSize": 200,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 900,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 725,
+    "width": 860,
+    "text": "{{company}}",
+    "fontSize": 86,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 800,
+    "fill": "#f8fafc",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading",
+    "charSpacing": 50
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 825,
+    "width": 860,
+    "text": "{{slogan}}",
+    "fontSize": 38,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#22d3ee",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "accent",
+    "brandFont": "body"
+   }
+  ]
+ }
+}

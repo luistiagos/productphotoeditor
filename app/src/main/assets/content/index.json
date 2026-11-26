@@ -122,6 +122,762 @@
    "name": "Aviso (banner)",
    "category": "Redes sociais",
    "file": "templates/aviso-banner.json"
+  },
+  {
+   "id": "black-friday-neon",
+   "name": "Black Friday Impacto",
+   "category": "Vendas",
+   "file": "templates/black-friday-neon.json"
+  },
+  {
+   "id": "cupom-desconto-quadrado",
+   "name": "Cupom de Desconto",
+   "category": "Vendas",
+   "file": "templates/cupom-desconto-quadrado.json"
+  },
+  {
+   "id": "frete-gratis-brasil",
+   "name": "Frete Grátis Brasil",
+   "category": "Vendas",
+   "file": "templates/frete-gratis-brasil.json"
+  },
+  {
+   "id": "queima-estoque-retrato",
+   "name": "Queima de Estoque",
+   "category": "Vendas",
+   "file": "templates/queima-estoque-retrato.json"
+  },
+  {
+   "id": "combo-leve-3-pague-2",
+   "name": "Combo Leve 3 Pague 2",
+   "category": "Vendas",
+   "file": "templates/combo-leve-3-pague-2.json"
+  },
+  {
+   "id": "pix-desconto-imediato",
+   "name": "10% OFF no Pix",
+   "category": "Vendas",
+   "file": "templates/pix-desconto-imediato.json"
+  },
+  {
+   "id": "oferta-relampago-24h",
+   "name": "Oferta Relâmpago 24h",
+   "category": "Vendas",
+   "file": "templates/oferta-relampago-24h.json"
+  },
+  {
+   "id": "liquidacao-verao-coral",
+   "name": "Liquidação de Verão",
+   "category": "Vendas",
+   "file": "templates/liquidacao-verao-coral.json"
+  },
+  {
+   "id": "ultimos-dias-terracota",
+   "name": "Últimos Dias",
+   "category": "Vendas",
+   "file": "templates/ultimos-dias-terracota.json"
+  },
+  {
+   "id": "cashback-clube-vantagens",
+   "name": "Cashback 15% de Volta",
+   "category": "Vendas",
+   "file": "templates/cashback-clube-vantagens.json"
+  },
+  {
+   "id": "kit-presente-especial",
+   "name": "Kit Presente Luxo",
+   "category": "Vendas",
+   "file": "templates/kit-presente-especial.json"
+  },
+  {
+   "id": "parcelamento-12x-sem-juros",
+   "name": "12x Sem Juros",
+   "category": "Vendas",
+   "file": "templates/parcelamento-12x-sem-juros.json"
+  },
+  {
+   "id": "semana-consumidor-vip",
+   "name": "Semana do Consumidor",
+   "category": "Vendas",
+   "file": "templates/semana-consumidor-vip.json"
+  },
+  {
+   "id": "saldao-fim-de-mes",
+   "name": "Saldão Fim de Mês",
+   "category": "Vendas",
+   "file": "templates/saldao-fim-de-mes.json"
+  },
+  {
+   "id": "feirao-descontos-express",
+   "name": "Feirão Express",
+   "category": "Vendas",
+   "file": "templates/feirao-descontos-express.json"
+  },
+  {
+   "id": "cupom-frete-zero",
+   "name": "Cupom Frete Zero",
+   "category": "Vendas",
+   "file": "templates/cupom-frete-zero.json"
+  },
+  {
+   "id": "vitrine-minimal-skincare",
+   "name": "Vitrine Skincare Minimal",
+   "category": "Produtos",
+   "file": "templates/vitrine-minimal-skincare.json"
+  },
+  {
+   "id": "luxo-noir-perfume",
+   "name": "Perfume Luxo Noir",
+   "category": "Produtos",
+   "file": "templates/luxo-noir-perfume.json"
+  },
+  {
+   "id": "tech-gadget-spec",
+   "name": "Gadget Tech Spec",
+   "category": "Produtos",
+   "file": "templates/tech-gadget-spec.json"
+  },
+  {
+   "id": "tenis-street-drop",
+   "name": "Tênis Street Drop",
+   "category": "Produtos",
+   "file": "templates/tenis-street-drop.json"
+  },
+  {
+   "id": "cafe-artesanal-graos",
+   "name": "Café em Grãos Artesanal",
+   "category": "Produtos",
+   "file": "templates/cafe-artesanal-graos.json"
+  },
+  {
+   "id": "suplemento-fitness-pro",
+   "name": "Suplemento Alta Performance",
+   "category": "Produtos",
+   "file": "templates/suplemento-fitness-pro.json"
+  },
+  {
+   "id": "joalheria-ouro-atelier",
+   "name": "Joalheria Ouro 18k",
+   "category": "Produtos",
+   "file": "templates/joalheria-ouro-atelier.json"
+  },
+  {
+   "id": "decoracao-casa-minimal",
+   "name": "Casa & Decoração Minimal",
+   "category": "Produtos",
+   "file": "templates/decoracao-casa-minimal.json"
+  },
+  {
+   "id": "pet-shop-alegria",
+   "name": "Pet Care & Brinquedos",
+   "category": "Produtos",
+   "file": "templates/pet-shop-alegria.json"
+  },
+  {
+   "id": "bento-3-beneficios",
+   "name": "Bento Benefícios Produto",
+   "category": "Produtos",
+   "file": "templates/bento-3-beneficios.json"
+  },
+  {
+   "id": "comparativo-antes-depois",
+   "name": "Antes e Depois Produto",
+   "category": "Produtos",
+   "file": "templates/comparativo-antes-depois.json"
+  },
+  {
+   "id": "ficha-tecnica-marketplace",
+   "name": "Vitrine Marketplace 5★",
+   "category": "Produtos",
+   "file": "templates/ficha-tecnica-marketplace.json"
+  },
+  {
+   "id": "embalagem-eco-natural",
+   "name": "Produto Eco Sustentável",
+   "category": "Produtos",
+   "file": "templates/embalagem-eco-natural.json"
+  },
+  {
+   "id": "relogio-classic-steel",
+   "name": "Relógio Classic Steel",
+   "category": "Produtos",
+   "file": "templates/relogio-classic-steel.json"
+  },
+  {
+   "id": "kit-rotina-capilar",
+   "name": "Kit Rotina Diária",
+   "category": "Produtos",
+   "file": "templates/kit-rotina-capilar.json"
+  },
+  {
+   "id": "destaque-mais-vendido",
+   "name": "Camisa / Moda Essencial",
+   "category": "Produtos",
+   "file": "templates/destaque-mais-vendido.json"
+  },
+  {
+   "id": "story-produto-spotlight",
+   "name": "Story Vitrine Produto",
+   "category": "Stories & Reels",
+   "file": "templates/story-produto-spotlight.json"
+  },
+  {
+   "id": "story-oferta-diaria",
+   "name": "Story Oferta do Dia",
+   "category": "Stories & Reels",
+   "file": "templates/story-oferta-diaria.json"
+  },
+  {
+   "id": "story-enquete-interacao",
+   "name": "Story Enquete A ou B",
+   "category": "Stories & Reels",
+   "file": "templates/story-enquete-interacao.json"
+  },
+  {
+   "id": "story-caixinha-duvidas",
+   "name": "Story Caixinha Perguntas",
+   "category": "Stories & Reels",
+   "file": "templates/story-caixinha-duvidas.json"
+  },
+  {
+   "id": "story-unboxing-reposicao",
+   "name": "Story Reposição Chegou",
+   "category": "Stories & Reels",
+   "file": "templates/story-unboxing-reposicao.json"
+  },
+  {
+   "id": "story-3-dicas-rapidas",
+   "name": "Story 3 Motivos Escolher",
+   "category": "Stories & Reels",
+   "file": "templates/story-3-dicas-rapidas.json"
+  },
+  {
+   "id": "story-cupom-exclusivo-24h",
+   "name": "Story Cupom 24h",
+   "category": "Stories & Reels",
+   "file": "templates/story-cupom-exclusivo-24h.json"
+  },
+  {
+   "id": "story-depoimento-cliente",
+   "name": "Story Prova Social",
+   "category": "Stories & Reels",
+   "file": "templates/story-depoimento-cliente.json"
+  },
+  {
+   "id": "story-bom-dia-atendimento",
+   "name": "Story Bom Dia Loja",
+   "category": "Stories & Reels",
+   "file": "templates/story-bom-dia-atendimento.json"
+  },
+  {
+   "id": "story-capa-reels-passos",
+   "name": "Capa Reels Como Usar",
+   "category": "Stories & Reels",
+   "file": "templates/story-capa-reels-passos.json"
+  },
+  {
+   "id": "story-capa-reels-segredo",
+   "name": "Capa Reels O Segredo",
+   "category": "Stories & Reels",
+   "file": "templates/story-capa-reels-segredo.json"
+  },
+  {
+   "id": "story-bastidores-atelie",
+   "name": "Story Bastidores",
+   "category": "Stories & Reels",
+   "file": "templates/story-bastidores-atelie.json"
+  },
+  {
+   "id": "story-novidades-semana",
+   "name": "Story Novidades Semana",
+   "category": "Stories & Reels",
+   "file": "templates/story-novidades-semana.json"
+  },
+  {
+   "id": "story-contagem-ao-vivo",
+   "name": "Story É Hoje às 20h",
+   "category": "Stories & Reels",
+   "file": "templates/story-contagem-ao-vivo.json"
+  },
+  {
+   "id": "story-catalogo-whatsapp",
+   "name": "Story Catálogo WhatsApp",
+   "category": "Stories & Reels",
+   "file": "templates/story-catalogo-whatsapp.json"
+  },
+  {
+   "id": "story-fechamento-envios",
+   "name": "Story Últimos Pedidos",
+   "category": "Stories & Reels",
+   "file": "templates/story-fechamento-envios.json"
+  },
+  {
+   "id": "burger-combo-quadrado",
+   "name": "Combo Smash Burger",
+   "category": "Comida",
+   "file": "templates/burger-combo-quadrado.json"
+  },
+  {
+   "id": "pizza-rodizio-retrato",
+   "name": "Noite da Pizza Artesanal",
+   "category": "Comida",
+   "file": "templates/pizza-rodizio-retrato.json"
+  },
+  {
+   "id": "acai-verao-delivery",
+   "name": "Açaí no Capricho",
+   "category": "Comida",
+   "file": "templates/acai-verao-delivery.json"
+  },
+  {
+   "id": "confeitaria-bolos-artesanal",
+   "name": "Confeitaria & Bolos",
+   "category": "Comida",
+   "file": "templates/confeitaria-bolos-artesanal.json"
+  },
+  {
+   "id": "delivery-rapido-moto",
+   "name": "Delivery Grátis Pediu Chegou",
+   "category": "Comida",
+   "file": "templates/delivery-rapido-moto.json"
+  },
+  {
+   "id": "sushi-jantar-especial",
+   "name": "Combinado Sushi do Chef",
+   "category": "Comida",
+   "file": "templates/sushi-jantar-especial.json"
+  },
+  {
+   "id": "marmita-fit-semana",
+   "name": "Marmitas Fit da Semana",
+   "category": "Comida",
+   "file": "templates/marmita-fit-semana.json"
+  },
+  {
+   "id": "padaria-fornada-quente",
+   "name": "Padaria Fornada Quente",
+   "category": "Comida",
+   "file": "templates/padaria-fornada-quente.json"
+  },
+  {
+   "id": "almoco-executivo-dia",
+   "name": "Prato do Dia Executivo",
+   "category": "Comida",
+   "file": "templates/almoco-executivo-dia.json"
+  },
+  {
+   "id": "cervejaria-happy-hour",
+   "name": "Happy Hour Chopp Dobro",
+   "category": "Comida",
+   "file": "templates/cervejaria-happy-hour.json"
+  },
+  {
+   "id": "destaque-apps-delivery",
+   "name": "Estamos no Delivery",
+   "category": "Comida",
+   "file": "templates/destaque-apps-delivery.json"
+  },
+  {
+   "id": "cafeteria-menu-compacto",
+   "name": "Menu Cafeteria Compacto",
+   "category": "Comida",
+   "file": "templates/cafeteria-menu-compacto.json"
+  },
+  {
+   "id": "sorveteria-gelato-artesanal",
+   "name": "Gelato Artesanal",
+   "category": "Comida",
+   "file": "templates/sorveteria-gelato-artesanal.json"
+  },
+  {
+   "id": "salao-beleza-agenda",
+   "name": "Agenda Aberta Salão",
+   "category": "Beleza & Moda",
+   "file": "templates/salao-beleza-agenda.json"
+  },
+  {
+   "id": "barbearia-vintage-corte",
+   "name": "Barbearia Clássica",
+   "category": "Beleza & Moda",
+   "file": "templates/barbearia-vintage-corte.json"
+  },
+  {
+   "id": "estetica-facial-clinica",
+   "name": "Estética Facial Clínica",
+   "category": "Beleza & Moda",
+   "file": "templates/estetica-facial-clinica.json"
+  },
+  {
+   "id": "moda-colecao-outono",
+   "name": "Coleção Moda Editorial",
+   "category": "Beleza & Moda",
+   "file": "templates/moda-colecao-outono.json"
+  },
+  {
+   "id": "unhas-gel-manicure",
+   "name": "Unhas em Gel & Nail Art",
+   "category": "Beleza & Moda",
+   "file": "templates/unhas-gel-manicure.json"
+  },
+  {
+   "id": "look-semana-boutique",
+   "name": "Look da Semana Boutique",
+   "category": "Beleza & Moda",
+   "file": "templates/look-semana-boutique.json"
+  },
+  {
+   "id": "maquiagem-noivas-estudio",
+   "name": "Maquiagem Social & Noivas",
+   "category": "Beleza & Moda",
+   "file": "templates/maquiagem-noivas-estudio.json"
+  },
+  {
+   "id": "acessorios-semijoias",
+   "name": "Semijoias Banhadas a Ouro",
+   "category": "Beleza & Moda",
+   "file": "templates/acessorios-semijoias.json"
+  },
+  {
+   "id": "depilacao-laser-pacote",
+   "name": "Pacote Laser Indolor",
+   "category": "Beleza & Moda",
+   "file": "templates/depilacao-laser-pacote.json"
+  },
+  {
+   "id": "bazar-brecho-garimpo",
+   "name": "Bazar & Brechó Achados",
+   "category": "Beleza & Moda",
+   "file": "templates/bazar-brecho-garimpo.json"
+  },
+  {
+   "id": "studio-pilates-yoga",
+   "name": "Studio Pilates & Bem-Estar",
+   "category": "Beleza & Moda",
+   "file": "templates/studio-pilates-yoga.json"
+  },
+  {
+   "id": "calcados-colecao-conforto",
+   "name": "Calçados Coleção Conforto",
+   "category": "Beleza & Moda",
+   "file": "templates/calcados-colecao-conforto.json"
+  },
+  {
+   "id": "cronograma-capilar-spa",
+   "name": "Cronograma Capilar Spa",
+   "category": "Beleza & Moda",
+   "file": "templates/cronograma-capilar-spa.json"
+  },
+  {
+   "id": "consultoria-imagem-pessoal",
+   "name": "Consultoria de Imagem",
+   "category": "Beleza & Moda",
+   "file": "templates/consultoria-imagem-pessoal.json"
+  },
+  {
+   "id": "cartao-visita-minimal",
+   "name": "Cartão Minimalista",
+   "category": "Marca",
+   "file": "templates/cartao-visita-minimal.json"
+  },
+  {
+   "id": "cartao-visita-dark-luxo",
+   "name": "Cartão Dark & Ouro",
+   "category": "Marca",
+   "file": "templates/cartao-visita-dark-luxo.json"
+  },
+  {
+   "id": "cartao-visita-vertical",
+   "name": "Cartão Vertical Moderno",
+   "category": "Marca",
+   "file": "templates/cartao-visita-vertical.json"
+  },
+  {
+   "id": "cartao-fidelidade-10",
+   "name": "Cartão Fidelidade 10 Selos",
+   "category": "Marca",
+   "file": "templates/cartao-fidelidade-10.json"
+  },
+  {
+   "id": "cartao-cliente-vip",
+   "name": "Passe Cliente VIP",
+   "category": "Marca",
+   "file": "templates/cartao-cliente-vip.json"
+  },
+  {
+   "id": "tag-obrigado-pedido",
+   "name": "Tag Obrigado pelo Pedido",
+   "category": "Marca",
+   "file": "templates/tag-obrigado-pedido.json"
+  },
+  {
+   "id": "logo-monograma-serif",
+   "name": "Logo Monograma Luxo",
+   "category": "Marca",
+   "file": "templates/logo-monograma-serif.json"
+  },
+  {
+   "id": "logo-tech-hexagon",
+   "name": "Logo Hexágono Tech",
+   "category": "Marca",
+   "file": "templates/logo-tech-hexagon.json"
+  },
+  {
+   "id": "logo-diamante-editorial",
+   "name": "Logo Diamante Editorial",
+   "category": "Marca",
+   "file": "templates/logo-diamante-editorial.json"
+  },
+  {
+   "id": "logo-badge-verde",
+   "name": "Logo Botânico Orgânico",
+   "category": "Marca",
+   "file": "templates/logo-badge-verde.json"
+  },
+  {
+   "id": "capa-catalogo-a4",
+   "name": "Capa de Catálogo A4",
+   "category": "Marca",
+   "file": "templates/capa-catalogo-a4.json"
+  },
+  {
+   "id": "certificado-conclusao",
+   "name": "Certificado Elegante",
+   "category": "Marca",
+   "file": "templates/certificado-conclusao.json"
+  },
+  {
+   "id": "carrossel-capa-5-erros",
+   "name": "Carrossel Capa 5 Erros",
+   "category": "Redes sociais",
+   "file": "templates/carrossel-capa-5-erros.json"
+  },
+  {
+   "id": "carrossel-miolo-dica-01",
+   "name": "Carrossel Slide Dica 01",
+   "category": "Redes sociais",
+   "file": "templates/carrossel-miolo-dica-01.json"
+  },
+  {
+   "id": "carrossel-cta-final",
+   "name": "Carrossel Último Slide CTA",
+   "category": "Redes sociais",
+   "file": "templates/carrossel-cta-final.json"
+  },
+  {
+   "id": "post-checklist-pratico",
+   "name": "Post Checklist Prático",
+   "category": "Redes sociais",
+   "file": "templates/post-checklist-pratico.json"
+  },
+  {
+   "id": "post-mito-ou-verdade",
+   "name": "Post Mito vs Verdade",
+   "category": "Redes sociais",
+   "file": "templates/post-mito-ou-verdade.json"
+  },
+  {
+   "id": "post-depoimento-cliente",
+   "name": "Depoimento 5 Estrelas",
+   "category": "Redes sociais",
+   "file": "templates/post-depoimento-cliente.json"
+  },
+  {
+   "id": "post-nota-minimal",
+   "name": "Post Nota Minimalista",
+   "category": "Redes sociais",
+   "file": "templates/post-nota-minimal.json"
+  },
+  {
+   "id": "capa-youtube-guia",
+   "name": "Capa YouTube Guia 2026",
+   "category": "Redes sociais",
+   "file": "templates/capa-youtube-guia.json"
+  },
+  {
+   "id": "capa-youtube-review",
+   "name": "Capa YouTube Vale a Pena?",
+   "category": "Redes sociais",
+   "file": "templates/capa-youtube-review.json"
+  },
+  {
+   "id": "banner-linkedin-capa",
+   "name": "Capa LinkedIn Executiva",
+   "category": "Redes sociais",
+   "file": "templates/banner-linkedin-capa.json"
+  },
+  {
+   "id": "frase-noir-impacto",
+   "name": "Frase Noir Impacto",
+   "category": "Redes sociais",
+   "file": "templates/frase-noir-impacto.json"
+  },
+  {
+   "id": "post-3-passos-vertical",
+   "name": "Post 3 Passos Práticos",
+   "category": "Redes sociais",
+   "file": "templates/post-3-passos-vertical.json"
+  },
+  {
+   "id": "imobiliaria-imovel-destaque",
+   "name": "Imobiliária Lançamento",
+   "category": "Serviços",
+   "file": "templates/imobiliaria-imovel-destaque.json"
+  },
+  {
+   "id": "odonto-clinica-sorriso",
+   "name": "Clínica Odontológica",
+   "category": "Serviços",
+   "file": "templates/odonto-clinica-sorriso.json"
+  },
+  {
+   "id": "academia-matricula-zero",
+   "name": "Academia Matrícula Grátis",
+   "category": "Serviços",
+   "file": "templates/academia-matricula-zero.json"
+  },
+  {
+   "id": "oficina-revisao-auto",
+   "name": "Oficina Revisão Completa",
+   "category": "Serviços",
+   "file": "templates/oficina-revisao-auto.json"
+  },
+  {
+   "id": "curso-online-inscricoes",
+   "name": "Curso Online Inscrições",
+   "category": "Serviços",
+   "file": "templates/curso-online-inscricoes.json"
+  },
+  {
+   "id": "escritorio-consultoria-pro",
+   "name": "Consultoria & Advocacia",
+   "category": "Serviços",
+   "file": "templates/escritorio-consultoria-pro.json"
+  },
+  {
+   "id": "fotografia-ensaio-agenda",
+   "name": "Fotografia & Ensaios",
+   "category": "Serviços",
+   "file": "templates/fotografia-ensaio-agenda.json"
+  },
+  {
+   "id": "assistencia-tecnica-celular",
+   "name": "Assistência Técnica Express",
+   "category": "Serviços",
+   "file": "templates/assistencia-tecnica-celular.json"
+  },
+  {
+   "id": "pet-banho-tosa-combo",
+   "name": "Pet Shop Banho & Tosa",
+   "category": "Serviços",
+   "file": "templates/pet-banho-tosa-combo.json"
+  },
+  {
+   "id": "contabilidade-mei-simples",
+   "name": "Contabilidade MEI & Empresas",
+   "category": "Serviços",
+   "file": "templates/contabilidade-mei-simples.json"
+  },
+  {
+   "id": "psicologia-atendimento",
+   "name": "Psicologia Atendimento Online",
+   "category": "Serviços",
+   "file": "templates/psicologia-atendimento.json"
+  },
+  {
+   "id": "marcenaria-planejados",
+   "name": "Móveis Planejados 3D",
+   "category": "Serviços",
+   "file": "templates/marcenaria-planejados.json"
+  },
+  {
+   "id": "energia-solar-economia",
+   "name": "Energia Solar Economia",
+   "category": "Serviços",
+   "file": "templates/energia-solar-economia.json"
+  },
+  {
+   "id": "agencia-marketing-trafego",
+   "name": "Agência Tráfego & Social",
+   "category": "Serviços",
+   "file": "templates/agencia-marketing-trafego.json"
+  },
+  {
+   "id": "workshop-presencial-cert",
+   "name": "Workshop Prático",
+   "category": "Eventos",
+   "file": "templates/workshop-presencial-cert.json"
+  },
+  {
+   "id": "live-instagram-convite",
+   "name": "Convite Live Hoje 20h",
+   "category": "Eventos",
+   "file": "templates/live-instagram-convite.json"
+  },
+  {
+   "id": "horario-atendimento-loja",
+   "name": "Horário de Atendimento",
+   "category": "Eventos",
+   "file": "templates/horario-atendimento-loja.json"
+  },
+  {
+   "id": "comunicado-feriado-aviso",
+   "name": "Comunicado de Feriado",
+   "category": "Eventos",
+   "file": "templates/comunicado-feriado-aviso.json"
+  },
+  {
+   "id": "natal-boas-festas",
+   "name": "Boas Festas & Natal",
+   "category": "Eventos",
+   "file": "templates/natal-boas-festas.json"
+  },
+  {
+   "id": "ano-novo-gratidao",
+   "name": "Feliz Ano Novo",
+   "category": "Eventos",
+   "file": "templates/ano-novo-gratidao.json"
+  },
+  {
+   "id": "dia-das-maes-presente",
+   "name": "Especial Dia das Mães",
+   "category": "Eventos",
+   "file": "templates/dia-das-maes-presente.json"
+  },
+  {
+   "id": "dia-dos-namorados-amor",
+   "name": "Dia dos Namorados",
+   "category": "Eventos",
+   "file": "templates/dia-dos-namorados-amor.json"
+  },
+  {
+   "id": "dia-dos-pais-estilo",
+   "name": "Especial Dia dos Pais",
+   "category": "Eventos",
+   "file": "templates/dia-dos-pais-estilo.json"
+  },
+  {
+   "id": "pascoa-encomendas-ovos",
+   "name": "Páscoa Artesanal",
+   "category": "Eventos",
+   "file": "templates/pascoa-encomendas-ovos.json"
+  },
+  {
+   "id": "arraia-festa-junina",
+   "name": "Arraiá Ofertas Juninas",
+   "category": "Eventos",
+   "file": "templates/arraia-festa-junina.json"
+  },
+  {
+   "id": "inauguracao-nova-loja",
+   "name": "Grande Inauguração",
+   "category": "Eventos",
+   "file": "templates/inauguracao-nova-loja.json"
+  },
+  {
+   "id": "aniversario-loja-festa",
+   "name": "Aniversário da Loja",
+   "category": "Eventos",
+   "file": "templates/aniversario-loja-festa.json"
   }
  ],
  "stickers": [

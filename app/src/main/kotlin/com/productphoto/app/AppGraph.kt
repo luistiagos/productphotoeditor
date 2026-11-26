@@ -4,6 +4,8 @@ import android.app.ActivityManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import androidx.compose.runtime.mutableStateOf
+import com.productphoto.ui.StudioThemeStyle
 import com.productphoto.ai.api.BackgroundRemover
 import com.productphoto.ai.api.Capability
 import com.productphoto.ai.api.CapabilityConfig
@@ -106,6 +108,14 @@ class AppGraph(private val context: Context) {
     )
 
     val configStore: ProviderConfigStore = FileProviderConfigStore(File(context.filesDir, "provider_config.json"))
+
+    private val studioPrefs = context.getSharedPreferences("studio_prefs", Context.MODE_PRIVATE)
+    val themeStyle = mutableStateOf(StudioThemeStyle.fromId(studioPrefs.getString("theme_style", null)))
+
+    fun setThemeStyle(style: StudioThemeStyle) {
+        themeStyle.value = style
+        studioPrefs.edit().putString("theme_style", style.id).apply()
+    }
 
     private val providerContext = object : ProviderContext {
         override val androidContext: Context = context

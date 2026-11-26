@@ -1,0 +1,287 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Perfume Luxo Noir",
+ "width": 1080,
+ "height": 1350,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#09090b",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 540.0,
+    "top": 229.50000000000003,
+    "width": 1080,
+    "height": 459.00000000000006,
+    "fill": "#d4af37",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Circle",
+    "left": 950.4,
+    "top": 108.0,
+    "radius": 172.8,
+    "fill": "#ffffff",
+    "opacity": 0.08
+   },
+   {
+    "type": "Rect",
+    "left": 540.0,
+    "top": 121.5,
+    "width": 475.2,
+    "height": 54,
+    "fill": "#fef08a",
+    "rx": 27,
+    "ry": 27,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 121.5,
+    "width": 432.0,
+    "text": "EDICAO LIMITADA",
+    "fontSize": 28,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#111827",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading",
+    "charSpacing": 60
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 283.5,
+    "width": 928.8,
+    "text": "NOIR GOLD",
+    "fontSize": 118,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 400,
+    "fill": "#09090b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 405.0,
+    "width": 907.1999999999999,
+    "text": "Notas amadeiradas e toque de âmbar",
+    "fontSize": 36,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#09090b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Rect",
+    "left": 540.0,
+    "top": 756.0000000000001,
+    "width": 526.0,
+    "height": 526.0,
+    "fill": "#1f2937",
+    "rx": 36,
+    "ry": 36,
+    "stroke": "#d4af37",
+    "brandStroke": "primary",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 756.0000000000001,
+    "width": 446.0,
+    "text": "Toque em Imagem\npara inserir foto",
+    "fontSize": 34,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#9ca3af",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Polygon",
+    "left": 885.5999999999999,
+    "top": 551.8800000000001,
+    "points": [
+     {
+      "x": 0.0,
+      "y": -108.0
+     },
+     {
+      "x": 19.14,
+      "y": -83.84
+     },
+     {
+      "x": 46.86,
+      "y": -97.3
+     },
+     {
+      "x": 53.62,
+      "y": -67.24
+     },
+     {
+      "x": 84.44,
+      "y": -67.34
+     },
+     {
+      "x": 77.48,
+      "y": -37.31
+     },
+     {
+      "x": 105.29,
+      "y": -24.03
+     },
+     {
+      "x": 86.0,
+      "y": 0.0
+     },
+     {
+      "x": 105.29,
+      "y": 24.03
+     },
+     {
+      "x": 77.48,
+      "y": 37.31
+     },
+     {
+      "x": 84.44,
+      "y": 67.34
+     },
+     {
+      "x": 53.62,
+      "y": 67.24
+     },
+     {
+      "x": 46.86,
+      "y": 97.3
+     },
+     {
+      "x": 19.14,
+      "y": 83.84
+     },
+     {
+      "x": 0.0,
+      "y": 108.0
+     },
+     {
+      "x": -19.14,
+      "y": 83.84
+     },
+     {
+      "x": -46.86,
+      "y": 97.3
+     },
+     {
+      "x": -53.62,
+      "y": 67.24
+     },
+     {
+      "x": -84.44,
+      "y": 67.34
+     },
+     {
+      "x": -77.48,
+      "y": 37.31
+     },
+     {
+      "x": -105.29,
+      "y": 24.03
+     },
+     {
+      "x": -86.0,
+      "y": 0.0
+     },
+     {
+      "x": -105.29,
+      "y": -24.03
+     },
+     {
+      "x": -77.48,
+      "y": -37.31
+     },
+     {
+      "x": -84.44,
+      "y": -67.34
+     },
+     {
+      "x": -53.62,
+      "y": -67.24
+     },
+     {
+      "x": -46.86,
+      "y": -97.3
+     },
+     {
+      "x": -19.14,
+      "y": -83.84
+     }
+    ],
+    "fill": "#fef08a",
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 885.5999999999999,
+    "top": 551.8800000000001,
+    "width": 160,
+    "text": "LUXO",
+    "fontSize": 42,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 700,
+    "fill": "#111827",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Rect",
+    "left": 540.0,
+    "top": 1134.0,
+    "width": 669.6,
+    "height": 104,
+    "fill": "#d4af37",
+    "rx": 52,
+    "ry": 52,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 1134.0,
+    "width": 604.8000000000001,
+    "text": "GARANTIR FRASCO",
+    "fontSize": 42,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#09090b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 1255.5,
+    "width": 928.8,
+    "text": "{{company}} · {{phone}}",
+    "fontSize": 30,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#f5f5f4",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ]
+ }
+}

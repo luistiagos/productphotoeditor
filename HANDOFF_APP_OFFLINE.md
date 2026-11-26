@@ -1346,3 +1346,17 @@ Resultado:
   - dono: Fase 0 no Railway;
   - código: numa sessão nova no backend, ler o Épico 11 e começar pela Fase 1 (SEC-15.1–3, SEC-14.3, SEC-15.5,
     SEC-07.2).
+
+## 49. Sessão Atual (2026-11-24/25): Redesign Visual de Produção, Showcase, 6 Paletas WCAG e Ferramentas Rápidas Nativas
+
+- **Guia para Agentes e Manual atualizados:** criado `AGENTS.md` na raiz e atualizado `.claude/skills/pipeline-correcao-bugs/projeto.md` + `docs/PLANO_INTERFACE_UX.md`.
+- **Design System & 6 Paletas Profissionais (`:core:ui` `Theme.kt`):**
+  - `StudioThemeStyle`: `VIOLET_STUDIO` (padrão dark), `GRAPHITE_PRO` (OLED calibrado sem viés cromático), `NOIR_GOLD` (luxo champagne AAA), `DEEP_OCEAN` (cyber/tech), `CRIMSON_STUDIO` (editorial coral/âmbar) e `DAYLIGHT_GALLERY` (claro editorial).
+  - Estudo e prova automatizada de contraste WCAG 2.1 em `core/ui/src/test/kotlin/com/productphoto/ui/ThemeContrastTest.kt` (≥ 7.0:1 AAA texto/fundo, ≥ 4.5:1 AA botões, secundária, muted e erro).
+  - Persistência síncrona em `SharedPreferences("studio_prefs")` no `AppGraph`, troca instantânea via `ThemeSelector.kt` (em `SettingsScreen.kt` e atalho de paleta na barra da `HomeScreen.kt`) e sincronização de barras do sistema em `MainActivity.kt`.
+- **Home, Carrossel de Destaque & Ferramentas Rápidas (`HomeScreen.kt` + `QuickToolsScreens.kt`):**
+  - Abas `Início`, `Templates`, `Projetos` e `Marca` com vitrines fotorrealistas empacotadas em `app/src/main/assets/showcase/` (`tmpl_*.jpg`, `ad_*.jpg`, `tool_*.jpg`).
+  - **Ferramentas em Destaque:** carrossel horizontal (`LazyRow` + snap) com *Foto de Produto com IA*, *Remover Fundo IA* e *Upscaler Real-ESRGAN*.
+  - **Ferramentas Rápidas:** 7 atalhos ilustrados (*Foto de Produto IA*, *Remover Fundo*, *Upscaler HD*, *Novo design*, *Gerar imagem*, *Mockup 3D* e *Templates Prontos*).
+  - Novas telas nativas em `QuickToolsScreens.kt` (`Screen.BgRemover` e `Screen.Upscaler` em `Navigator.kt`): `QuickBgRemoverScreen` (recorte transparente offline com `cutout`, comparação antes/depois, salvar/compartilhar PNG ou abrir no editor) e `QuickUpscalerScreen` (Real-ESRGAN 2×/4× com ajuste automático ≤ 1 MP).
+  - Aba *Marca*: carrossel de exemplos comerciais de anúncios + cards ilustrados *"O que você pode fazer com o app"*.

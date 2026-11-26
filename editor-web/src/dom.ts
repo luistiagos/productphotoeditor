@@ -50,8 +50,10 @@ export function colorInput(label: string, value: string, onInput: (v: string) =>
   const apply = (hex: string) => { input.value = hex; onInput(hex); };
   // botão dentro do <label>: conteúdo interativo não repassa o toque ao <input> (não abre o seletor nativo)
   const more = paletteProvider
-    ? h('button', { type: 'button', class: 'icon palette-btn', title: 'Conta-gotas e cores do anúncio',
-      onclick: (e: Event) => { e.preventDefault(); paletteProvider?.open(input.value, apply); } }, '🎨')
+    ? h('button', {
+      type: 'button', class: 'icon palette-btn', title: 'Conta-gotas e cores do anúncio',
+      onclick: (e: Event) => { e.preventDefault(); paletteProvider?.open(input.value, apply); }
+    }, '🎨')
     : null;
   return h('label', { class: 'color' }, input, more, h('span', {}, label));
 }
@@ -93,18 +95,71 @@ export function setBusy(message: string | null, onCancel?: () => void): void {
   cancel.onclick = onCancel ?? null;
 }
 
+export interface SheetOptions {
+  tall?: boolean;
+  /** Folha de edição/animação ao vivo: mantém o palco nítido, claro e enquadrado acima do painel. */
+  preview?: boolean;
+  onClose?: () => void;
+}
+
+let activeSheetCleanup: (() => void) | null = null;
+
+function syncPreviewStage(panel: HTMLElement): () => void {
+  const stage = document.getElementById('stage');
+  if (!stage) return () => { };
+  const update = () => {
+    const curMargin = parseFloat(stage.style.marginBottom) || 0;
+    const stageRect = stage.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    if (!panelRect.height) return;
+    const rawBottom = stageRect.bottom + curMargin;
+    const rawHeight = stageRect.height + curMargin;
+    const overlap = Math.max(0, rawBottom - panelRect.top);
+    const maxMargin = Math.max(0, rawHeight - 120);
+    const next = Math.min(overlap, maxMargin);
+    stage.style.marginBottom = next > 1 ? `${Math.round(next)}px` : '';
+  };
+  const raf = requestAnimationFrame(update);
+  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+  ro?.observe(panel);
+  window.addEventListener('resize', update);
+  return () => {
+    cancelAnimationFrame(raf);
+    ro?.disconnect();
+    window.removeEventListener('resize', update);
+    stage.style.marginBottom = '';
+  };
+}
+
 /** Painel inferior modal; devolve a função que fecha. */
-export function openSheet(title: string, content: Node, opts: { tall?: boolean } = {}): () => void {
+export function openSheet(title: string, content: Node, opts: SheetOptions = {}): () => void {
+  activeSheetCleanup?.();
+  activeSheetCleanup = null;
   const root = document.getElementById('sheet')!;
   root.replaceChildren();
-  const close = () => { root.classList.remove('show'); root.replaceChildren(); };
-  root.append(
-    h('div', { class: 'scrim', onclick: close }),
-    h('div', { class: 'panel' + (opts.tall ? ' tall' : '') },
-      h('div', { class: 'sheet-head' }, h('strong', {}, title), button('✕', close, 'icon')),
-      h('div', { class: 'sheet-body' }, content)),
-  );
+  root.classList.toggle('preview', Boolean(opts.preview));
+  const panel = h('div', { class: 'panel' + (opts.tall ? ' tall' : '') },
+    h('div', { class: 'sheet-head' }, h('strong', {}, title), button('✕', () => close(), 'icon')),
+    h('div', { class: 'sheet-body' }, content));
+  let closed = false;
+  let layoutCleanup: (() => void) | null = null;
+  const cleanup = () => {
+    layoutCleanup?.();
+    layoutCleanup = null;
+    if (activeSheetCleanup === cleanup) activeSheetCleanup = null;
+  };
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    cleanup();
+    root.classList.remove('show', 'preview');
+    root.replaceChildren();
+    opts.onClose?.();
+  };
+  activeSheetCleanup = cleanup;
+  root.append(h('div', { class: 'scrim', onclick: close }), panel);
   root.classList.add('show');
+  if (opts.preview) layoutCleanup = syncPreviewStage(panel);
   return close;
 }
 

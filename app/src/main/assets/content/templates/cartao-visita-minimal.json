@@ -1,0 +1,107 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Cartão Minimalista",
+ "width": 1050,
+ "height": 600,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#fafaf9",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 525,
+    "top": 300,
+    "width": 990,
+    "height": 540,
+    "fill": "#fafaf9",
+    "rx": 20,
+    "ry": 20,
+    "stroke": "#18181b",
+    "brandStroke": "primary",
+    "strokeWidth": 3
+   },
+   {
+    "type": "Rect",
+    "left": 525,
+    "top": 54,
+    "width": 990,
+    "height": 18,
+    "fill": "#18181b",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 165,
+    "width": 840,
+    "text": "{{company}}",
+    "fontSize": 54,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#18181b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 240,
+    "width": 820,
+    "text": "{{slogan}}",
+    "fontSize": 28,
+    "fontFamily": "Open Sans",
+    "fontWeight": 600,
+    "fill": "#18181b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "body"
+   },
+   {
+    "type": "Rect",
+    "left": 525,
+    "top": 315,
+    "width": 260,
+    "height": 4,
+    "fill": "#a1a1aa",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 395,
+    "width": 840,
+    "text": "{{phone}}  ·  {{email}}",
+    "fontSize": 28,
+    "fontFamily": "Open Sans",
+    "fontWeight": 500,
+    "fill": "#18181b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 455,
+    "width": 840,
+    "text": "{{website}}  ·  {{address}}",
+    "fontSize": 26,
+    "fontFamily": "Open Sans",
+    "fontWeight": 400,
+    "fill": "#18181b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

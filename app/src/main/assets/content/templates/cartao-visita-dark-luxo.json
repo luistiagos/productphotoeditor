@@ -1,0 +1,105 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Cartão Dark Ouro",
+ "width": 1050,
+ "height": 600,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#0f172a",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 525,
+    "top": 300,
+    "width": 990,
+    "height": 540,
+    "fill": "#0f172a",
+    "rx": 20,
+    "ry": 20,
+    "stroke": "#d4af37",
+    "brandStroke": "primary",
+    "strokeWidth": 3
+   },
+   {
+    "type": "Rect",
+    "left": 525,
+    "top": 54,
+    "width": 990,
+    "height": 18,
+    "fill": "#d4af37",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 165,
+    "width": 840,
+    "text": "{{company}}",
+    "fontSize": 54,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#f8fafc",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 240,
+    "width": 820,
+    "text": "{{slogan}}",
+    "fontSize": 28,
+    "fontFamily": "Open Sans",
+    "fontWeight": 600,
+    "fill": "#d4af37",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "body"
+   },
+   {
+    "type": "Rect",
+    "left": 525,
+    "top": 315,
+    "width": 260,
+    "height": 4,
+    "fill": "#facc15",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 395,
+    "width": 840,
+    "text": "{{phone}}  ·  {{email}}",
+    "fontSize": 28,
+    "fontFamily": "Open Sans",
+    "fontWeight": 500,
+    "fill": "#f8fafc",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 455,
+    "width": 840,
+    "text": "{{website}}  ·  {{address}}",
+    "fontSize": 26,
+    "fontFamily": "Open Sans",
+    "fontWeight": 400,
+    "fill": "#f8fafc",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ]
+ }
+}

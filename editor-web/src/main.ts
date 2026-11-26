@@ -1,5 +1,6 @@
 import './styles.css';
 import { ActiveSelection, FabricImage, FabricObject, FabricText, getFilterBackend, Group, Shadow, Textbox, WebGLFilterBackend } from 'fabric';
+import { iconEl, type IconName } from './icons';
 import type { WarpStyle } from './curve';
 import { type CopyResult, parseCopy, parseVariants, REWRITE_STYLES, type RewriteStyle, rewritePayload } from './aiText';
 import { Bridge, BridgeRequestError, injectedTransport, offlineTransport } from './bridge';
@@ -416,7 +417,7 @@ function showPositionSheet(o: FabricObject): void {
     h('label', { class: 'check' }, ratio, h('span', {}, '🔒 Manter proporção')),
     h('div', { class: 'row' }, a.el),
     angleSlider,
-    h('div', { class: 'chips' }, ...[0, -45, -15, 15, 45, 90].map(chip))));
+    h('div', { class: 'chips' }, ...[0, -45, -15, 15, 45, 90].map(chip))), { preview: true });
 }
 
 function showAlignSheet(): void {
@@ -441,7 +442,7 @@ function showAlignSheet(): void {
       button('📐 Distribuir Vertical', () => { editor.distribute('vertical'); }),
     ),
     button('Fechar', () => close(), 'primary')
-  ));
+  ), { preview: true });
 }
 
 function brandColorChips(onPick: (color: string, role: ColorRole) => void): HTMLElement | null {
@@ -649,9 +650,9 @@ function showAnimationSheet(o: FabricObject): void {
         editor.videoPreview.seek(Math.max(0, startTime - 0.2));
         editor.videoPreview.play();
       }, 'primary'),
-      button('Concluir', () => { editor.videoPreview.stop(); close(); }),
+      button('Concluir', () => close()),
     ),
-  ));
+  ), { preview: true, onClose: () => editor.videoPreview.stop() });
 }
 
 function textProps(t: FabricText): Node[] {
@@ -786,7 +787,7 @@ function showShadowSheet(o: FabricObject): void {
     slider('Deslocamento X', -50, 50, 1, offsetX, (v) => { offsetX = v; apply(); }),
     slider('Deslocamento Y', -50, 50, 1, offsetY, (v) => { offsetY = v; apply(); }),
     button('Concluir', () => { close(); renderProps(o); }, 'primary'),
-  ));
+  ), { preview: true });
 }
 
 function showWarpSheet(t: Textbox): void {
@@ -836,7 +837,7 @@ function showWarpSheet(t: Textbox): void {
     slider('Perspectiva H', -100, 100, 5, distortH, (v) => { distortH = v; update(); }),
     slider('Perspectiva V', -100, 100, 5, distortV, (v) => { distortV = v; update(); }),
     button('Concluir', () => { close(); renderProps(t); }, 'primary'),
-  ));
+  ), { preview: true });
 }
 
 // ---------- texto com IA (§18.5) ----------
@@ -864,7 +865,7 @@ function showEditText(t: FabricText, onRelease: boolean): void {
   };
   const close = openSheet('Editar texto', h('div', {},
     field,
-    h('div', { class: 'row' }, button('Cancelar', () => close()), button('Aplicar', apply, 'primary'))));
+    h('div', { class: 'row' }, button('Cancelar', () => close()), button('Aplicar', apply, 'primary'))), { preview: true });
   const focus = () => { field.focus(); field.select(); };
   if (!onRelease) { focus(); return; }
   const released = () => {
@@ -892,7 +893,7 @@ function showListSheet(t: FabricText): void {
       }, label))));
   };
   render();
-  openSheet('☰ Lista', body);
+  openSheet('☰ Lista', body, { preview: true });
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -936,7 +937,7 @@ function showFindReplace(): void {
     h('label', { class: 'check' }, matchCase, h('span', {}, 'Diferenciar maiúsculas e minúsculas')),
     counter,
     results,
-    h('div', { class: 'row' }, button('Fechar', () => close()), replaceAll)), { tall: true });
+    h('div', { class: 'row' }, button('Fechar', () => close()), replaceAll)), { tall: true, preview: true });
   refresh();
   findInput.focus();
 }
@@ -1159,7 +1160,7 @@ function showFrameSheet(img: FabricImage): void {
       slider('Posição X', -1, 1, 0.02, round2(spec.offsetX), (v) => editor.setImageFrame(img, { offsetX: v })),
       slider('Posição Y', -1, 1, 0.02, round2(spec.offsetY), (v) => editor.setImageFrame(img, { offsetY: v }))),
   ] : [h('p', { class: 'hint' }, 'Escolha uma forma para colocar a foto dentro dela.')];
-  openSheet('🖼️ Moldura', h('div', { class: 'frame-sheet' }, h('div', { class: 'grid frame-shapes' }, ...cells), ...controls), { tall: true });
+  openSheet('🖼️ Moldura', h('div', { class: 'frame-sheet' }, h('div', { class: 'grid frame-shapes' }, ...cells), ...controls), { tall: true, preview: true });
 }
 
 const round2 = (v: number): number => Math.round(v * 100) / 100;
@@ -1248,7 +1249,7 @@ function showFilters(img: FabricImage): void {
     h('div', { class: 'chips duotone' }, h('span', { class: 'hint' }, 'Duotone:'), ...duoChips),
     h('div', { class: 'chips focus' }, h('span', { class: 'hint' }, 'Foco:'), ...focusChips),
     focusBox,
-    h('div', { class: 'row' }, button('Zerar ajustes', reset))));
+    h('div', { class: 'row' }, button('Zerar ajustes', reset))), { preview: true });
 }
 
 // ---------- IA (ponte) ----------
@@ -1637,46 +1638,171 @@ function showMergeSheet(): void {
 
 // ---------- abas ----------
 
-const tabs: [string, () => void][] = [
-  ['Templates', showTemplates],
-  ['Texto', showText],
-  ['Imagem', showImage],
-  ['Formas', showShapes],
+const tabs: [string, () => void, IconName?][] = [
+  ['Templates', showTemplates, 'templates'],
+  ['Texto', showText, 'text'],
+  ['Imagem', showImage, 'image'],
+  ['Formas', showShapes, 'shapes'],
   ['🏷️ Selos', showBadges],
   ['📱 QR Code', () => showQrSheet()],
   ['📊 Tabela', showTableSheet],
-  ['Adesivos', showStickers],
-  ['Fundo', showBackgrounds],
-  ['Tamanho', showSize],
-  ['Marca', showBrand],
+  ['Adesivos', showStickers, 'sparkles'],
+  ['Fundo', showBackgrounds, 'background'],
+  ['Tamanho', showSize, 'crop'],
+  ['Marca', showBrand, 'brand'],
   ['🎬 Vídeo', showVideo],
   ['📦 Mockup 3D', () => openMockupStudio({ editor, bridge, describe })],
 ];
 // trocar de aba conclui o desenho à mão (senão o objeto inserido ficaria sob o pincel, sem como tocar nele)
-document.getElementById('tabs')!.replaceChildren(...tabs.map(([label, fn]) => button(label, () => {
-  if (refineBusy()) return;
-  if (editor.isFreehandDrawing) finishFreehand();
-  fn();
-})));
+document.getElementById('tabs')!.replaceChildren(...tabs.map(([label, fn, icon]) => {
+  const b = button(label, () => {
+    if (refineBusy()) return;
+    if (editor.isFreehandDrawing) finishFreehand();
+    fn();
+  });
+  if (icon) {
+    b.prepend(iconEl(icon, 16));
+  }
+  return b;
+}));
+
+const templateThumbCache = new Map<string, string>();
+const MAX_CONCURRENT_THUMBS = 2;
 
 function showTemplates(): void {
+  const kitKey = JSON.stringify(brandKit);
+  let activeCategory = 'Todas';
+  let searchQuery = '';
+  let activeThumbs = 0;
+  const thumbQueue: Array<() => void> = [];
+  const queued = new WeakSet<HTMLImageElement>();
+
+  const drainThumbQueue = () => {
+    while (activeThumbs < MAX_CONCURRENT_THUMBS && thumbQueue.length > 0) {
+      const job = thumbQueue.shift()!;
+      activeThumbs++;
+      job();
+    }
+  };
+
+  const enqueueThumb = (t: TemplateEntry, im: HTMLImageElement) => {
+    if (queued.has(im) || im.src) return;
+    queued.add(im);
+    const cacheKey = `${t.id}|${kitKey}`;
+    const cached = templateThumbCache.get(cacheKey);
+    if (cached) {
+      im.src = cached;
+      return;
+    }
+    thumbQueue.push(() => {
+      if (!im.isConnected) {
+        activeThumbs--;
+        drainThumbQueue();
+        return;
+      }
+      void loadTemplate(t)
+        .then((d) => renderThumbnail(applyBrandKit(parseDocument(d), brandKit), 240))
+        .then((u) => {
+          templateThumbCache.set(cacheKey, u);
+          if (im.isConnected) im.src = u;
+        })
+        .catch((e: unknown) => console.warn('thumb', t.id, e))
+        .finally(() => {
+          activeThumbs--;
+          setTimeout(drainThumbQueue, 0);
+        });
+    });
+    drainThumbQueue();
+  };
+
+  let observer: IntersectionObserver | null = null;
+  const setupObserver = (root: HTMLElement | null) => {
+    observer?.disconnect();
+    if (typeof IntersectionObserver === 'undefined') { observer = null; return; }
+    observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const el = entry.target as HTMLImageElement & { _tpl?: TemplateEntry };
+        observer?.unobserve(el);
+        if (el._tpl) enqueueThumb(el._tpl, el);
+      }
+    }, { root, rootMargin: '280px 0px' });
+  };
+
   const tile = (t: TemplateEntry) => {
-    const im = h('img', { alt: t.name });
+    const im = h('img', { alt: t.name }) as HTMLImageElement & { _tpl?: TemplateEntry };
     if (t.thumbnail) {
       im.src = t.thumbnail;
     } else {
-      void loadTemplate(t).then((d) => renderThumbnail(applyBrandKit(parseDocument(d), brandKit), 240)).then((u) => { im.src = u; })
-        .catch((e: unknown) => console.warn('thumb', t.id, e));
+      const cached = templateThumbCache.get(`${t.id}|${kitKey}`);
+      if (cached) {
+        im.src = cached;
+      } else {
+        im._tpl = t;
+        if (observer) observer.observe(im);
+        else enqueueThumb(t, im);
+      }
     }
     return h('button', { class: 'tile', type: 'button', onclick: () => void (async () => {
       if (editor.canvas.getObjects().length && !(await confirmSheet('Usar template', 'Substituir o design atual pelo template?', 'Substituir'))) return;
+      observer?.disconnect();
       close();
       await openTemplate(t);
     })() }, im, h('span', {}, t.name));
   };
+
   const cats = [...new Set(content.templates.map((t) => t.category))];
-  const close = openSheet('Templates', h('div', {}, ...cats.flatMap((c) => [h('h4', {}, c),
-    h('div', { class: 'grid' }, ...content.templates.filter((x) => x.category === c).map(tile))])), { tall: true });
+  const chipsRow = h('div', { class: 'chips row scroll template-cats' });
+  const resultsBox = h('div');
+  const searchInput = h('input', {
+    class: 'name template-search',
+    type: 'search',
+    placeholder: `Buscar em ${content.templates.length} templates…`,
+  }) as HTMLInputElement;
+
+  const renderGallery = () => {
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = content.templates.filter((t) => {
+      const matchesCat = activeCategory === 'Todas' || t.category === activeCategory;
+      const matchesSearch = !q || t.name.toLowerCase().includes(q) || t.category.toLowerCase().includes(q);
+      return matchesCat && matchesSearch;
+    });
+    const visibleCats = activeCategory === 'Todas' ? cats : [activeCategory];
+    const sections = visibleCats.flatMap((c) => {
+      const list = filtered.filter((x) => x.category === c);
+      if (list.length === 0) return [];
+      return [h('h4', {}, `${c} (${list.length})`), h('div', { class: 'grid' }, ...list.map(tile))];
+    });
+    resultsBox.replaceChildren(
+      ...(sections.length > 0 ? sections : [h('p', { class: 'hint' }, 'Nenhum template encontrado para essa busca.')]),
+    );
+  };
+
+  const renderChips = () => {
+    const allCats = ['Todas', ...cats];
+    chipsRow.replaceChildren(...allCats.map((c) => {
+      const count = c === 'Todas' ? content.templates.length : content.templates.filter((t) => t.category === c).length;
+      return h('button', {
+        type: 'button',
+        class: `chip${activeCategory === c ? ' primary' : ''}`,
+        onclick: () => {
+          activeCategory = c;
+          renderChips();
+          renderGallery();
+        },
+      }, `${c} (${count})`);
+    }));
+  };
+
+  searchInput.oninput = () => {
+    searchQuery = searchInput.value;
+    renderGallery();
+  };
+
+  const close = openSheet(`Templates (${content.templates.length})`, h('div', {}, searchInput, chipsRow, resultsBox), { tall: true });
+  setupObserver(resultsBox.closest('.sheet-body'));
+  renderChips();
+  renderGallery();
 }
 
 function showText(): void {
@@ -1945,7 +2071,7 @@ function showSwapShape(o: FabricObject): void {
       close();
       editor.swapShape(k, o);
       renderProps(editor.active);
-    }, k === current ? 'primary' : ''))));
+    }, k === current ? 'primary' : ''))), { preview: true });
 }
 
 /** Pontas, formato, cor, espessura e traço da linha/seta selecionada; cada mudança refaz o Group no mesmo lugar. */
@@ -2013,7 +2139,7 @@ function showGradientSheet(target: FabricObject | 'background'): void {
     );
   };
   render();
-  const close = openSheet('🌈 Degradê', body, { tall: true });
+  const close = openSheet('🌈 Degradê', body, { tall: true, preview: true });
   if (!current) apply();
 }
 
@@ -2141,7 +2267,7 @@ function showBackgrounds(): void {
     h('img', { src: contentUrl(thumb) })))),
     ...(Object.keys(brandKit.colors).length ? [h('h4', {}, 'Cores da marca'), h('div', { class: 'grid small' },
       ...Object.entries(brandKit.colors).map(([role, c]) => h('button', { class: 'tile swatch', type: 'button', style: `background:${c}`,
-        onclick: () => editor.setBackgroundColor(c!, role) })))] : [])), { tall: true });
+        onclick: () => editor.setBackgroundColor(c!, role) })))] : [])), { tall: true, preview: true });
 }
 
 function cssOf(b: { kind: string; colors?: string[]; angle?: number }): string {
@@ -2240,7 +2366,7 @@ function showSize(): void {
     ...sections,
     h('h4', {}, 'Personalizado'),
     h('div', { class: 'row' }, custom, h('label', {}, 'L ', w), h('label', {}, 'A ', hh), button('Aplicar', () => apply(Number(w.value), Number(hh.value)), 'primary'))),
-  { tall: true });
+  { tall: true, preview: true });
 }
 
 /** ✨ Magic Resize (TASK-09): formatos do catálogo com checkbox; cada um vira uma página nova com o conteúdo reposicionado. */
@@ -2495,12 +2621,9 @@ function showVideo(): void {
         close();
         showExport('gif');
       }),
-      button('Fechar', () => {
-        editor.videoPreview.stop();
-        close();
-      }),
+      button('Fechar', () => close()),
     ),
-  ));
+  ), { preview: true, onClose: () => editor.videoPreview.stop() });
 }
 
 /** "🎵 Música de Fundo": trilhas empacotadas, áudio do aparelho, volume, início e fade-out (TASK-04 §2.1). */

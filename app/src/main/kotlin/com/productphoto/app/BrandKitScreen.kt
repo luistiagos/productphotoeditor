@@ -56,6 +56,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+
 private val PALETTE = listOf("#212121", "#FFFFFF", "#E53935", "#D81B60", "#8E24AA", "#3949AB", "#1E88E5", "#00ACC1",
     "#43A047", "#7CB342", "#FDD835", "#FFB300", "#FB8C00", "#6D4C41", "#546E7A", "#FFF8E1")
 
@@ -99,7 +102,10 @@ fun BrandKitScreen(graph: AppGraph, onBack: () -> Unit) {
 
     Scaffold(topBar = { TopAppBar(title = { Text("Brand kit") }) }, snackbarHost = { SnackbarHost(snackbar) }) { pad ->
         val k = kit ?: return@Scaffold Box(Modifier.padding(pad).fillMaxSize())
-        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("Prévia da Marca", style = MaterialTheme.typography.titleMedium)
+            BrandPreviewCard(k, logo)
+
             Text("Empresa", style = MaterialTheme.typography.titleMedium)
             val p = k.profile
             Field("Nome da empresa", p.company) { kit = k.copy(profile = p.copy(company = it)) }
@@ -181,6 +187,60 @@ fun BrandKitScreen(graph: AppGraph, onBack: () -> Unit) {
                 },
                 confirmButton = { TextButton(onClick = { fontRole = null }) { Text("Fechar") } },
             )
+        }
+    }
+}
+
+@Composable
+private fun BrandPreviewCard(
+    kit: BrandKit,
+    logo: Bitmap?,
+) {
+    val bg = runCatching { Color(android.graphics.Color.parseColor(kit.colors.background.ifEmpty { "#1E222E" })) }.getOrDefault(Color(0xFF1E222E))
+    val primary = runCatching { Color(android.graphics.Color.parseColor(kit.colors.primary.ifEmpty { "#6C5CE7" })) }.getOrDefault(Color(0xFF6C5CE7))
+    val text = runCatching { Color(android.graphics.Color.parseColor(kit.colors.text.ifEmpty { "#F3F5F9" })) }.getOrDefault(Color(0xFFF3F5F9))
+    val accent = runCatching { Color(android.graphics.Color.parseColor(kit.colors.accent.ifEmpty { "#00D2B8" })) }.getOrDefault(Color(0xFF00D2B8))
+
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = bg),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        kit.profile.company.ifEmpty { "Sua Empresa" },
+                        style = MaterialTheme.typography.titleLarge,
+                        color = primary,
+                    )
+                    if (kit.profile.slogan.isNotBlank()) {
+                        Text(
+                            kit.profile.slogan,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = text.copy(alpha = 0.85f),
+                        )
+                    }
+                }
+                if (logo != null) {
+                    Image(
+                        logo.asImageBitmap(),
+                        contentDescription = "Logo",
+                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+            }
+            if (kit.profile.phone.isNotBlank() || kit.profile.website.isNotBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (kit.profile.phone.isNotBlank()) {
+                        Text(kit.profile.phone, style = MaterialTheme.typography.bodySmall, color = accent)
+                    }
+                    if (kit.profile.website.isNotBlank()) {
+                        Text(kit.profile.website, style = MaterialTheme.typography.bodySmall, color = text.copy(alpha = 0.7f))
+                    }
+                }
+            }
         }
     }
 }

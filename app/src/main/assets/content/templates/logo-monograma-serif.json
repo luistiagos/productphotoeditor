@@ -1,0 +1,78 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Logo Monograma",
+ "width": 1000,
+ "height": 1000,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#faf7f2",
+  "objects": [
+   {
+    "type": "Circle",
+    "left": 500,
+    "top": 390,
+    "radius": 215,
+    "fill": "#1e293b",
+    "brandColor": "primary",
+    "stroke": "#d4af37",
+    "brandStroke": "accent",
+    "strokeWidth": 8
+   },
+   {
+    "type": "Circle",
+    "left": 500,
+    "top": 390,
+    "radius": 182,
+    "fill": "#ffffff",
+    "opacity": 0.12
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 390,
+    "width": 340,
+    "text": "M",
+    "fontSize": 200,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 900,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 725,
+    "width": 860,
+    "text": "{{company}}",
+    "fontSize": 86,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 800,
+    "fill": "#1e293b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading",
+    "charSpacing": 50
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 825,
+    "width": 860,
+    "text": "{{slogan}}",
+    "fontSize": 38,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#1e293b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

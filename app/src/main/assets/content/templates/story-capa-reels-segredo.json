@@ -1,0 +1,112 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Capa Reels Segredo",
+ "width": 1080,
+ "height": 1920,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#0f172a",
+  "objects": [
+   {
+    "type": "Circle",
+    "left": 920,
+    "top": 260,
+    "radius": 240,
+    "fill": "#7c3aed",
+    "brandColor": "primary",
+    "opacity": 0.3
+   },
+   {
+    "type": "Circle",
+    "left": 160,
+    "top": 1660,
+    "radius": 240,
+    "fill": "#22d3ee",
+    "brandColor": "accent",
+    "opacity": 0.22
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 560,
+    "width": 440,
+    "height": 66,
+    "fill": "#22d3ee",
+    "rx": 33,
+    "ry": 33,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 560,
+    "width": 400,
+    "text": "POUCA GENTE SABE",
+    "fontSize": 32,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#111827",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading",
+    "charSpacing": 70
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 960,
+    "width": 880,
+    "height": 520,
+    "fill": "#7c3aed",
+    "rx": 40,
+    "ry": 40,
+    "brandColor": "primary",
+    "opacity": 0.92
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 930,
+    "width": 780,
+    "text": "O SEGREDO DOS PROS",
+    "fontSize": 106,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1340,
+    "width": 820,
+    "text": "Salve este vídeo para testar hoje",
+    "fontSize": 44,
+    "fontFamily": "Montserrat",
+    "fontWeight": 600,
+    "fill": "#e2e8f0",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1680,
+    "width": 860,
+    "text": "{{company}}",
+    "fontSize": 40,
+    "fontFamily": "Montserrat",
+    "fontWeight": 700,
+    "fill": "#22d3ee",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "accent",
+    "brandFont": "body"
+   }
+  ]
+ }
+}

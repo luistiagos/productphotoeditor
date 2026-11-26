@@ -51,14 +51,30 @@ Ciclo das duas: `open/` -> `retest/` (aprovado no pipeline) -> `done/` (so o don
 - App Android `com.productphoto.offline` (o debug usa o MESMO id). Modulos Gradle em `settings.gradle.kts`
   (`:app`, `:editor`, `:feature:*`, `:core:*`, `:ai:*`, `:data:*`). O editor e uma pagina web (TypeScript + Fabric
   7.4.0, `editor-web/`) servida pelo WebView do modulo `:editor` (ARQUITETURA §7).
+- **Design System, Paletas & Telas Nativas (`:core:ui` e `:app`):**
+  - `:core:ui` define `Theme.kt` (`StudioThemeStyle` com **6 paletas verificadas WCAG 2.1**: `VIOLET_STUDIO` [padrao],
+    `GRAPHITE_PRO`, `NOIR_GOLD`, `DEEP_OCEAN`, `CRIMSON_STUDIO`, `DAYLIGHT_GALLERY`, validadas por `ThemeContrastTest.kt`)
+    e `FormatPicker`/`MediaFormats` (`MediaFormatsTest`). A paleta ativa fica persistida em `SharedPreferences("studio_prefs")`
+    no `AppGraph` e pode ser trocada pelo icone de Paleta no topo da Home ou em `SettingsScreen.kt` (`ThemeSelector.kt`).
+  - `HomeScreen.kt` usa `NavigationBar` de **4 abas**: `Início` (`StudioTab`), `Templates` (`TemplatesTab`), `Projetos`
+    (`ProjectsTab`) e `Marca` (`BrandTab`). Na aba `Início` ficam o carrossel **Ferramentas em Destaque** (*Foto de Produto
+    com IA*, *Remover Fundo IA*, *Upscaler Real-ESRGAN*) e **Ferramentas Rápidas** (*Foto de Produto IA*, *Remover Fundo*,
+    *Upscaler HD*, *Novo design*, *Gerar imagem*, *Mockup 3D*, *Templates Prontos*).
+  - **Compatibilidade E2E (`tools/e2e/cdp.mjs::launchEditor()`):** continua procurando o texto exato `"Novo design"` na Home
+    (presente no 1º card do carrossel e em Ferramentas Rápidas); nao remover ou renomear esse rotulo sem atualizar `cdp.mjs`.
+  - Telas rapidas nativas dedicadas: `QuickToolsScreens.kt` (`QuickBgRemoverScreen` para recorte PNG transparente offline;
+    `QuickUpscalerScreen` para Real-ESRGAN 2×/4× com ajuste automatico <= 1 MP), ligadas em `Navigator.kt` e `MainActivity.kt`.
+  - Assets visuais de vitrine (Home, Templates e Marca) ficam em `app/src/main/assets/showcase/` (`tmpl_*.jpg`, `ad_*.jpg`, `tool_*.jpg`).
 - **Bundle do editor e VERSIONADO:** `npm run build` (em `editor-web/`) apaga e regera
   `editor/src/main/assets/editor/` (`index.html` + `assets/index-<hash>.js|.css`). Codigo em `editor-web/` sem o
   bundle regerado nao chega ao app.
 - Build (o helper roda; a sessao nunca roda `gradlew` de assemble/test nem `npm run build` direto):
   `python <helper> build --bug <slug>` = copia `local.properties` para a lane se faltar, `npm run build` +
-  `npm test` (vitest) em `editor-web/`, `gradlew :app:assembleDebug testDebugUnitTest`. APK:
+  `npm test` (vitest) em `editor-web/`, `gradlew :app:assembleDebug testDebugUnitTest` (inclui `:core:ui:testDebugUnitTest`). APK:
   `<lane>\app\build\outputs\apk\debug\app-debug.apk` (arm64-v8a + x86_64: serve no celular e no emulador). Lock
   `ppo-build`: um build por vez entre as lanes; esperar e normal.
+  *(Fora do pipeline automatizado, se rodar Gradle direto no Windows e houver lock de cache em `source-to-classes.tab`,
+  usar `gradlew --stop` e `--no-daemon`; para `screencap` no PowerShell, usar `cmd /c "adb exec-out screencap -p > out.png"`.)*
 - Permitido direto na sessao: `npx vitest run <arquivo>`, `npx tsc --noEmit` (em `editor-web/`), `node
   tools/e2e/*.mjs`, `adb`.
 - IA remota: o debug usa o `iawrapper` com a credencial de DEV do `local.properties` (custa credito). Teste que nao

@@ -58,7 +58,26 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.math.sqrt
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.FilterChip
+
 const val IMAGE_IAWRAPPER_SECRET = "image.iawrapper"
+
+val INSPIRATION_CHIPS = listOf(
+    "Perfume de luxo em bancada de mármore, iluminação dourada",
+    "Tênis esportivo flutuando com luzes neon azul e roxo",
+    "Caneca de cerâmica artesanal sobre mesa de madeira rústica",
+    "Vela aromática em estúdio aconchegante minimalista",
+    "Cosmético premium sobre pódio pastel com gotas d'água",
+)
+
+val STYLE_CHIPS = listOf(
+    "Fotografia Realista",
+    "Estúdio Clean",
+    "3D Render",
+    "Minimalista",
+    "Ilustração Comercial",
+)
 
 /**
  * Servidor de imagem do app (§19.5): iawrapper com endereço, feature e credencial vindos do build — o usuário
@@ -232,20 +251,68 @@ fun ImageGenScreen(graph: AppGraph, onOpenInEditor: suspend (Bitmap) -> Unit) {
         }
     }
 
+    var showAdvanced by remember { mutableStateOf(false) }
+
     Scaffold(topBar = { TopAppBar(title = { Text("Gerar imagem") }) }) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Descreva o que você quer: pôster, logo ou foto de produto. A imagem é criada na nuvem (precisa de " +
-                    "internet) e abre no editor.",
+                "Descreva o que você quer criar: fotos de produto, anúncios, logos ou conceitos visuais.",
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(ImageGenMemory.prompt, { ImageGenMemory.prompt = it }, Modifier.fillMaxWidth(),
-                label = { Text("O que gerar") }, placeholder = { Text("pôster de café artesanal, estilo aquarela") })
-            OutlinedTextField(ImageGenMemory.negative, { ImageGenMemory.negative = it }, Modifier.fillMaxWidth(),
-                label = { Text("Evitar (opcional)") }, placeholder = { Text("texto, marca d'água, borrado") })
+
+            // Chips de Inspiração Rápida
+            Text("Inspirações (toque para preencher):", style = MaterialTheme.typography.labelMedium)
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                INSPIRATION_CHIPS.forEach { chip ->
+                    FilterChip(
+                        selected = ImageGenMemory.prompt == chip,
+                        onClick = { ImageGenMemory.prompt = chip },
+                        label = { Text(chip, maxLines = 1) },
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                ImageGenMemory.prompt, { ImageGenMemory.prompt = it }, Modifier.fillMaxWidth(),
+                label = { Text("O que gerar") }, placeholder = { Text("pôster de café artesanal, estilo aquarela") },
+            )
+
+            // Estilos visuais sugeridos
+            Text("Adicionar estilo ao pedido:", style = MaterialTheme.typography.labelMedium)
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                STYLE_CHIPS.forEach { style ->
+                    FilterChip(
+                        selected = ImageGenMemory.prompt.contains(style, ignoreCase = true),
+                        onClick = {
+                            if (!ImageGenMemory.prompt.contains(style, ignoreCase = true)) {
+                                ImageGenMemory.prompt = if (ImageGenMemory.prompt.isBlank()) style else "${ImageGenMemory.prompt}, $style"
+                            }
+                        },
+                        label = { Text(style) },
+                    )
+                }
+            }
+
+            TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                Text(if (showAdvanced) "▴ Menos opções" else "▾ Opções avançadas (evitar termos)")
+            }
+
+            if (showAdvanced) {
+                OutlinedTextField(
+                    ImageGenMemory.negative, { ImageGenMemory.negative = it }, Modifier.fillMaxWidth(),
+                    label = { Text("Evitar (opcional)") }, placeholder = { Text("texto borrado, deformação, baixa qualidade") },
+                )
+            }
             FormatPicker(
                 ImageGenMemory.format, MediaFormats.forImageGeneration, { ImageGenMemory.format = it },
                 maxSide = IMAGE_GEN_MAX_SIDE, enabled = running == null,

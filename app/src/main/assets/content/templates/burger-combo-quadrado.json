@@ -1,0 +1,287 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Combo Smash Burger",
+ "width": 1080,
+ "height": 1080,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#18181b",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 540.0,
+    "top": 183.60000000000002,
+    "width": 1080,
+    "height": 367.20000000000005,
+    "fill": "#ea580c",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Circle",
+    "left": 950.4,
+    "top": 86.4,
+    "radius": 172.8,
+    "fill": "#ffffff",
+    "opacity": 0.08
+   },
+   {
+    "type": "Rect",
+    "left": 540.0,
+    "top": 97.2,
+    "width": 475.2,
+    "height": 54,
+    "fill": "#facc15",
+    "rx": 27,
+    "ry": 27,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 97.2,
+    "width": 432.0,
+    "text": "COMBO DA CASA",
+    "fontSize": 28,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#111827",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading",
+    "charSpacing": 60
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 226.79999999999998,
+    "width": 928.8,
+    "text": "SMASH DUPLO",
+    "fontSize": 118,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 324.0,
+    "width": 907.1999999999999,
+    "text": "Pão brioche + blend 180g + batata rústica",
+    "fontSize": 36,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Rect",
+    "left": 540.0,
+    "top": 594.0,
+    "width": 428.8,
+    "height": 428.8,
+    "fill": "#1f2937",
+    "rx": 36,
+    "ry": 36,
+    "stroke": "#ea580c",
+    "brandStroke": "primary",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 594.0,
+    "width": 348.8,
+    "text": "Toque em Imagem\npara inserir foto",
+    "fontSize": 34,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#9ca3af",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Polygon",
+    "left": 885.5999999999999,
+    "top": 430.704,
+    "points": [
+     {
+      "x": 0.0,
+      "y": -108.0
+     },
+     {
+      "x": 19.14,
+      "y": -83.84
+     },
+     {
+      "x": 46.86,
+      "y": -97.3
+     },
+     {
+      "x": 53.62,
+      "y": -67.24
+     },
+     {
+      "x": 84.44,
+      "y": -67.34
+     },
+     {
+      "x": 77.48,
+      "y": -37.31
+     },
+     {
+      "x": 105.29,
+      "y": -24.03
+     },
+     {
+      "x": 86.0,
+      "y": 0.0
+     },
+     {
+      "x": 105.29,
+      "y": 24.03
+     },
+     {
+      "x": 77.48,
+      "y": 37.31
+     },
+     {
+      "x": 84.44,
+      "y": 67.34
+     },
+     {
+      "x": 53.62,
+      "y": 67.24
+     },
+     {
+      "x": 46.86,
+      "y": 97.3
+     },
+     {
+      "x": 19.14,
+      "y": 83.84
+     },
+     {
+      "x": 0.0,
+      "y": 108.0
+     },
+     {
+      "x": -19.14,
+      "y": 83.84
+     },
+     {
+      "x": -46.86,
+      "y": 97.3
+     },
+     {
+      "x": -53.62,
+      "y": 67.24
+     },
+     {
+      "x": -84.44,
+      "y": 67.34
+     },
+     {
+      "x": -77.48,
+      "y": 37.31
+     },
+     {
+      "x": -105.29,
+      "y": 24.03
+     },
+     {
+      "x": -86.0,
+      "y": 0.0
+     },
+     {
+      "x": -105.29,
+      "y": -24.03
+     },
+     {
+      "x": -77.48,
+      "y": -37.31
+     },
+     {
+      "x": -84.44,
+      "y": -67.34
+     },
+     {
+      "x": -53.62,
+      "y": -67.24
+     },
+     {
+      "x": -46.86,
+      "y": -97.3
+     },
+     {
+      "x": -19.14,
+      "y": -83.84
+     }
+    ],
+    "fill": "#facc15",
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 885.5999999999999,
+    "top": 430.704,
+    "width": 160,
+    "text": "R$ 34",
+    "fontSize": 42,
+    "fontFamily": "Anton",
+    "fontWeight": 700,
+    "fill": "#111827",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Rect",
+    "left": 540.0,
+    "top": 907.1999999999999,
+    "width": 669.6,
+    "height": 104,
+    "fill": "#ea580c",
+    "rx": 52,
+    "ry": 52,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 907.1999999999999,
+    "width": 604.8000000000001,
+    "text": "PEDIR AGORA",
+    "fontSize": 42,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540.0,
+    "top": 1004.4000000000001,
+    "width": 928.8,
+    "text": "{{company}} · {{phone}}",
+    "fontSize": 30,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#f4f4f5",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ]
+ }
+}

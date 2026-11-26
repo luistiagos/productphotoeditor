@@ -1,0 +1,162 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Cashback 15%",
+ "width": 1080,
+ "height": 1080,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#f5f3ff",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 540,
+    "width": 960,
+    "height": 960,
+    "fill": "#ffffff",
+    "rx": 36,
+    "ry": 36,
+    "stroke": "#6d28d9",
+    "brandStroke": "primary",
+    "strokeWidth": 6,
+    "strokeDashArray": [
+     22,
+     14
+    ]
+   },
+   {
+    "type": "Circle",
+    "left": 60,
+    "top": 540,
+    "radius": 42,
+    "fill": "#f5f3ff"
+   },
+   {
+    "type": "Circle",
+    "left": 1020,
+    "top": 540,
+    "radius": 42,
+    "fill": "#f5f3ff"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 175,
+    "width": 800,
+    "text": "CLUBE DE VANTAGENS",
+    "fontSize": 40,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#6d28d9",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "heading",
+    "charSpacing": 100
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 325,
+    "width": 840,
+    "text": "15% BACK",
+    "fontSize": 154,
+    "fontFamily": "Bebas Neue",
+    "fontWeight": 400,
+    "fill": "#1e1b4b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 455,
+    "width": 760,
+    "text": "Ganhe crédito automático para a próxima compra",
+    "fontSize": 38,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#1e1b4b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 605,
+    "width": 620,
+    "height": 144,
+    "fill": "#2dd4bf",
+    "rx": 24,
+    "ry": 24,
+    "brandColor": "accent",
+    "stroke": "#1e1b4b",
+    "strokeWidth": 3,
+    "strokeDashArray": [
+     14,
+     10
+    ]
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 605,
+    "width": 580,
+    "text": "VOLTA15",
+    "fontSize": 68,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#111827",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading",
+    "charSpacing": 90
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 795,
+    "width": 540,
+    "height": 96,
+    "fill": "#6d28d9",
+    "rx": 48,
+    "ry": 48,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 795,
+    "width": 500,
+    "text": "RESGATAR",
+    "fontSize": 38,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 920,
+    "width": 820,
+    "text": "{{company}}  ·  {{website}}",
+    "fontSize": 32,
+    "fontFamily": "Montserrat",
+    "fontWeight": 600,
+    "fill": "#1e1b4b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

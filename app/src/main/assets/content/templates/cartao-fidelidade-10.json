@@ -1,0 +1,185 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Cartão Fidelidade",
+ "width": 1050,
+ "height": 600,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#fffbeb",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 525,
+    "top": 300,
+    "width": 990,
+    "height": 540,
+    "fill": "#fffbeb",
+    "rx": 28,
+    "ry": 28,
+    "stroke": "#b45309",
+    "brandStroke": "primary",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 110,
+    "width": 860,
+    "text": "CARTÃO FIDELIDADE · {{company}}",
+    "fontSize": 40,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#b45309",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 168,
+    "width": 860,
+    "text": "Complete 10 selos e ganhe um presente especial",
+    "fontSize": 26,
+    "fontFamily": "Open Sans",
+    "fontWeight": 500,
+    "fill": "#451a03",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "body"
+   },
+   {
+    "type": "Circle",
+    "left": 185,
+    "top": 295,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Circle",
+    "left": 355,
+    "top": 295,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Circle",
+    "left": 525,
+    "top": 295,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Circle",
+    "left": 695,
+    "top": 295,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Circle",
+    "left": 865,
+    "top": 295,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Circle",
+    "left": 185,
+    "top": 440,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Circle",
+    "left": 355,
+    "top": 440,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Circle",
+    "left": 525,
+    "top": 440,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Circle",
+    "left": 695,
+    "top": 440,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Circle",
+    "left": 865,
+    "top": 440,
+    "radius": 52,
+    "fill": "#ffffff",
+    "stroke": "#f59e0b",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Textbox",
+    "left": 865,
+    "top": 440,
+    "width": 90,
+    "text": "★",
+    "fontSize": 48,
+    "fontFamily": "Montserrat",
+    "fontWeight": 700,
+    "fill": "#b45309",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 525,
+    "top": 530,
+    "width": 860,
+    "text": "{{phone}}  ·  {{website}}",
+    "fontSize": 24,
+    "fontFamily": "Open Sans",
+    "fontWeight": 600,
+    "fill": "#451a03",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

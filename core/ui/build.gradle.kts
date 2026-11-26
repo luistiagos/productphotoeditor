@@ -23,6 +23,7 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.material3)
+    api(libs.compose.material.icons.extended)
     testImplementation(libs.junit)
 }
 

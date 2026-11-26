@@ -33,6 +33,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -234,11 +238,31 @@ fun MockupScreen(deps: MockupDeps, initial: Bitmap? = null) {
 
 @Composable
 private fun TemplateGrid(library: MockupLibrary, onChoose: (MockupEntry) -> Unit) {
-    library.all.chunked(2).forEach { row ->
+    var selectedCat by remember { mutableStateOf("Todos") }
+    val categories = remember(library.all) {
+        listOf("Todos") + library.all.map { it.category }.distinct().filter { it.isNotBlank() }
+    }
+    val filtered = remember(selectedCat, library.all) {
+        if (selectedCat == "Todos") library.all else library.all.filter { it.category == selectedCat }
+    }
+
+    if (categories.size > 2) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            items(categories) { cat ->
+                FilterChip(
+                    selected = selectedCat == cat,
+                    onClick = { selectedCat = cat },
+                    label = { Text(cat) },
+                )
+            }
+        }
+    }
+
+    filtered.chunked(2).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             row.forEach { e ->
                 val thumb by produceState<ImageBitmap?>(null, e.id) { value = library.loadThumb(e).asImageBitmap() }
-                Card(Modifier.weight(1f).clickable { onChoose(e) }) {
+                Card(Modifier.weight(1f).clickable { onChoose(e) }, shape = RoundedCornerShape(16.dp)) {
                     Box {
                         val t = thumb
                         if (t != null) Image(t, e.name, Modifier.fillMaxWidth().aspectRatio(1f), contentScale = ContentScale.Fit)

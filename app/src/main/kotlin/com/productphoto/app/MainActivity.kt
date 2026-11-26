@@ -2,17 +2,22 @@ package com.productphoto.app
 
 import android.Manifest
 import android.app.Application
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -23,12 +28,7 @@ import com.productphoto.feature.mockup.MockupDeps
 import com.productphoto.feature.mockup.MockupScreen
 import com.productphoto.feature.product.ProductFlowScreen
 import com.productphoto.feature.product.ProductFlowViewModel
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.ui.platform.LocalContext
+import com.productphoto.ui.ProductPhotoTheme
 
 class ProductPhotoApp : Application() {
     val graph by lazy { AppGraph(this) }
@@ -45,14 +45,20 @@ class MainActivity : ComponentActivity() {
         }
         val app = application as ProductPhotoApp
         setContent {
-            val dark = isSystemInDarkTheme()
-            val ctx = LocalContext.current
-            val colors = when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
-                dark -> darkColorScheme()
-                else -> lightColorScheme()
+            val style = app.graph.themeStyle.value
+            val view = LocalView.current
+            if (!view.isInEditMode) {
+                SideEffect {
+                    val window = (view.context as Activity).window
+                    window.statusBarColor = style.scheme.surface.toArgb()
+                    window.navigationBarColor = style.scheme.surface.toArgb()
+                    WindowCompat.getInsetsController(window, view).apply {
+                        isAppearanceLightStatusBars = !style.isDark
+                        isAppearanceLightNavigationBars = !style.isDark
+                    }
+                }
             }
-            MaterialTheme(colorScheme = colors) {
+            ProductPhotoTheme(style = style) {
                 AppNavigation(app)
             }
         }
@@ -66,7 +72,10 @@ private fun AppNavigation(app: ProductPhotoApp) {
     BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
     when (val screen = nav.current) {
         Screen.Home -> HomeScreen(
+            graph = graph,
             onProductPhoto = { nav.push(Screen.Product) },
+            onBgRemover = { nav.push(Screen.BgRemover) },
+            onUpscaler = { nav.push(Screen.Upscaler) },
             onNewDesign = { name, w, h -> nav.push(Screen.Editor(EditorStart.New(name, w, h))) },
             onTemplates = { nav.push(Screen.Editor(EditorStart.Gallery)) },
             onDrafts = { nav.push(Screen.Drafts) },
@@ -75,6 +84,29 @@ private fun AppNavigation(app: ProductPhotoApp) {
             onTextAi = { nav.push(Screen.TextAi) },
             onImageGen = { nav.push(Screen.ImageGen) },
             onMockup = { nav.push(Screen.Mockup()) },
+            onSettings = { nav.push(Screen.Settings) },
+        )
+        Screen.BgRemover -> QuickBgRemoverScreen(
+            graph = graph,
+            onOpenInEditor = { bmp ->
+                val name = graph.editorAssets.putPng(bmp, "cutout")
+                nav.push(Screen.Editor(EditorStart.Image(name, "Fundo removido")))
+            },
+            onBack = { nav.pop() },
+        )
+        Screen.Upscaler -> QuickUpscalerScreen(
+            graph = graph,
+            onOpenInEditor = { bmp ->
+                val name = graph.editorAssets.putPng(bmp, "upscale")
+                nav.push(Screen.Editor(EditorStart.Image(name, "Imagem HD")))
+            },
+            onBack = { nav.pop() },
+        )
+        Screen.Settings -> SettingsScreen(
+            graph = graph,
+            onTextAi = { nav.push(Screen.TextAi) },
+            onModels = { nav.push(Screen.Models) },
+            onBack = { nav.pop() },
         )
         Screen.Product -> {
             val vm: ProductFlowViewModel = viewModel(

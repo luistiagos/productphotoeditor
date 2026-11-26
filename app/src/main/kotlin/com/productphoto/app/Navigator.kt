@@ -12,6 +12,9 @@ sealed interface Screen {
     data object Models : Screen
     data object TextAi : Screen
     data object ImageGen : Screen
+    data object BgRemover : Screen
+    data object Upscaler : Screen
+    data object Settings : Screen
     /** [initial]: design vindo do editor ("Ver em mockup"), vai no espaço 1. */
     data class Mockup(val initial: Bitmap? = null, val key: Long = System.nanoTime()) : Screen
     /** `key` distingue duas aberturas seguidas do editor (cada uma é uma sessão nova). */

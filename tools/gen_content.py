@@ -6,6 +6,7 @@ este script só as lista. Rodar: python tools/gen_content.py
 """
 import json
 from pathlib import Path
+from templates_catalog import build_extra_templates
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTENT = ROOT / 'app' / 'src' / 'main' / 'assets' / 'content'
@@ -194,7 +195,7 @@ TEMPLATES = [
     ('cartao-visita', 'Cartão de visita', 'Marca', t_card),
     ('frase-retrato', 'Frase', 'Redes sociais', t_quote),
     ('aviso-banner', 'Aviso (banner)', 'Redes sociais', t_hiring),
-]
+] + build_extra_templates()
 
 # ---------------- adesivos (SVG feitos à mão) ----------------
 

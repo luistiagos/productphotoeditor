@@ -1,0 +1,112 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Frase Noir",
+ "width": 1080,
+ "height": 1920,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#09090b",
+  "objects": [
+   {
+    "type": "Circle",
+    "left": 920,
+    "top": 260,
+    "radius": 240,
+    "fill": "#27272a",
+    "brandColor": "primary",
+    "opacity": 0.3
+   },
+   {
+    "type": "Circle",
+    "left": 160,
+    "top": 1660,
+    "radius": 240,
+    "fill": "#facc15",
+    "brandColor": "accent",
+    "opacity": 0.22
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 560,
+    "width": 440,
+    "height": 66,
+    "fill": "#facc15",
+    "rx": 33,
+    "ry": 33,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 560,
+    "width": 400,
+    "text": "PENSAMENTO DO DIA",
+    "fontSize": 32,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#111827",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading",
+    "charSpacing": 70
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 960,
+    "width": 880,
+    "height": 520,
+    "fill": "#27272a",
+    "rx": 40,
+    "ry": 40,
+    "brandColor": "primary",
+    "opacity": 0.92
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 930,
+    "width": 780,
+    "text": "FEITO É MELHOR QUE PERFEITO",
+    "fontSize": 106,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1340,
+    "width": 820,
+    "text": "Comece hoje com o que você tem",
+    "fontSize": 44,
+    "fontFamily": "Montserrat",
+    "fontWeight": 600,
+    "fill": "#e2e8f0",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1680,
+    "width": 860,
+    "text": "{{company}}",
+    "fontSize": 40,
+    "fontFamily": "Montserrat",
+    "fontWeight": 700,
+    "fill": "#facc15",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "accent",
+    "brandFont": "body"
+   }
+  ]
+ }
+}

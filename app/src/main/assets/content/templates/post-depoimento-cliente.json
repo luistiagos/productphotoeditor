@@ -1,0 +1,113 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Depoimento Cliente",
+ "width": 1080,
+ "height": 1080,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#f5f3ff",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 540,
+    "width": 900,
+    "height": 860,
+    "fill": "#ffffff",
+    "rx": 40,
+    "ry": 40,
+    "stroke": "#6d28d9",
+    "brandStroke": "primary",
+    "strokeWidth": 3
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 215,
+    "width": 760,
+    "text": "★★★★★",
+    "fontSize": 62,
+    "fontFamily": "Nunito",
+    "fontWeight": 700,
+    "fill": "#f59e0b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "accent",
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 325,
+    "width": 300,
+    "text": "“",
+    "fontSize": 180,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 900,
+    "fill": "#6d28d9",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 560,
+    "width": 740,
+    "text": "“O atendimento foi rápido e o resultado final superou tudo o que imaginamos!”",
+    "fontSize": 54,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 700,
+    "fill": "#1e1b4b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 760,
+    "width": 160,
+    "height": 5,
+    "fill": "#6d28d9",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 830,
+    "width": 760,
+    "text": "Camila Mendes · Cliente verificada",
+    "fontSize": 38,
+    "fontFamily": "Nunito",
+    "fontWeight": 700,
+    "fill": "#6d28d9",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 910,
+    "width": 760,
+    "text": "{{company}}",
+    "fontSize": 32,
+    "fontFamily": "Nunito",
+    "fontWeight": 600,
+    "fill": "#1e1b4b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

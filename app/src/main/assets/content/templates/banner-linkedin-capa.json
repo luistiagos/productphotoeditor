@@ -1,0 +1,106 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Capa LinkedIn",
+ "width": 1584,
+ "height": 396,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#0f172a",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 475.2,
+    "top": 198.0,
+    "width": 1013.76,
+    "height": 396,
+    "fill": "#1e40af",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary",
+    "angle": -6
+   },
+   {
+    "type": "Rect",
+    "left": 396.0,
+    "top": 87.12,
+    "width": 443.52000000000004,
+    "height": 31.68,
+    "fill": "#38bdf8",
+    "rx": 24,
+    "ry": 24,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 396.0,
+    "top": 87.12,
+    "width": 411.84000000000003,
+    "text": "PORTFOLIO & SERVICOS",
+    "fontSize": 28,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#111827",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 491.04,
+    "top": 190.07999999999998,
+    "width": 792.0,
+    "text": "SOLUÇÕES PARA SUA EMPRESA",
+    "fontSize": 58,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#ffffff",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 491.04,
+    "top": 285.12,
+    "width": 792.0,
+    "text": "Estratégia · Tecnologia · Resultados",
+    "fontSize": 26,
+    "fontFamily": "Montserrat",
+    "fontWeight": 600,
+    "fill": "#e2e8f0",
+    "textAlign": "left",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Rect",
+    "left": 1235.52,
+    "top": 198.0,
+    "width": 538.5600000000001,
+    "height": 285.12,
+    "fill": "#ffffff",
+    "rx": 28,
+    "ry": 28,
+    "opacity": 0.1,
+    "stroke": "#38bdf8",
+    "brandStroke": "accent",
+    "strokeWidth": 3
+   },
+   {
+    "type": "Textbox",
+    "left": 1235.52,
+    "top": 198.0,
+    "width": 443.52000000000004,
+    "text": "{{company}}\n{{slogan}}",
+    "fontSize": 26,
+    "fontFamily": "Montserrat",
+    "fontWeight": 700,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ]
+ }
+}

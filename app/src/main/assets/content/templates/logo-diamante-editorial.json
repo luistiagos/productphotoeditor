@@ -1,0 +1,111 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Logo Diamante",
+ "width": 1000,
+ "height": 1000,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#ffffff",
+  "objects": [
+   {
+    "type": "Polygon",
+    "left": 500,
+    "top": 390,
+    "points": [
+     {
+      "x": 0,
+      "y": -230
+     },
+     {
+      "x": 230,
+      "y": 0
+     },
+     {
+      "x": 0,
+      "y": 230
+     },
+     {
+      "x": -230,
+      "y": 0
+     }
+    ],
+    "fill": "#6d28d9",
+    "brandColor": "primary"
+   },
+   {
+    "type": "Polygon",
+    "left": 500,
+    "top": 390,
+    "points": [
+     {
+      "x": 0,
+      "y": -195
+     },
+     {
+      "x": 195,
+      "y": 0
+     },
+     {
+      "x": 0,
+      "y": 195
+     },
+     {
+      "x": -195,
+      "y": 0
+     }
+    ],
+    "fill": "#facc15",
+    "stroke": "#facc15",
+    "strokeWidth": 3,
+    "opacity": 0.2
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 390,
+    "width": 340,
+    "text": "S",
+    "fontSize": 200,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 900,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 725,
+    "width": 860,
+    "text": "{{company}}",
+    "fontSize": 86,
+    "fontFamily": "Playfair Display",
+    "fontWeight": 800,
+    "fill": "#1e1b4b",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading",
+    "charSpacing": 50
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 825,
+    "width": 860,
+    "text": "{{slogan}}",
+    "fontSize": 38,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#6d28d9",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

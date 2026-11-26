@@ -1,0 +1,78 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Logo Botânico",
+ "width": 1000,
+ "height": 1000,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#f0fdf4",
+  "objects": [
+   {
+    "type": "Circle",
+    "left": 500,
+    "top": 390,
+    "radius": 215,
+    "fill": "#15803d",
+    "brandColor": "primary",
+    "stroke": "#86efac",
+    "brandStroke": "accent",
+    "strokeWidth": 8
+   },
+   {
+    "type": "Circle",
+    "left": 500,
+    "top": 390,
+    "radius": 182,
+    "fill": "#ffffff",
+    "opacity": 0.12
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 390,
+    "width": 340,
+    "text": "B",
+    "fontSize": 200,
+    "fontFamily": "Lobster",
+    "fontWeight": 900,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 725,
+    "width": 860,
+    "text": "{{company}}",
+    "fontSize": 86,
+    "fontFamily": "Lobster",
+    "fontWeight": 800,
+    "fill": "#14532d",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading",
+    "charSpacing": 50
+   },
+   {
+    "type": "Textbox",
+    "left": 500,
+    "top": 825,
+    "width": 860,
+    "text": "{{slogan}}",
+    "fontSize": 38,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#15803d",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

@@ -1,0 +1,113 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Nota Minimalista",
+ "width": 1080,
+ "height": 1080,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#f1f5f9",
+  "objects": [
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 540,
+    "width": 900,
+    "height": 860,
+    "fill": "#ffffff",
+    "rx": 40,
+    "ry": 40,
+    "stroke": "#0f172a",
+    "brandStroke": "primary",
+    "strokeWidth": 3
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 215,
+    "width": 760,
+    "text": "💡 DICA DO DIA",
+    "fontSize": 62,
+    "fontFamily": "Inter",
+    "fontWeight": 700,
+    "fill": "#2563eb",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "accent",
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 325,
+    "width": 300,
+    "text": "“",
+    "fontSize": 180,
+    "fontFamily": "Montserrat",
+    "fontWeight": 900,
+    "fill": "#0f172a",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 560,
+    "width": 740,
+    "text": "Consistência vale mais que perfeição: publique sua melhor oferta hoje e ajuste no caminho.",
+    "fontSize": 54,
+    "fontFamily": "Montserrat",
+    "fontWeight": 700,
+    "fill": "#0f172a",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "heading"
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 760,
+    "width": 160,
+    "height": 5,
+    "fill": "#0f172a",
+    "rx": 0,
+    "ry": 0,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 830,
+    "width": 760,
+    "text": "@{{company}}",
+    "fontSize": 38,
+    "fontFamily": "Inter",
+    "fontWeight": 700,
+    "fill": "#0f172a",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "primary",
+    "brandFont": "body"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 910,
+    "width": 760,
+    "text": "{{company}}",
+    "fontSize": 32,
+    "fontFamily": "Inter",
+    "fontWeight": 600,
+    "fill": "#0f172a",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandColor": "text",
+    "brandFont": "body"
+   }
+  ],
+  "brandBackground": "background"
+ }
+}

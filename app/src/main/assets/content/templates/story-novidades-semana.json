@@ -1,0 +1,152 @@
+{
+ "format": "pp-editor",
+ "version": 1,
+ "name": "Story Novidades",
+ "width": 1080,
+ "height": 1920,
+ "fabric": {
+  "version": "7.4.0",
+  "background": "#1e1b4b",
+  "objects": [
+   {
+    "type": "Circle",
+    "left": 540,
+    "top": 880,
+    "radius": 440,
+    "fill": "#4f46e5",
+    "brandColor": "primary",
+    "opacity": 0.22
+   },
+   {
+    "type": "Circle",
+    "left": 540,
+    "top": 880,
+    "radius": 360,
+    "fill": "#f472b6",
+    "brandColor": "accent",
+    "opacity": 0.14
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 180,
+    "width": 460,
+    "height": 68,
+    "fill": "#f472b6",
+    "rx": 34,
+    "ry": 34,
+    "brandColor": "accent"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 180,
+    "width": 420,
+    "text": "ACABOU DE CHEGAR",
+    "fontSize": 30,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#111827",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading",
+    "charSpacing": 70
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 320,
+    "width": 920,
+    "text": "NEW DROP",
+    "fontSize": 114,
+    "fontFamily": "Anton",
+    "fontWeight": 400,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 450,
+    "width": 860,
+    "text": "Conheça os lançamentos desta semana",
+    "fontSize": 44,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body",
+    "opacity": 0.88
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 930,
+    "width": 740,
+    "height": 740,
+    "fill": "#1e293b",
+    "rx": 44,
+    "ry": 44,
+    "stroke": "#f472b6",
+    "brandStroke": "accent",
+    "strokeWidth": 4
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 930,
+    "width": 620,
+    "text": "Toque em Imagem para\ninserir a foto aqui",
+    "fontSize": 42,
+    "fontFamily": "Montserrat",
+    "fontWeight": 500,
+    "fill": "#94a3b8",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   },
+   {
+    "type": "Rect",
+    "left": 540,
+    "top": 1520,
+    "width": 680,
+    "height": 130,
+    "fill": "#4f46e5",
+    "rx": 65,
+    "ry": 65,
+    "brandColor": "primary"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1520,
+    "width": 620,
+    "text": "CONFERIR AGORA",
+    "fontSize": 52,
+    "fontFamily": "Montserrat",
+    "fontWeight": 800,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "heading"
+   },
+   {
+    "type": "Textbox",
+    "left": 540,
+    "top": 1730,
+    "width": 900,
+    "text": "{{company}}  ·  {{phone}}",
+    "fontSize": 36,
+    "fontFamily": "Montserrat",
+    "fontWeight": 600,
+    "fill": "#ffffff",
+    "textAlign": "center",
+    "lineHeight": 1.15,
+    "brandFont": "body"
+   }
+  ]
+ }
+}
